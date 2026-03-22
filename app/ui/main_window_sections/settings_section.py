@@ -193,11 +193,7 @@ def _parse_set_ids_from_input(raw: str) -> tuple[set[int], list[str]]:
     unknown: list[str] = []
     tokens = [str(tok).strip() for tok in re.split(r"[,\n;]+", str(raw or "")) if str(tok).strip()]
     for token in tokens:
-        sid = 0
-        try:
-            sid = int(token)
-        except Exception:
-            sid = int(by_name_ci.get(str(token).lower(), 0) or 0)
+        sid = int(by_name_ci.get(str(token).lower(), 0) or 0)
         if sid > 0 and int(sid) in SET_NAMES:
             out.add(int(sid))
         elif token:

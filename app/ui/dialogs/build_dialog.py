@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QListWidget,
@@ -70,6 +71,7 @@ from app.services.cloud_learning_service import (
     fetch_build_preference_trends,
 )
 from app.ui.dpi import dp
+from app.ui import theme as _theme
 from app.ui.widgets.single_team_order_editor import SingleTeamOrderEditor
 from app.ui.widgets.unit_build_editor_widget import (
     UnitBuildEditorWidget,
@@ -188,19 +190,22 @@ class BuildDialog(QDialog):
         self._unit_list.setDragDropMode(QAbstractItemView.InternalMove)
         self._unit_list.setDefaultDropAction(Qt.MoveAction)
         self._unit_list.setToolTip(tr("tooltip.optimize_order_priority"))
+        self._unit_list.setFrameShape(QFrame.NoFrame)
 
         editor_split = QSplitter(Qt.Horizontal)
         editor_split.setChildrenCollapsible(True)
-        editor_split.setHandleWidth(8)
+        editor_split.setHandleWidth(dp(3))
 
         _list_title = tr("group.build_monster_list")
         list_panel = QWidget()
+        list_panel.setObjectName("buildListPanel")
         list_panel.setMinimumWidth(0)
         list_panel_layout = QVBoxLayout(list_panel)
         list_panel_layout.setContentsMargins(0, 0, 0, 0)
         list_panel_layout.setSpacing(0)
 
         list_toggle_btn = QPushButton("◀  " + _list_title)
+        list_toggle_btn.setObjectName("buildUnitListToggle")
         list_toggle_btn.setCheckable(True)
         list_toggle_btn.setChecked(True)
         list_toggle_btn.setMinimumWidth(0)
@@ -213,8 +218,10 @@ class BuildDialog(QDialog):
         )
 
         list_content = QWidget()
+        list_content.setObjectName("buildUnitListCard")
         list_content_layout = QVBoxLayout(list_content)
         list_content_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        self._unit_list.setObjectName("buildUnitList")
         list_content_layout.addWidget(self._unit_list, 1)
 
         def _on_unit_list_toggle(checked: bool) -> None:
@@ -254,8 +261,10 @@ class BuildDialog(QDialog):
         editor_split.addWidget(list_panel)
 
         detail_box = QGroupBox(tr("group.build_editor"))
+        detail_box.setObjectName("buildEditorBox")
         detail_layout = QVBoxLayout(detail_box)
         detail_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        self._unit_editor_stack.setObjectName("buildEditorStack")
         detail_layout.addWidget(self._unit_editor_stack, 1)
         editor_split.addWidget(detail_box)
         editor_split.setStretchFactor(0, 0)
@@ -324,6 +333,70 @@ class BuildDialog(QDialog):
         btns.rejected.connect(self.reject)
         footer_row.addWidget(btns, 0, Qt.AlignRight)
         layout.addLayout(footer_row)
+
+        c = _theme.C
+        editor_split.setStyleSheet(
+            f"""
+            QSplitter::handle {{
+                background: transparent;
+                border: none;
+            }}
+            QSplitter::handle:horizontal {{
+                margin: {dp(2)}px 0;
+            }}
+            QSplitter::handle:hover {{
+                background: {c['border']};
+            }}
+            """
+        )
+        self.setStyleSheet(
+            f"""
+            QPushButton#buildUnitListToggle {{
+                text-align: left;
+                padding: {dp(6)}px {dp(10)}px;
+                border: none;
+                border-radius: 0px;
+                background: transparent;
+                font-weight: 600;
+            }}
+            QPushButton#buildUnitListToggle:hover {{
+                color: {c['text']};
+            }}
+            QWidget#buildListPanel {{
+                border: 1px solid {c['border']};
+                border-radius: {dp(8)}px;
+                background: transparent;
+            }}
+            QWidget#buildUnitListCard {{
+                background: transparent;
+                border: none;
+                border-radius: 0px;
+            }}
+            QListWidget#buildUnitList {{
+                background: {c['bg']};
+                border: none;
+                border-radius: 0px;
+                padding: 0px;
+            }}
+            QListWidget#buildUnitList::item {{
+                border-radius: {dp(6)}px;
+                margin: {dp(2)}px;
+                padding: {dp(4)}px {dp(6)}px;
+            }}
+            QGroupBox#buildEditorBox {{
+                border: 1px solid {c['border']};
+                border-radius: {dp(8)}px;
+                margin-top: {dp(8)}px;
+                padding-top: {dp(14)}px;
+            }}
+            QGroupBox#buildEditorBox::title {{
+                subcontrol-origin: margin;
+                left: {dp(10)}px;
+                padding: 0 {dp(6)}px;
+                color: {c['text_dim']};
+            }}
+            """
+        )
 
         # Show only after the full UI is constructed to avoid a brief white flash.
         self.showMaximized()

@@ -36,6 +36,7 @@ from app.domain.presets import (
 )
 from app.i18n import tr
 from app.ui.dpi import dp
+from app.ui import theme as _theme
 from app.ui.widgets.selection_combos import _MainstatMultiCombo, _NoScrollComboBox, _SetMultiCombo
 
 if TYPE_CHECKING:
@@ -232,6 +233,7 @@ class UnitBuildEditorWidget(QScrollArea):
     ) -> None:
         uid = self._unit_id
         content = QWidget()
+        content.setObjectName("unitBuildEditorRoot")
         self.setWidget(content)
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(dp(10), dp(10), dp(10), dp(10))
@@ -323,6 +325,7 @@ class UnitBuildEditorWidget(QScrollArea):
 
         # ---- Layout: rune sets box ----
         rune_sets_box = QGroupBox(tr("group.build_rune_sets"))
+        rune_sets_box.setObjectName("unitEditorSection")
         rune_sets_layout = QFormLayout(rune_sets_box)
         rune_sets_layout.addRow(tr("header.set1"), cmb_set1)
         rune_sets_layout.addRow(tr("header.set2"), cmb_set2)
@@ -350,6 +353,7 @@ class UnitBuildEditorWidget(QScrollArea):
 
         # ---- Layout: mainstats box ----
         mainstats_box = QGroupBox(tr("group.build_mainstats"))
+        mainstats_box.setObjectName("unitEditorSection")
         mainstats_layout = QFormLayout(mainstats_box)
         mainstats_layout.addRow(tr("header.slot2_main"), cmb2)
         mainstats_layout.addRow(tr("header.slot4_main"), cmb4)
@@ -357,6 +361,7 @@ class UnitBuildEditorWidget(QScrollArea):
 
         # ---- Layout: artifacts box ----
         artifact_box = QGroupBox(tr("group.build_artifacts"))
+        artifact_box.setObjectName("unitEditorSection")
         artifact_layout = QFormLayout(artifact_box)
         artifact_layout.addRow(tr("header.attr_main"), art_attr_focus)
         artifact_layout.addRow(tr("header.attr_sub1"), art_attr_sub1)
@@ -397,6 +402,7 @@ class UnitBuildEditorWidget(QScrollArea):
 
         # ---- Min stats box ----
         min_stats_box = QGroupBox(tr("group.build_min_stats"))
+        min_stats_box.setObjectName("unitEditorSection")
         min_stats_layout = QGridLayout(min_stats_box)
         min_stats_layout.setHorizontalSpacing(12)
         min_stats_layout.setVerticalSpacing(8)
@@ -463,6 +469,30 @@ class UnitBuildEditorWidget(QScrollArea):
         content_layout.addWidget(community_status_lbl)
         content_layout.addWidget(min_stats_box)
         content_layout.addStretch(1)
+
+        c = _theme.C
+        content.setStyleSheet(
+            f"""
+            QGroupBox#unitEditorSection {{
+                border: 1px solid {c['border']};
+                border-radius: {dp(8)}px;
+                margin-top: {dp(8)}px;
+                padding-top: {dp(14)}px;
+            }}
+            QGroupBox#unitEditorSection::title {{
+                subcontrol-origin: margin;
+                left: {dp(10)}px;
+                padding: 0 {dp(6)}px;
+                color: {c['text_dim']};
+            }}
+            QComboBox, QSpinBox {{
+                border-radius: {dp(6)}px;
+            }}
+            QPushButton {{
+                border-radius: {dp(6)}px;
+            }}
+            """
+        )
 
         self._refs = UnitEditorRefs(
             set1=cmb_set1, set2=cmb_set2, set3=cmb_set3,

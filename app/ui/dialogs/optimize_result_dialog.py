@@ -33,6 +33,9 @@ from app.ui import theme as _theme
 
 
 def _stat_label_tr(key: str) -> str:
+    card_lbl = tr("card_stat." + key)
+    if not str(card_lbl).startswith("card_stat."):
+        return str(card_lbl)
     return tr("stat." + key)
 
 

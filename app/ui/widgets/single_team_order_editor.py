@@ -118,6 +118,13 @@ class SingleTeamOrderEditor(QWidget):
         self._syncing_focus_selection = False
         self._syncing_nav = False
         self._active_team_index: int = 0
+        self._tick_combo_width = self._compute_tick_combo_width()
+        self._tick_column_width = self._tick_combo_width + dp(34)
+        self._tick_combo_compact_width = max(dp(62), self._tick_combo_width - dp(18))
+        self._tick_column_compact_width = self._tick_combo_compact_width + dp(10)
+        self._tick_labels: List[QLabel] = []
+        self._tick_widgets: List[QWidget] = []
+        self._tick_compact_mode = False
 
         # Team list
         if self._order_teams:
@@ -161,8 +168,16 @@ class SingleTeamOrderEditor(QWidget):
             top_split.addWidget(self._team_list_stack, 1)
 
             advanced_col_widget = QWidget()
+            advanced_col_widget.setObjectName("teamAdvancedCard")
+            advanced_col_widget.setMinimumWidth(dp(300))
+            c = _theme.C
+            advanced_col_widget.setStyleSheet(
+                f"QWidget#teamAdvancedCard {{"
+                f" background: {c['bg_card']}; border: 1px solid {c['border']};"
+                f" border-radius: {dp(8)}px; }}"
+            )
             advanced_col = QVBoxLayout(advanced_col_widget)
-            advanced_col.setContentsMargins(0, 0, 0, 0)
+            advanced_col.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
             advanced_col.setSpacing(dp(4))
             advanced_col.addWidget(toggle_btn, 0, Qt.AlignTop)
             advanced_col.addWidget(content, 0, Qt.AlignTop)
@@ -177,6 +192,7 @@ class SingleTeamOrderEditor(QWidget):
 
         if teams:
             self._switch_active_team(0)
+            self._refresh_nav_statuses()
 
     # ── Public API (identical to TeamOrderSection) ────────────────────────────
 
@@ -299,6 +315,7 @@ class SingleTeamOrderEditor(QWidget):
             atb_chk.setChecked(bool(raw.get("atb_boost_enabled", False)))
             atb_val = int(raw.get("atb_boost_pct", 0) or 0)
             atb_spin.setValue(max(int(atb_spin.minimum()), min(int(atb_spin.maximum()), int(atb_val))))
+        self._refresh_nav_statuses()
 
     # ── Team switching ────────────────────────────────────────────────────────
 
@@ -323,17 +340,69 @@ class SingleTeamOrderEditor(QWidget):
         if self._active_team_index != row:
             self._switch_active_team(row)
 
+    def _team_missing_tick(self, team_index: int) -> bool:
+        if team_index < 0 or team_index >= len(self._team_order_lists):
+            return False
+        lw = self._team_order_lists[team_index]
+        for idx in range(lw.count()):
+            it = lw.item(idx)
+            uid = int(it.data(Qt.UserRole) or 0) if it else 0
+            if uid <= 0:
+                continue
+            cmb_list = list(self._team_spd_tick_combo_by_unit.get(int(uid), []) or [])
+            if not cmb_list:
+                continue
+            if int(cmb_list[0].currentData() or 0) <= 0:
+                return True
+        return False
+
+    def _team_missing_speed_lead(self, team_index: int) -> bool:
+        if not self._show_speed_lead_controls:
+            return False
+        cmb = self._team_speed_lead_combo_by_team.get(int(team_index))
+        if cmb is not None:
+            return int(cmb.currentData() or 0) <= 0
+        if team_index < 0 or team_index >= len(self._teams):
+            return False
+        for uid, _label in self._teams[team_index]:
+            if int(self._order_speed_lead_pct_by_unit.get(int(uid), 0) or 0) > 0:
+                return False
+        return True
+
+    def _team_nav_status_text(self, team_index: int) -> str:
+        missing_tick = self._team_missing_tick(team_index)
+        missing_lead = self._team_missing_speed_lead(team_index)
+        if missing_tick and missing_lead:
+            return "Tick+Lead fehlt"
+        if missing_tick:
+            return "Tick fehlt"
+        if missing_lead:
+            return "Lead fehlt"
+        return "OK"
+
+    def _refresh_nav_statuses(self) -> None:
+        nav = getattr(self, "_nav_list", None)
+        if nav is None:
+            return
+        for t_idx in range(nav.count()):
+            item = nav.item(t_idx)
+            if item is None:
+                continue
+            status = self._team_nav_status_text(int(t_idx))
+            item.setText(f"{self.team_title(t_idx)} [{status}]")
+            item.setToolTip(status)
+
     # ── UI building ───────────────────────────────────────────────────────────
 
     def _build_nav_list(self, teams: List[List[Tuple[int, str]]]) -> QListWidget:
         """Left navigation: plain QListWidget — one item per team, matching optimizer style."""
         nav = QListWidget()
-        nav.setFixedWidth(dp(210))
+        nav.setFixedWidth(dp(250))
         nav.setIconSize(QSize(dp(32), dp(32)))
 
         for t_idx, team_units in enumerate(teams):
             title = self.team_title(t_idx)
-            item = QListWidgetItem(title)
+            item = QListWidgetItem(f"{title} [OK]")
             # Use first unit's icon as a team icon hint
             if team_units:
                 icon = self._unit_icon_fn(team_units[0][0])
@@ -353,10 +422,11 @@ class SingleTeamOrderEditor(QWidget):
         toggle_btn.setCheckable(True)
         toggle_btn.setChecked(False)
         toggle_btn.setStyleSheet(
-            "QPushButton { text-align: left; padding: 3px 6px; border: none;"
-            f" background: transparent; color: {c['text_dim']}; font-size: {dp(11)}px; }}"
+            "QPushButton { text-align: left; padding: 4px 8px;"
+            f" border: 1px solid {c['border']}; border-radius: {dp(6)}px;"
+            f" background: {c['bg_input']}; color: {c['text_dim']}; font-size: {dp(11)}px; }}"
             f"QPushButton:hover {{ color: {c['text']}; }}"
-            f"QPushButton:checked {{ color: {c['text']}; }}"
+            f"QPushButton:checked {{ color: {c['text']}; border-color: {c['accent']}; }}"
         )
 
         content = QWidget()
@@ -382,6 +452,7 @@ class SingleTeamOrderEditor(QWidget):
         def _on_toggle(checked: bool) -> None:
             content.setVisible(bool(checked))
             toggle_btn.setText(("▼  " if checked else "▶  ") + "Erweitert")
+            self._set_tick_compact_mode(bool(checked))
 
         toggle_btn.toggled.connect(_on_toggle)
         return toggle_btn, content
@@ -439,6 +510,7 @@ class SingleTeamOrderEditor(QWidget):
             sel_uid = int(_cmb.currentData() or 0)
             known_pct = int(self._order_speed_lead_pct_by_unit.get(int(sel_uid), 0) or 0)
             _spin.setValue(max(0, min(100, int(known_pct))))
+            self._refresh_nav_statuses()
 
         cmb.currentIndexChanged.connect(_sync_pct)
         self._team_speed_lead_combo_by_team[int(team_index)] = cmb
@@ -539,7 +611,7 @@ class SingleTeamOrderEditor(QWidget):
             tick_cmb.addItem(label_txt, tick_i)
             tick_labels.append(label_txt)
         max_text_px = max((tick_cmb.fontMetrics().horizontalAdvance(tl) for tl in tick_labels), default=0)
-        tick_cmb.setFixedWidth(max(dp(46), int(max_text_px + dp(30))))
+        tick_cmb.setFixedWidth(max(int(self._tick_combo_width), max(dp(46), int(max_text_px + dp(30)))))
         idx = tick_cmb.findData(int(spd_tick))
         tick_cmb.setCurrentIndex(idx if idx >= 0 else 0)
         tick_cmb.setToolTip(tr("tooltip.spd_tick"))
@@ -547,6 +619,8 @@ class SingleTeamOrderEditor(QWidget):
             lambda _, _uid=int(uid), _cmb=tick_cmb: self._on_team_spd_tick_changed(_uid, _cmb)
         )
         self._team_spd_tick_combo_by_unit.setdefault(int(uid), []).append(tick_cmb)
+        if self._tick_compact_mode:
+            tick_cmb.setFixedWidth(int(self._tick_combo_compact_width))
         return tick_cmb
 
     def _create_turn_effect_controls(
@@ -649,6 +723,7 @@ class SingleTeamOrderEditor(QWidget):
         row_layout.addWidget(info_widget, 1, Qt.AlignVCenter)
 
         tick_widget = QWidget()
+        tick_widget.setFixedWidth(int(self._tick_column_width))
         tick_h = QHBoxLayout(tick_widget)
         tick_h.setContentsMargins(0, 0, 0, 0)
         tick_h.setSpacing(dp(4))
@@ -656,6 +731,8 @@ class SingleTeamOrderEditor(QWidget):
         tick_lbl = QLabel(tr("label.spd_tick_short"))
         tick_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: {dp(9)}px;")
         tick_h.addWidget(tick_lbl, 0, Qt.AlignVCenter)
+        self._tick_labels.append(tick_lbl)
+        self._tick_widgets.append(tick_widget)
 
         tick_cmb = self._create_spd_tick_combo(int(uid), int(spd_tick))
         tick_h.addWidget(tick_cmb, 0, Qt.AlignVCenter)
@@ -695,6 +772,7 @@ class SingleTeamOrderEditor(QWidget):
             return
         combos = list(self._team_spd_tick_combo_by_unit.get(int(uid), []) or [])
         if len(combos) <= 1:
+            self._refresh_nav_statuses()
             return
         target_tick = int(source_cmb.currentData() or 0)
         self._syncing_team_spd_tick = True
@@ -707,6 +785,34 @@ class SingleTeamOrderEditor(QWidget):
                     cmb.setCurrentIndex(idx)
         finally:
             self._syncing_team_spd_tick = False
+        self._refresh_nav_statuses()
+
+    def _compute_tick_combo_width(self) -> int:
+        probe = _NoScrollComboBox()
+        labels: List[str] = ["-"]
+        for tick in allowed_spd_ticks(self.mode):
+            tick_i = int(tick)
+            if str(self.mode).strip().lower() != "rta" and tick_i == int(LEO_LOW_SPD_TICK):
+                low_max = int(max_spd_for_tick(tick_i, self.mode) or 0)
+                threshold = int(low_max + 1) if low_max > 0 else 130
+                labels.append(f"11 (<{threshold})")
+                continue
+            spd_bp = min_spd_for_tick(tick_i, self.mode)
+            labels.append(f"{tick_i} (>={spd_bp})")
+        max_text_px = max((probe.fontMetrics().horizontalAdvance(lbl) for lbl in labels), default=0)
+        return max(dp(46), int(max_text_px + dp(30)))
+
+    def _set_tick_compact_mode(self, compact: bool) -> None:
+        self._tick_compact_mode = bool(compact)
+        combo_width = int(self._tick_combo_compact_width if compact else self._tick_combo_width)
+        column_width = int(self._tick_column_compact_width if compact else self._tick_column_width)
+        for lbl in list(self._tick_labels):
+            lbl.setVisible(not compact)
+        for wid in list(self._tick_widgets):
+            wid.setFixedWidth(column_width)
+        for cmb_list in self._team_spd_tick_combo_by_unit.values():
+            for cmb in list(cmb_list or []):
+                cmb.setFixedWidth(combo_width)
 
     def _on_team_list_item_changed(
         self, source_list: QListWidget, current: QListWidgetItem | None

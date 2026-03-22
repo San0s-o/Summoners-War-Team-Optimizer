@@ -732,7 +732,7 @@ STRINGS: dict[str, str] = {
     "settings.btn_clear_optimizations": "Clear Saved Optimizations",
     "settings.btn_clear_teams": "Clear Teams",
     "settings.broken_set_exclude_label": "Exclude sets for broken slots:",
-    "settings.broken_set_exclude_placeholder": "e.g. Violent, Will or 13,15",
+    "settings.broken_set_exclude_placeholder": "e.g. Violent, Will",
     "settings.broken_set_exclude_hint": (
         "If a build uses partial set options (e.g. Swift + broken), these sets are blocked "
         "for broken slots so they remain available for other builds."

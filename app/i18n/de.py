@@ -735,7 +735,7 @@ STRINGS: dict[str, str] = {
     "settings.btn_clear_optimizations": "Gespeicherte Optimierungen löschen",
     "settings.btn_clear_teams": "Teams löschen",
     "settings.broken_set_exclude_label": "Sets für Broken-Slots ausschließen:",
-    "settings.broken_set_exclude_placeholder": "z. B. Violent, Will oder 13,15",
+    "settings.broken_set_exclude_placeholder": "z. B. Violent, Will",
     "settings.broken_set_exclude_hint": (
         "Wenn ein Build nur teilweise Set-Vorgaben nutzt (z. B. Swift + broken), "
         "werden diese Sets auf Broken-Slots blockiert, damit sie für andere Builds frei bleiben."

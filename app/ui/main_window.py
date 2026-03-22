@@ -218,7 +218,7 @@ class MainWindow(QMainWindow):
         # Monster DB (offline)
         self.monster_db = MonsterDB(
             self.assets_dir / "monsters.json",
-            self.project_root / "app" / "domain" / "monster_meta.json",
+            self.assets_dir / "monster_meta.json",
         )
         self.monster_db.load()
 
