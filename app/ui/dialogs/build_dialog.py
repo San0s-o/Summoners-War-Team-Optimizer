@@ -2,31 +2,22 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from math import ceil
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Set, Tuple
 
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QAbstractSpinBox,
     QApplication,
-    QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QLabel,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QSpinBox,
     QSplitter,
     QStackedWidget,
     QVBoxLayout,
@@ -40,7 +31,6 @@ from app.domain.presets import (
     EFFECT_ID_TO_MAINSTAT_KEY,
     MAINSTAT_KEYS,
 )
-from app.domain.speed_ticks import LEO_LOW_SPD_TICK, allowed_spd_ticks, max_spd_for_tick, min_spd_for_tick
 from app.domain.build_editor_helpers import (
     artifact_pref_from_entry,
     artifact_prefs_from_trend,
@@ -79,7 +69,7 @@ from app.services.cloud_learning_service import (
     fetch_build_preference_trends,
 )
 from app.ui.dpi import dp
-from app.ui.widgets.selection_combos import _NoScrollComboBox
+from app.ui.widgets.team_order_section import TeamOrderSection
 from app.ui.widgets.unit_build_editor_widget import (
     UnitBuildEditorWidget,
     UnitEditorRefs,
@@ -89,34 +79,6 @@ from app.ui.widgets.unit_build_editor_widget import (
 
 
 _RUNE_PREFS_PATH = Path(__file__).resolve().parents[2] / "config" / "monster_rune_set_preferences.json"
-
-
-def _lock_team_list_height(lw: "QListWidget") -> None:
-    rows_total = 0
-    for idx in range(lw.count()):
-        item = lw.item(idx)
-        if item is None:
-            continue
-        hint_h = int(item.sizeHint().height() or 0)
-        if hint_h <= 0:
-            hint_h = int(lw.sizeHintForRow(idx) or 0)
-        rows_total += max(0, int(hint_h))
-    row_gap = max(0, int(lw.spacing() or 0))
-    if lw.count() > 1 and row_gap > 0:
-        rows_total += row_gap * (lw.count() - 1)
-    margins = lw.contentsMargins()
-    frame_and_margins = (
-        int(lw.frameWidth() * 2)
-        + int(margins.top())
-        + int(margins.bottom())
-        + dp(6)
-    )
-    target_height = max(dp(120), int(rows_total + frame_and_margins))
-    lw.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    lw.setMinimumHeight(target_height)
-    lw.setMaximumHeight(target_height)
-    lw.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-
 
 
 @dataclass
@@ -177,55 +139,16 @@ class BuildDialog(QDialog):
         self.preset_store = preset_store
         self.mode = mode
         self._account = account
-        self.team_size = max(1, int(team_size))
         self._unit_icon_fn = unit_icon_fn
-        self._skill_icons_dir = Path(skill_icons_dir) if skill_icons_dir else None
         self._unit_rows = list(unit_rows)
         self._unit_rows_by_uid: Dict[int, Tuple[int, str]] = {int(uid): (int(uid), str(lbl)) for uid, lbl in self._unit_rows}
-        self._order_teams: List[List[Tuple[int, str]]] | None = None
-        if order_teams:
-            self._order_teams = [
-                [(int(uid), str(lbl)) for uid, lbl in team if int(uid) > 0]
-                for team in order_teams
-                if team
-            ]
-        self._order_team_titles: List[str] = [str(x) for x in (order_team_titles or [])]
-        self._order_turn_effects: List[Dict[int, Dict[str, Any]]] = []
-        for team_cfg in (order_turn_effects or []):
-            cleaned_team: Dict[int, Dict[str, Any]] = {}
-            for uid, cfg in (team_cfg or {}).items():
-                ui = int(uid or 0)
-                if ui <= 0:
-                    continue
-                cleaned_team[ui] = dict(cfg or {})
-            self._order_turn_effects.append(cleaned_team)
-        self._show_turn_effect_controls = bool(show_turn_effect_controls)
-        self._order_turn_effect_capabilities: Dict[int, Dict[str, Any]] = {
-            int(uid): dict(cfg or {})
-            for uid, cfg in dict(order_turn_effect_capabilities or {}).items()
-            if int(uid or 0) > 0
-        }
-        self._show_speed_lead_controls = bool(show_speed_lead_controls)
-        self._order_speed_leaders: List[int] = [int(uid or 0) for uid in (order_speed_leaders or [])]
-        self._order_speed_lead_pct_by_unit: Dict[int, int] = {
-            int(uid): int(pct or 0)
-            for uid, pct in dict(order_speed_lead_pct_by_unit or {}).items()
-            if int(uid or 0) > 0 and int(pct or 0) > 0
-        }
-        self._order_speed_lead_pct_by_team: List[int] = [int(v or 0) for v in (order_speed_lead_pct_by_team or [])]
         self._persist_order_fields = bool(persist_order_fields)
         self._artifact_substat_options_by_type = collect_artifact_substat_options_by_type(self._account)
 
         layout = QVBoxLayout(self)
 
         self._opt_order_list: QListWidget | None = None
-        self._team_order_lists: List[QListWidget] = []
-        self._team_spd_tick_combo_by_unit: Dict[int, List[QComboBox]] = {}
-        self._syncing_team_spd_tick = False
-        self._team_effect_controls: Dict[Tuple[int, int], Tuple[QCheckBox, QCheckBox, QSpinBox]] = {}
-        self._team_speed_lead_combo_by_team: Dict[int, QComboBox] = {}
-        self._team_speed_lead_pct_spin_by_team: Dict[int, QSpinBox] = {}
-        self._syncing_focus_selection = False
+        self._order_section: TeamOrderSection | None = None
         self._loaded_current_runes = False
         self._loaded_current_runes_snapshot: Dict[str, Any] = {}
         self._rune_pref_cache = RunePrefCache(_RUNE_PREFS_PATH, self._account)
@@ -235,144 +158,25 @@ class BuildDialog(QDialog):
         self._unit_editors: Dict[int, UnitBuildEditorWidget] = {}
 
         if show_order_sections:
-            order_box = QGroupBox(tr("group.turn_order"))
-            order_outer = QVBoxLayout(order_box)
-            if self._order_teams:
-                teams: List[List[Tuple[int, str]]] = [list(team) for team in self._order_teams if team]
-            else:
-                teams = [
-                    self._unit_rows[i : i + self.team_size]
-                    for i in range(0, len(self._unit_rows), self.team_size)
-                    if self._unit_rows[i : i + self.team_size]
-                ]
-
-            if teams and self._order_teams:
-                # Arena rush: Defense (first team) on top, offense teams in grid below
-                def_title = self._order_team_titles[0] if self._order_team_titles else "Team 1"
-                if self._show_speed_lead_controls:
-                    order_outer.addLayout(self._build_team_header_with_speed_lead(0, def_title, teams[0]))
-                else:
-                    def_label = QLabel(f"<b>{def_title}</b>")
-                    order_outer.addWidget(def_label)
-                def_lw = self._build_team_list(0, teams[0])
-                order_outer.addWidget(def_lw)
-
-                if len(teams) > 1:
-                    max_offense_cols = 5
-                    off_grid = QGridLayout()
-                    for t_off, team_units in enumerate(teams[1:], start=1):
-                        off_idx = int(t_off - 1)
-                        col = int(off_idx % max_offense_cols)
-                        row_block = int(off_idx // max_offense_cols)
-                        header_row = int(row_block * 2)
-                        list_row = int(header_row + 1)
-                        team_title = (
-                            self._order_team_titles[t_off]
-                            if t_off < len(self._order_team_titles) and self._order_team_titles[t_off]
-                            else f"Team {t_off+1}"
-                        )
-                        if self._show_speed_lead_controls:
-                            hdr = QWidget()
-                            hdr.setLayout(self._build_team_header_with_speed_lead(int(t_off), team_title, team_units))
-                            off_grid.addWidget(hdr, header_row, col)
-                        else:
-                            off_grid.addWidget(QLabel(f"<b>{team_title}</b>"), header_row, col)
-                        off_lw = self._build_team_list(t_off, team_units)
-                        off_grid.addWidget(off_lw, list_row, col)
-                    order_outer.addLayout(off_grid)
-            elif teams:
-                # Siege/WGB: paginated teams, max 5 per page (no scrollbars)
-                _teams_per_page = 5
-                num_teams = len(teams)
-                num_pages = max(1, ceil(num_teams / _teams_per_page))
-
-                def _build_page_grid(page_idx: int) -> QWidget:
-                    page_widget = QWidget()
-                    page_grid = QGridLayout(page_widget)
-                    page_grid.setSpacing(dp(8))
-                    page_grid.setContentsMargins(0, 0, 0, 0)
-                    start = page_idx * _teams_per_page
-                    end = min(start + _teams_per_page, num_teams)
-                    for local_col, t in enumerate(range(start, end)):
-                        team_title = self._order_team_titles[t] if t < len(self._order_team_titles) and self._order_team_titles[t] else f"Team {t+1}"
-                        page_grid.addWidget(QLabel(f"<b>{team_title}</b>"), 0, local_col)
-                        lw = self._build_team_list(t, teams[t])
-                        page_grid.addWidget(lw, 1, local_col)
-                    return page_widget
-
-                if num_pages == 1:
-                    order_outer.addWidget(_build_page_grid(0))
-                else:
-                    pages_stack = QStackedWidget()
-                    for pi in range(num_pages):
-                        pages_stack.addWidget(_build_page_grid(pi))
-                    order_outer.addWidget(pages_stack)
-
-                    # Navigation: ‹ dots ›
-                    _sz = dp(12)
-                    _arrow_ss = (
-                        "QPushButton {"
-                        " background: transparent; border: none; padding: 0px;"
-                        f" min-height: 0px; min-width: 0px; font-size: {dp(16)}px; color: #aaa;"
-                        "}"
-                        "QPushButton:hover { color: #fff; }"
-                    )
-
-                    def _dot_style(active: bool) -> str:
-                        col = "#3498db" if active else "#555"
-                        hov = "#5faee3" if active else "#777"
-                        r = _sz // 2
-                        return (
-                            f"QPushButton {{ background: {col}; border-radius: {r}px; border: none;"
-                            f" padding: 0px; min-height: {_sz}px; max-height: {_sz}px;"
-                            f" min-width: {_sz}px; max-width: {_sz}px; }}"
-                            f"QPushButton:hover {{ background: {hov}; }}"
-                        )
-
-                    page_dots: List[QPushButton] = []
-
-                    def _go_to_page(p: int) -> None:
-                        p = max(0, min(num_pages - 1, p))
-                        pages_stack.setCurrentIndex(p)
-                        for i, d in enumerate(page_dots):
-                            d.setStyleSheet(_dot_style(i == p))
-
-                    dot_bar = QHBoxLayout()
-                    dot_bar.setAlignment(Qt.AlignCenter)
-                    dot_bar.setSpacing(dp(8))
-                    dot_bar.setContentsMargins(0, dp(4), 0, 0)
-
-                    prev_btn = QPushButton("‹")
-                    prev_btn.setFixedSize(dp(20), dp(20))
-                    prev_btn.setStyleSheet(_arrow_ss)
-                    prev_btn.clicked.connect(lambda _checked=False: _go_to_page(pages_stack.currentIndex() - 1))
-                    dot_bar.addWidget(prev_btn)
-
-                    for pi in range(num_pages):
-                        dot = QPushButton()
-                        dot.setFixedSize(_sz, _sz)
-                        dot.setStyleSheet(_dot_style(pi == 0))
-                        dot.clicked.connect(lambda _checked=False, pp=pi: _go_to_page(pp))
-                        dot_bar.addWidget(dot)
-                        page_dots.append(dot)
-
-                    next_btn = QPushButton("›")
-                    next_btn.setFixedSize(dp(20), dp(20))
-                    next_btn.setStyleSheet(_arrow_ss)
-                    next_btn.clicked.connect(lambda _checked=False: _go_to_page(pages_stack.currentIndex() + 1))
-                    dot_bar.addWidget(next_btn)
-
-                    order_outer.addLayout(dot_bar)
-
-            if str(self.mode).strip().lower() == "arena_rush":
-                # In arena rush the content height is stable; avoid an extra inner scrollbar.
-                layout.addWidget(order_box)
-            else:
-                order_scroll = QScrollArea()
-                order_scroll.setWidgetResizable(True)
-                order_scroll.setWidget(order_box)
-                order_scroll.setMaximumHeight(dp(340))
-                layout.addWidget(order_scroll)
+            self._order_section = TeamOrderSection(
+                mode=mode,
+                order_teams=order_teams,
+                unit_rows=unit_rows,
+                team_size=team_size,
+                order_team_titles=list(order_team_titles or []),
+                order_turn_effects=list(order_turn_effects or []),
+                order_turn_effect_capabilities=dict(order_turn_effect_capabilities or {}),
+                order_speed_leaders=list(order_speed_leaders or []),
+                order_speed_lead_pct_by_unit=dict(order_speed_lead_pct_by_unit or {}),
+                order_speed_lead_pct_by_team=list(order_speed_lead_pct_by_team or []),
+                show_turn_effect_controls=show_turn_effect_controls,
+                show_speed_lead_controls=show_speed_lead_controls,
+                preset_store=preset_store,
+                unit_icon_fn=unit_icon_fn,
+                skill_icons_dir=Path(skill_icons_dir) if skill_icons_dir else None,
+            )
+            self._order_section.unit_selected.connect(self._on_order_section_unit_selected)
+            layout.addWidget(self._order_section)
 
         # Per-unit widget refs (replaces 22 individual dicts)
         self._unit_label_by_id: Dict[int, str] = {uid: lbl for uid, lbl in self._unit_rows}
@@ -458,9 +262,9 @@ class BuildDialog(QDialog):
                 if int(uid) > 0
             },
             unit_list_order=self._unit_list_uid_order(),
-            team_speed_lead_by_team=self._team_speed_lead_uid_state(),
-            team_speed_lead_pct_by_team=self._team_speed_lead_pct_state(),
-            team_effect_control_state=self._capture_team_effect_control_state(),
+            team_speed_lead_by_team=self._order_section.capture_speed_lead_uid_state() if self._order_section else {},
+            team_speed_lead_pct_by_team=self._order_section.capture_speed_lead_pct_state() if self._order_section else {},
+            team_effect_control_state=self._order_section.capture_effect_control_state() if self._order_section else {},
         )
 
         footer_row = QHBoxLayout()
@@ -586,65 +390,10 @@ class BuildDialog(QDialog):
         if row >= 0:
             self._unit_list.setCurrentRow(int(row))
 
-    def _team_speed_lead_uid_state(self) -> Dict[int, int]:
-        out: Dict[int, int] = {}
-        for team_idx, cmb in self._team_speed_lead_combo_by_team.items():
-            out[int(team_idx)] = int(cmb.currentData() or 0)
-        return out
-
-    def _team_speed_lead_pct_state(self) -> Dict[int, int]:
-        out: Dict[int, int] = {}
-        for team_idx, spin in self._team_speed_lead_pct_spin_by_team.items():
-            out[int(team_idx)] = int(spin.value() or 0)
-        return out
-
-    def _capture_team_effect_control_state(self) -> Dict[Tuple[int, int], Dict[str, Any]]:
-        out: Dict[Tuple[int, int], Dict[str, Any]] = {}
-        for key, controls in self._team_effect_controls.items():
-            team_idx = int(key[0])
-            uid = int(key[1])
-            spd_chk, atb_chk, atb_spin = controls
-            out[(team_idx, uid)] = {
-                "applies_spd_buff": bool(spd_chk.isChecked()),
-                "atb_boost_enabled": bool(atb_chk.isChecked()),
-                "atb_boost_pct": int(atb_spin.value() or 0),
-            }
-        return out
-
-    def _on_team_list_current_item_changed(self, source_list: QListWidget, current: QListWidgetItem | None) -> None:
-        if self._syncing_focus_selection:
-            return
-        if source_list not in self._team_order_lists:
-            return
-        if current is None:
-            return
-        uid = int(current.data(Qt.UserRole) or 0)
-        if uid <= 0:
-            return
-        self._syncing_focus_selection = True
-        try:
-            for lw in self._team_order_lists:
-                if lw is source_list:
-                    continue
-                if lw.currentRow() >= 0:
-                    lw.setCurrentRow(-1)
-                lw.clearSelection()
-            row = self._row_for_uid_in_unit_list(int(uid))
-            if row >= 0 and self._unit_list.currentRow() != row:
-                self._unit_list.setCurrentRow(int(row))
-        finally:
-            self._syncing_focus_selection = False
-
-    def _load_skill_icon(self, icon_filename: str) -> QIcon | None:
-        if not icon_filename or not self._skill_icons_dir:
-            return None
-        path = self._skill_icons_dir / icon_filename
-        if not path.exists():
-            return None
-        pix = QPixmap(str(path))
-        if pix.isNull():
-            return None
-        return QIcon(pix)
+    def _on_order_section_unit_selected(self, uid: int) -> None:
+        row = self._row_for_uid_in_unit_list(int(uid))
+        if row >= 0 and self._unit_list.currentRow() != row:
+            self._unit_list.setCurrentRow(int(row))
 
     def _build_unit_editor(self, unit_id: int, build: Build) -> UnitBuildEditorWidget:
         widget = UnitBuildEditorWidget(
@@ -1036,6 +785,22 @@ class BuildDialog(QDialog):
         )
         return has_signal
 
+    def _mark_missing_community_trend(self, unit_id: int) -> None:
+        self._community_trend_by_unit.pop(int(unit_id), None)
+        self._community_trend_missing_units.add(int(unit_id))
+        self._refresh_community_status_label(int(unit_id))
+
+    def _apply_loaded_community_trend(self, unit_id: int, trend: "BuildPreferenceTrend") -> bool:
+        applied = self._load_community_trend_into_editor(int(unit_id), trend)
+        if applied:
+            self._community_trend_by_unit[int(unit_id)] = trend
+            self._community_trend_missing_units.discard(int(unit_id))
+        else:
+            self._mark_missing_community_trend(int(unit_id))
+            return False
+        self._refresh_community_status_label(int(unit_id))
+        return True
+
     def _on_load_community_trends_for_unit(self, unit_id: int) -> None:
         uid = int(unit_id or 0)
         if uid <= 0:
@@ -1055,24 +820,14 @@ class BuildDialog(QDialog):
             trend = None
 
         if trend is None:
-            self._community_trend_by_unit.pop(int(uid), None)
-            self._community_trend_missing_units.add(int(uid))
-            self._refresh_community_status_label(int(uid))
+            self._mark_missing_community_trend(int(uid))
             self._show_dialog_status(tr("status.community_trends_none"))
             return
 
-        applied = self._load_community_trend_into_editor(int(uid), trend)
-        if applied:
-            self._community_trend_by_unit[int(uid)] = trend
-            self._community_trend_missing_units.discard(int(uid))
-        else:
-            self._community_trend_by_unit.pop(int(uid), None)
-            self._community_trend_missing_units.add(int(uid))
-        self._refresh_community_status_label(int(uid))
-        if applied:
-            self._show_dialog_status(tr("status.community_trends_loaded", count=1))
-        else:
-            self._show_dialog_status(tr("status.community_trends_none"))
+        applied = self._apply_loaded_community_trend(int(uid), trend)
+        self._show_dialog_status(
+            tr("status.community_trends_loaded", count=1) if applied else tr("status.community_trends_none")
+        )
 
     def _on_load_community_trends_for_all(self) -> None:
         if not build_trends_opt_in_enabled():
@@ -1109,18 +864,10 @@ class BuildDialog(QDialog):
             mid = int(unit_master_by_uid.get(int(uid), 0) or 0)
             trend = trends_by_mid.get(int(mid))
             if trend is None:
-                self._community_trend_by_unit.pop(int(uid), None)
-                self._community_trend_missing_units.add(int(uid))
-                self._refresh_community_status_label(int(uid))
+                self._mark_missing_community_trend(int(uid))
                 continue
-            if self._load_community_trend_into_editor(int(uid), trend):
-                self._community_trend_by_unit[int(uid)] = trend
-                self._community_trend_missing_units.discard(int(uid))
+            if self._apply_loaded_community_trend(int(uid), trend):
                 applied_count += 1
-            else:
-                self._community_trend_by_unit.pop(int(uid), None)
-                self._community_trend_missing_units.add(int(uid))
-            self._refresh_community_status_label(int(uid))
 
         if applied_count > 0:
             self._show_dialog_status(tr("status.community_trends_loaded", count=applied_count))
@@ -1188,9 +935,8 @@ class BuildDialog(QDialog):
             spin.setValue(int(min_value_for_build(current_min, str(stat_key), str(min_mode), base_stats)))
 
         target_tick = int(getattr(build, "spd_tick", 0) or 0)
-        for tick_cmb in list(self._team_spd_tick_combo_by_unit.get(int(uid), []) or []):
-            idx = tick_cmb.findData(int(target_tick))
-            tick_cmb.setCurrentIndex(int(idx) if idx >= 0 else 0)
+        if self._order_section is not None:
+            self._order_section.set_spd_tick_for_unit(int(uid), target_tick)
 
     def _on_restore_saved_preset(self) -> None:
         snap = self._initial_snapshot
@@ -1203,21 +949,12 @@ class BuildDialog(QDialog):
         self._community_trend_missing_units = set()
         self._refresh_all_community_status_labels()
 
-        for team_idx, cmb in self._team_speed_lead_combo_by_team.items():
-            target_uid = int(snap.team_speed_lead_by_team.get(int(team_idx), 0) or 0)
-            idx = cmb.findData(int(target_uid))
-            cmb.setCurrentIndex(int(idx) if idx >= 0 else 0)
-        for team_idx, spin in self._team_speed_lead_pct_spin_by_team.items():
-            val = int(snap.team_speed_lead_pct_by_team.get(int(team_idx), int(spin.value())) or 0)
-            spin.setValue(max(int(spin.minimum()), min(int(spin.maximum()), int(val))))
-        for key, controls in self._team_effect_controls.items():
-            team_idx, uid = int(key[0]), int(key[1])
-            raw = dict(snap.team_effect_control_state.get((team_idx, uid), {}) or {})
-            spd_chk, atb_chk, atb_spin = controls
-            spd_chk.setChecked(bool(raw.get("applies_spd_buff", False)))
-            atb_chk.setChecked(bool(raw.get("atb_boost_enabled", False)))
-            atb_val = int(raw.get("atb_boost_pct", 0) or 0)
-            atb_spin.setValue(max(int(atb_spin.minimum()), min(int(atb_spin.maximum()), int(atb_val))))
+        if self._order_section is not None:
+            self._order_section.restore_state(
+                snap.team_speed_lead_by_team,
+                snap.team_speed_lead_pct_by_team,
+                snap.team_effect_control_state,
+            )
 
         self._loaded_current_runes = False
         self._loaded_current_runes_snapshot = {}
@@ -1276,317 +1013,27 @@ class BuildDialog(QDialog):
                 out[uid] = idx + 1
         return out
 
-    def _team_turn_order_by_unit(self) -> Dict[int, int]:
-        if not self._team_order_lists:
-            return {}
-        out: Dict[int, int] = {}
-        for lw in self._team_order_lists:
-            for idx in range(lw.count()):
-                it = lw.item(idx)
-                uid = int(it.data(Qt.UserRole) or 0)
-                if uid:
-                    out[uid] = idx + 1
-        return out
-
-    def _team_spd_tick_by_unit(self) -> Dict[int, int]:
-        if not self._team_spd_tick_combo_by_unit:
-            return {}
-        out: Dict[int, int] = {}
-        for uid, cmb_list in self._team_spd_tick_combo_by_unit.items():
-            if not cmb_list:
-                continue
-            cmb0 = cmb_list[0]
-            out[int(uid)] = int(cmb0.currentData() or 0)
-        return out
-
-    def _on_team_spd_tick_changed(self, uid: int, source_cmb: QComboBox) -> None:
-        if self._syncing_team_spd_tick:
-            return
-        combos = list(self._team_spd_tick_combo_by_unit.get(int(uid), []) or [])
-        if len(combos) <= 1:
-            return
-        target_tick = int(source_cmb.currentData() or 0)
-        self._syncing_team_spd_tick = True
-        try:
-            for cmb in combos:
-                if cmb is source_cmb:
-                    continue
-                idx = cmb.findData(int(target_tick))
-                if idx >= 0 and cmb.currentIndex() != idx:
-                    cmb.setCurrentIndex(idx)
-        finally:
-            self._syncing_team_spd_tick = False
-
-    def _build_team_header_with_speed_lead(self, team_index: int, team_title: str, team_units: List[Tuple[int, str]]) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(dp(6))
-        row.addWidget(QLabel(f"<b>{team_title}</b>"))
-        row.addStretch(1)
-        row.addWidget(QLabel("SPD Lead"))
-        cmb = _NoScrollComboBox()
-        cmb.setMinimumWidth(dp(180))
-        cmb.addItem("-", 0)
-        for uid, label in team_units:
-            pct = int(self._order_speed_lead_pct_by_unit.get(int(uid), 0) or 0)
-            if pct <= 0:
-                continue
-            cmb.addItem(f"{label} (+{pct}%)", int(uid))
-        preferred_uid = int(self._order_speed_leaders[int(team_index)]) if int(team_index) < len(self._order_speed_leaders) else 0
-        idx = cmb.findData(int(preferred_uid))
-        if idx < 0 and cmb.count() > 1:
-            idx = 1
-        cmb.setCurrentIndex(max(0, idx))
-        cmb.setEnabled(bool(cmb.count() > 1))
-        row.addWidget(cmb)
-        pct_spin = QSpinBox()
-        pct_spin.setMinimum(0)
-        pct_spin.setMaximum(100)
-        pct_spin.setSingleStep(1)
-        pct_spin.setSuffix("%")
-        pct_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        pct_spin.setReadOnly(True)
-        pct_spin.setMaximumWidth(dp(64))
-        preferred_pct = int(self._order_speed_lead_pct_by_team[int(team_index)]) if int(team_index) < len(self._order_speed_lead_pct_by_team) else 0
-        if preferred_pct <= 0:
-            selected_uid = int(cmb.currentData() or 0)
-            preferred_pct = int(self._order_speed_lead_pct_by_unit.get(int(selected_uid), 0) or 0)
-        pct_spin.setValue(max(0, min(100, int(preferred_pct))))
-        row.addWidget(pct_spin)
-        def _sync_pct_from_selected(_idx: int, _cmb=cmb, _spin=pct_spin) -> None:
-            sel_uid = int(_cmb.currentData() or 0)
-            known_pct = int(self._order_speed_lead_pct_by_unit.get(int(sel_uid), 0) or 0)
-            _spin.setValue(max(0, min(100, int(known_pct))))
-        cmb.currentIndexChanged.connect(_sync_pct_from_selected)
-        self._team_speed_lead_combo_by_team[int(team_index)] = cmb
-        self._team_speed_lead_pct_spin_by_team[int(team_index)] = pct_spin
-        return row
-
-    def _build_team_list(self, team_idx: int, team_units: List[Tuple[int, str]]) -> "QListWidget":
-        team_effect_cfg = dict(self._order_turn_effects[team_idx]) if team_idx < len(self._order_turn_effects) else {}
-        lw = QListWidget()
-        lw.setDragDropMode(QAbstractItemView.InternalMove)
-        lw.setDefaultDropAction(Qt.MoveAction)
-        lw.setSelectionMode(QAbstractItemView.SingleSelection)
-        lw.setIconSize(QSize(dp(36), dp(36)))
-        rows_visible = max(1, int(len(team_units)))
-        lw.setMinimumHeight(max(dp(140), rows_visible * dp(46) + dp(14)))
-        lw.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sortable: List[Tuple[int, int, int, str, int, int]] = []
-        for pos, (uid, label) in enumerate(team_units):
-            builds = self.preset_store.get_unit_builds(self.mode, uid)
-            b0 = builds[0] if builds else Build.default_any()
-            turn = int(getattr(b0, "turn_order", 0) or 0)
-            key = int(pos) if self._order_teams is not None else (turn if turn > 0 else 999)
-            spd_tick = int(getattr(b0, "spd_tick", 0) or 0)
-            min_cfg = dict(getattr(b0, "min_stats", {}) or {})
-            min_spd_val = int(min_cfg.get("SPD", 0) or 0) or int(min_cfg.get("SPD_NO_BASE", 0) or 0)
-            sortable.append((key, pos, uid, label, spd_tick, min_spd_val))
-        sortable.sort(key=lambda x: (x[0], x[1]))
-        for _, _, uid, label, spd_tick, min_spd_val in sortable:
-            it = QListWidgetItem()
-            it.setData(Qt.UserRole, int(uid))
-            lw.addItem(it)
-            effect_cfg = dict(team_effect_cfg.get(int(uid), {}) or {})
-            effect_spd_buff = bool(effect_cfg.get("applies_spd_buff", False))
-            effect_atb_boost_pct = int(float(effect_cfg.get("atb_boost_pct", 0.0) or 0.0))
-            capability_cfg = dict(self._order_turn_effect_capabilities.get(int(uid), {}) or {})
-            can_spd_buff = bool(capability_cfg.get("has_spd_buff", False))
-            can_atb_boost = bool(capability_cfg.get("has_atb_boost", False))
-            max_atb_boost_pct = int(capability_cfg.get("max_atb_boost_pct", 0) or 0)
-            if max_atb_boost_pct <= 0:
-                max_atb_boost_pct = 100
-            spd_buff_icon_file = str(capability_cfg.get("spd_buff_skill_icon", "") or "")
-            atb_boost_icon_file = str(capability_cfg.get("atb_boost_skill_icon", "") or "")
-
-            row_widget = QWidget()
-            row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(dp(2), dp(4), dp(4), dp(4))
-            row_layout.setSpacing(dp(4))
-
-            icon_lbl = QLabel()
-            icon = self._unit_icon_fn(uid)
-            if not icon.isNull():
-                icon_lbl.setPixmap(icon.pixmap(dp(28), dp(28)))
-            row_layout.addWidget(icon_lbl)
-
-            txt_lbl = QLabel(label)
-            txt_lbl.setMinimumWidth(0)
-            txt_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-            txt_lbl.setWordWrap(False)
-            row_layout.addWidget(txt_lbl, 1)
-
-            spd_text = f"SPD {min_spd_val}" if min_spd_val > 0 else ""
-            spd_lbl = QLabel(spd_text)
-            spd_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
-            row_layout.addWidget(spd_lbl)
-
-            tick_lbl = QLabel(tr("label.spd_tick_short"))
-            tick_lbl.setFixedWidth(dp(22))
-            tick_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-            tick_cmb = _NoScrollComboBox()
-            tick_labels: List[str] = ["-"]
-            tick_cmb.addItem("-", 0)
-            for tick in allowed_spd_ticks(self.mode):
-                tick_i = int(tick)
-                if str(self.mode).strip().lower() != "rta" and tick_i == int(LEO_LOW_SPD_TICK):
-                    low_max = int(max_spd_for_tick(tick_i, self.mode) or 0)
-                    threshold = int(low_max + 1) if low_max > 0 else 130
-                    label_txt = f"11 (<{threshold})"
-                    tick_cmb.addItem(label_txt, tick_i)
-                    tick_labels.append(label_txt)
-                    continue
-                spd_bp = min_spd_for_tick(tick_i, self.mode)
-                label_txt = f"{tick_i} (>={spd_bp})"
-                tick_cmb.addItem(label_txt, tick_i)
-                tick_labels.append(label_txt)
-            max_text_px = max((tick_cmb.fontMetrics().horizontalAdvance(tl) for tl in tick_labels), default=0)
-            tick_width = max(dp(46), int(max_text_px + dp(30)))
-            tick_cmb.setFixedWidth(tick_width)
-            idx = tick_cmb.findData(int(spd_tick))
-            tick_cmb.setCurrentIndex(idx if idx >= 0 else 0)
-            tick_cmb.setToolTip(tr("tooltip.spd_tick"))
-            tick_cmb.currentIndexChanged.connect(
-                lambda _i, _uid=int(uid), _cmb=tick_cmb: self._on_team_spd_tick_changed(_uid, _cmb)
-            )
-
-            if self._show_turn_effect_controls:
-                if can_spd_buff:
-                    spd_buff_chk = QCheckBox()
-                    _skill_icon = self._load_skill_icon(spd_buff_icon_file)
-                    if _skill_icon:
-                        spd_buff_chk.setIcon(_skill_icon)
-                        spd_buff_chk.setIconSize(QSize(dp(20), dp(20)))
-                    else:
-                        spd_buff_chk.setText("S")
-                    spd_buff_chk.setChecked(bool(effect_spd_buff))
-                    spd_buff_chk.setToolTip(tr("tooltip.effect_spd_buff"))
-                    row_layout.addWidget(spd_buff_chk)
-                else:
-                    spd_buff_chk = QCheckBox()
-                    spd_buff_chk.setChecked(False)
-                    spd_buff_chk.setVisible(False)
-
-                if can_atb_boost:
-                    atb_boost_chk = QCheckBox()
-                    _atb_icon = self._load_skill_icon(atb_boost_icon_file)
-                    if _atb_icon:
-                        atb_boost_chk.setIcon(_atb_icon)
-                        atb_boost_chk.setIconSize(QSize(dp(20), dp(20)))
-                    else:
-                        atb_boost_chk.setText("A")
-                    atb_boost_chk.setChecked(bool(effect_atb_boost_pct > 0))
-                    atb_boost_chk.setToolTip(tr("tooltip.effect_atb_boost"))
-                    row_layout.addWidget(atb_boost_chk)
-
-                    atb_boost_spin = QSpinBox()
-                    atb_boost_spin.setMinimum(0)
-                    atb_boost_spin.setMaximum(int(max_atb_boost_pct))
-                    atb_boost_spin.setSingleStep(5)
-                    atb_boost_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-                    atb_boost_spin.setSuffix("%")
-                    atb_boost_spin.setMaximumWidth(dp(56))
-                    if int(effect_atb_boost_pct) > 0:
-                        atb_boost_spin.setValue(min(int(effect_atb_boost_pct), int(max_atb_boost_pct)))
-                    else:
-                        atb_boost_spin.setValue(min(30, int(max_atb_boost_pct)))
-                    atb_boost_spin.setEnabled(bool(atb_boost_chk.isChecked()))
-                    atb_boost_chk.toggled.connect(lambda checked, spin=atb_boost_spin: spin.setEnabled(bool(checked)))
-                    row_layout.addWidget(atb_boost_spin)
-                else:
-                    atb_boost_chk = QCheckBox()
-                    atb_boost_chk.setChecked(False)
-                    atb_boost_chk.setVisible(False)
-                    atb_boost_spin = QSpinBox()
-                    atb_boost_spin.setValue(0)
-                    atb_boost_spin.setVisible(False)
-
-                self._team_effect_controls[(int(team_idx), int(uid))] = (spd_buff_chk, atb_boost_chk, atb_boost_spin)
-
-            row_layout.addWidget(tick_lbl, 0, Qt.AlignVCenter)
-            row_layout.addWidget(tick_cmb, 0, Qt.AlignVCenter)
-
-            row_min_height = max(row_widget.sizeHint().height(), tick_cmb.sizeHint().height() + dp(8))
-            row_widget.setMinimumHeight(row_min_height)
-            self._team_spd_tick_combo_by_unit.setdefault(int(uid), []).append(tick_cmb)
-            it.setSizeHint(QSize(0, int(row_min_height)))
-            lw.setItemWidget(it, row_widget)
-        if str(self.mode).strip().lower() == "arena_rush" and self._order_teams:
-            _lock_team_list_height(lw)
-        self._team_order_lists.append(lw)
-        lw.currentItemChanged.connect(
-            lambda current, _prev, _lw=lw: self._on_team_list_current_item_changed(_lw, current)
-        )
-        return lw
-
     def team_order_by_lists(self) -> List[List[int]]:
-        out: List[List[int]] = []
-        for lw in self._team_order_lists:
-            row: List[int] = []
-            for idx in range(lw.count()):
-                it = lw.item(idx)
-                uid = int(it.data(Qt.UserRole) or 0) if it else 0
-                if uid > 0:
-                    row.append(uid)
-            out.append(row)
-        return out
+        return self._order_section.team_order_by_lists() if self._order_section else []
 
     def team_speed_lead_by_lists(self) -> List[int]:
-        out: List[int] = []
-        for t, _lw in enumerate(self._team_order_lists):
-            cmb = self._team_speed_lead_combo_by_team.get(int(t))
-            out.append(int(cmb.currentData() or 0) if cmb is not None else 0)
-        return out
+        return self._order_section.team_speed_lead_by_lists() if self._order_section else []
 
     def team_speed_lead_pct_by_lists(self) -> List[int]:
-        out: List[int] = []
-        for t, _lw in enumerate(self._team_order_lists):
-            spin = self._team_speed_lead_pct_spin_by_team.get(int(t))
-            out.append(int(spin.value()) if spin is not None else 0)
-        return out
+        return self._order_section.team_speed_lead_pct_by_lists() if self._order_section else []
 
     def team_turn_effects_by_lists(self) -> List[Dict[int, Dict[str, Any]]]:
-        out: List[Dict[int, Dict[str, Any]]] = []
-        for t, lw in enumerate(self._team_order_lists):
-            row_cfg: Dict[int, Dict[str, Any]] = {}
-            for idx in range(lw.count()):
-                it = lw.item(idx)
-                uid = int(it.data(Qt.UserRole) or 0) if it else 0
-                if uid <= 0:
-                    continue
-                controls = self._team_effect_controls.get((int(t), int(uid)))
-                if not controls:
-                    continue
-                spd_buff_chk, atb_boost_chk, atb_boost_spin = controls
-                atb_boost_pct = float(atb_boost_spin.value()) if bool(atb_boost_chk.isChecked()) else 0.0
-                applies_spd_buff = bool(spd_buff_chk.isChecked())
-                if not applies_spd_buff and atb_boost_pct <= 0.0:
-                    continue
-                row_cfg[int(uid)] = {
-                    "applies_spd_buff": bool(applies_spd_buff),
-                    "atb_boost_pct": float(atb_boost_pct),
-                    "include_caster": True,
-                }
-            out.append(row_cfg)
-        return out
-
-    def _team_title(self, team_index: int) -> str:
-        if 0 <= int(team_index) < len(self._order_team_titles):
-            title = str(self._order_team_titles[int(team_index)] or "").strip()
-            if title:
-                return title
-        return f"Team {int(team_index) + 1}"
+        return self._order_section.team_turn_effects_by_lists() if self._order_section else []
 
     def _validate_order_tick_plausibility(self) -> None:
         if not bool(self._persist_order_fields):
             return
-        if not self._team_order_lists:
+        if self._order_section is None:
             return
-        team_orders = self.team_order_by_lists()
-        tick_by_uid = self._team_spd_tick_by_unit()
-        effect_teams = self.team_turn_effects_by_lists() if self._show_turn_effect_controls else []
-        order_team_titles = [self._team_title(i) for i in range(len(team_orders))]
+        team_orders = self._order_section.team_order_by_lists()
+        tick_by_uid = self._order_section.spd_tick_by_unit()
+        effect_teams = self._order_section.team_turn_effects_by_lists()
+        order_team_titles = [self._order_section.team_title(i) for i in range(len(team_orders))]
         validate_order_tick_plausibility(
             team_orders, tick_by_uid, effect_teams, self.mode, self._unit_label_by_id, order_team_titles
         )
@@ -1615,31 +1062,62 @@ class BuildDialog(QDialog):
                 break
         return vals
 
+    def _read_min_stats_from_editor(self, unit_id: int) -> Dict[str, int]:
+        refs = self._editor_refs(int(unit_id))
+        min_mode = str(refs.min_mode.currentData() or "with_base") if refs else "with_base"
+        base_stats = unit_base_stats_for_min(self._account, int(unit_id))
+        raw = {
+            "SPD": refs.min_spd.value() if refs else 0,
+            "HP": refs.min_hp.value() if refs else 0,
+            "ATK": refs.min_atk.value() if refs else 0,
+            "DEF": refs.min_def.value() if refs else 0,
+            "CR": refs.min_cr.value() if refs else 0,
+            "CD": refs.min_cd.value() if refs else 0,
+            "RES": refs.min_res.value() if refs else 0,
+            "ACC": refs.min_acc.value() if refs else 0,
+        }
+        return build_min_stats(min_mode, base_stats, raw)
+
+    def _read_build_from_editor(
+        self, unit_id: int, optimize_order: int, turn_order: int, spd_tick: int
+    ) -> Build:
+        refs = self._editor_refs(int(unit_id))
+        normalized_options = self._read_set_options_from_editor(int(unit_id))
+        if not normalized_options and refs is not None:
+            has_sel = (
+                bool(refs.set1.checked_ids())
+                or bool(refs.set2.checked_ids())
+                or (self._is_set3_allowed_for_unit(int(unit_id)) and bool(refs.set3.checked_ids()))
+            )
+            if has_sel:
+                unit_label = self._unit_label_by_id.get(unit_id, str(unit_id))
+                raise ValueError(tr("val.set_invalid", unit=unit_label))
+        by_slot = self._read_mainstats_from_editor(int(unit_id))
+        artifact_focus, artifact_substats = self._read_artifact_preferences_from_editor(int(unit_id))
+        min_stats = self._read_min_stats_from_editor(int(unit_id))
+        return Build(
+            id="default",
+            name="Default",
+            enabled=True,
+            priority=1,
+            optimize_order=int(optimize_order),
+            turn_order=int(turn_order),
+            spd_tick=int(spd_tick),
+            set_options=set_id_combos_to_names(normalized_options),
+            mainstats={s: v for s, v in by_slot.items() if v},
+            min_stats=min_stats,
+            artifact_focus=artifact_focus,
+            artifact_substats=artifact_substats,
+        )
+
     def apply_to_store(self) -> None:
-        # Persisting needs widget values for all units.
         self._ensure_all_editor_pages()
         self._validate_order_tick_plausibility()
         optimize_order_by_uid = self._optimize_order_by_unit()
-        team_turn_order_by_uid = self._team_turn_order_by_unit() if self._persist_order_fields else {}
-        team_spd_tick_by_uid = self._team_spd_tick_by_unit() if self._persist_order_fields else {}
+        team_turn_order_by_uid = self._order_section.turn_order_by_unit() if (self._persist_order_fields and self._order_section) else {}
+        team_spd_tick_by_uid = self._order_section.spd_tick_by_unit() if (self._persist_order_fields and self._order_section) else {}
 
         for unit_id in self._unit_editors.keys():
-            # _read_set_options_from_editor already calls _sync_set_combo_constraints_for_unit
-            refs = self._editor_refs(int(unit_id))
-            normalized_options = self._read_set_options_from_editor(int(unit_id))
-
-            if not normalized_options and refs is not None:
-                has_sel = (
-                    bool(refs.set1.checked_ids())
-                    or bool(refs.set2.checked_ids())
-                    or (self._is_set3_allowed_for_unit(int(unit_id)) and bool(refs.set3.checked_ids()))
-                )
-                if has_sel:
-                    unit_label = self._unit_label_by_id.get(unit_id, str(unit_id))
-                    raise ValueError(tr("val.set_invalid", unit=unit_label))
-
-            by_slot = self._read_mainstats_from_editor(int(unit_id))
-            artifact_focus, artifact_substats = self._read_artifact_preferences_from_editor(int(unit_id))
             optimize_order = int(optimize_order_by_uid.get(unit_id, 0) or 0)
             existing_builds = self.preset_store.get_unit_builds(self.mode, int(unit_id))
             existing_build = existing_builds[0] if existing_builds else Build.default_any()
@@ -1648,34 +1126,5 @@ class BuildDialog(QDialog):
             if self._persist_order_fields:
                 turn_order = int(team_turn_order_by_uid.get(unit_id, turn_order) or 0)
                 spd_tick = int(team_spd_tick_by_uid.get(unit_id, spd_tick) or 0)
-            min_mode = str(refs.min_mode.currentData() or "with_base") if refs else "with_base"
-            base_stats = unit_base_stats_for_min(self._account, int(unit_id))
-            min_stats = build_min_stats(min_mode, base_stats, {
-                "SPD": refs.min_spd.value() if refs else 0,
-                "HP": refs.min_hp.value() if refs else 0,
-                "ATK": refs.min_atk.value() if refs else 0,
-                "DEF": refs.min_def.value() if refs else 0,
-                "CR": refs.min_cr.value() if refs else 0,
-                "CD": refs.min_cd.value() if refs else 0,
-                "RES": refs.min_res.value() if refs else 0,
-                "ACC": refs.min_acc.value() if refs else 0,
-            })
-
-            set_options = set_id_combos_to_names(normalized_options)
-            mainstats: Dict[int, List[str]] = {s: v for s, v in by_slot.items() if v}
-
-            b = Build(
-                id="default",
-                name="Default",
-                enabled=True,
-                priority=1,
-                optimize_order=optimize_order,
-                turn_order=turn_order,
-                spd_tick=spd_tick,
-                set_options=set_options,
-                mainstats=mainstats,
-                min_stats=min_stats,
-                artifact_focus=artifact_focus,
-                artifact_substats=artifact_substats,
-            )
+            b = self._read_build_from_editor(int(unit_id), optimize_order, turn_order, spd_tick)
             self.preset_store.set_unit_builds(self.mode, unit_id, [b])
