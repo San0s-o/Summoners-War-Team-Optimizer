@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Set, Tuple
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QPoint, QSize
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -69,7 +70,7 @@ from app.services.cloud_learning_service import (
     fetch_build_preference_trends,
 )
 from app.ui.dpi import dp
-from app.ui.widgets.team_order_section import TeamOrderSection
+from app.ui.widgets.single_team_order_editor import SingleTeamOrderEditor
 from app.ui.widgets.unit_build_editor_widget import (
     UnitBuildEditorWidget,
     UnitEditorRefs,
@@ -148,7 +149,7 @@ class BuildDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self._opt_order_list: QListWidget | None = None
-        self._order_section: TeamOrderSection | None = None
+        self._order_section: SingleTeamOrderEditor | None = None
         self._loaded_current_runes = False
         self._loaded_current_runes_snapshot: Dict[str, Any] = {}
         self._rune_pref_cache = RunePrefCache(_RUNE_PREFS_PATH, self._account)
@@ -158,7 +159,7 @@ class BuildDialog(QDialog):
         self._unit_editors: Dict[int, UnitBuildEditorWidget] = {}
 
         if show_order_sections:
-            self._order_section = TeamOrderSection(
+            self._order_section = SingleTeamOrderEditor(
                 mode=mode,
                 order_teams=order_teams,
                 unit_rows=unit_rows,
@@ -189,14 +190,45 @@ class BuildDialog(QDialog):
         self._unit_list.setToolTip(tr("tooltip.optimize_order_priority"))
 
         editor_split = QSplitter(Qt.Horizontal)
-        editor_split.setChildrenCollapsible(False)
+        editor_split.setChildrenCollapsible(True)
         editor_split.setHandleWidth(8)
 
-        list_box = QGroupBox(tr("group.build_monster_list"))
-        list_box.setToolTip(tr("tooltip.optimize_order_priority"))
-        list_layout = QVBoxLayout(list_box)
-        list_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        list_layout.addWidget(self._unit_list, 1)
+        _list_title = tr("group.build_monster_list")
+        list_panel = QWidget()
+        list_panel.setMinimumWidth(0)
+        list_panel_layout = QVBoxLayout(list_panel)
+        list_panel_layout.setContentsMargins(0, 0, 0, 0)
+        list_panel_layout.setSpacing(0)
+
+        list_toggle_btn = QPushButton("◀  " + _list_title)
+        list_toggle_btn.setCheckable(True)
+        list_toggle_btn.setChecked(True)
+        list_toggle_btn.setMinimumWidth(0)
+        list_toggle_btn.setToolTip(tr("tooltip.optimize_order_priority"))
+        list_toggle_btn.setStyleSheet(
+            "QPushButton { text-align: left; padding: 4px 8px; border: none;"
+            " border-bottom: 1px solid palette(mid);"
+            " background: transparent; font-weight: bold; }"
+            "QPushButton:hover { background: rgba(255,255,255,0.05); }"
+        )
+
+        list_content = QWidget()
+        list_content_layout = QVBoxLayout(list_content)
+        list_content_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        list_content_layout.addWidget(self._unit_list, 1)
+
+        def _on_unit_list_toggle(checked: bool) -> None:
+            list_content.setVisible(bool(checked))
+            list_toggle_btn.setText(("◀  " + _list_title) if checked else "▶")
+            total = editor_split.width()
+            if checked:
+                editor_split.setSizes([dp(340), max(0, total - dp(340))])
+            else:
+                editor_split.setSizes([dp(28), max(0, total - dp(28))])
+
+        list_toggle_btn.toggled.connect(_on_unit_list_toggle)
+        list_panel_layout.addWidget(list_toggle_btn)
+        list_panel_layout.addWidget(list_content, 1)
         bottom_left_buttons: List[QPushButton] = []
         if can_load_current_runes(self._account, self.mode):
             btn_load_runes = QPushButton(tr("btn.load_current_runes"))
@@ -219,7 +251,7 @@ class BuildDialog(QDialog):
         btn_restore_saved_preset.setToolTip(tr("tooltip.restore_saved_preset"))
         btn_restore_saved_preset.clicked.connect(self._on_restore_saved_preset)
         bottom_left_buttons.append(btn_restore_saved_preset)
-        editor_split.addWidget(list_box)
+        editor_split.addWidget(list_panel)
 
         detail_box = QGroupBox(tr("group.build_editor"))
         detail_layout = QVBoxLayout(detail_box)
@@ -270,8 +302,21 @@ class BuildDialog(QDialog):
         footer_row = QHBoxLayout()
         footer_row.setContentsMargins(0, 0, 0, 0)
         footer_row.setSpacing(dp(8))
+
+        actions_menu = QMenu()
         for btn in bottom_left_buttons:
-            footer_row.addWidget(btn)
+            action = actions_menu.addAction(btn.text())
+            action.setToolTip(btn.toolTip())
+            action.triggered.connect(btn.click)
+
+        actions_btn = QPushButton(tr("btn.actions") + "  ▲")
+
+        def _show_actions_menu() -> None:
+            pos = actions_btn.mapToGlobal(QPoint(0, -actions_menu.sizeHint().height()))
+            actions_menu.exec_(pos)
+
+        actions_btn.clicked.connect(_show_actions_menu)
+        footer_row.addWidget(actions_btn)
         footer_row.addStretch(1)
 
         btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)

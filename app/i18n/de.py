@@ -80,6 +80,7 @@ STRINGS: dict[str, str] = {
     "btn.save_preferred_artifacts": "Bevorzugte Artefakte speichern",
     "btn.load_community_trends": "Community-Trend laden",
     "btn.load_community_trends_all": "Community-Trends für alle laden",
+    "btn.actions": "Aktionen",
 
     # -- Labels --------------------------------------------------
     "label.passes": "Durchläufe",
