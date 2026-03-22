@@ -90,17 +90,27 @@ def _card_stat_label(key: str) -> str:
     return tr("card_stat." + key)
 
 
+_PCT_KEYS = {"HP%", "ATK%", "DEF%", "CR", "CD", "RES", "ACC"}
+
+
+def _rune_stat_fmt(eff_id: int, value: int) -> str:
+    key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(eff_id or 0), f"Eff {eff_id}")
+    base = key.rstrip("%")
+    translated = tr("card_stat." + base)
+    name = translated if not translated.startswith("card_stat.") else base
+    suffix = "%" if key in _PCT_KEYS else ""
+    return f"{name} +{value}{suffix}"
+
+
 # ── rich HTML tooltip for a rune ─────────────────────────────
 def _rune_rich_tooltip(rune: Rune) -> str:
     set_name = SET_NAMES.get(int(rune.set_id or 0), "?")
-    main_key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(rune.pri_eff[0] or 0), "?")
     lines = [
         f"<b>{set_name}</b> &nbsp; {tr('ui.slot')} {rune.slot_no} &nbsp; +{rune.upgrade_curr}",
-        f"{tr('ui.main')}: <b>{main_key} +{rune.pri_eff[1]}</b>",
+        f"{tr('ui.main')}: <b>{_rune_stat_fmt(int(rune.pri_eff[0] or 0), int(rune.pri_eff[1] or 0))}</b>",
     ]
     if rune.prefix_eff and int(rune.prefix_eff[0] or 0) != 0:
-        pfx_key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(rune.prefix_eff[0] or 0), "?")
-        lines.append(f"{tr('ui.prefix')}: {pfx_key} +{rune.prefix_eff[1]}")
+        lines.append(f"{tr('ui.prefix')}: {_rune_stat_fmt(int(rune.prefix_eff[0] or 0), int(rune.prefix_eff[1] or 0))}")
     if rune.sec_eff:
         lines.append(f"<b>{tr('ui.subs')}:</b>")
         for sec in rune.sec_eff:
@@ -108,13 +118,14 @@ def _rune_rich_tooltip(rune: Rune) -> str:
                 continue
             eff_id = int(sec[0] or 0)
             val = int(sec[1] or 0)
-            key = EFFECT_ID_TO_MAINSTAT_KEY.get(eff_id, f"Eff {eff_id}")
             gem_flag = int(sec[2] or 0) if len(sec) >= 3 else 0
             grind = int(sec[3] or 0) if len(sec) >= 4 else 0
             total = val + grind
-            txt = f"&nbsp;&bull;&nbsp;{key} +{total}"
+            txt = f"&nbsp;&bull;&nbsp;{_rune_stat_fmt(eff_id, total)}"
             if grind:
-                txt += f" <span style='color:#f39c12'>({val}+{grind})</span>"
+                key = EFFECT_ID_TO_MAINSTAT_KEY.get(eff_id, "")
+                pct = "%" if key in _PCT_KEYS else ""
+                txt += f" <span style='color:#f39c12'>({val}+{grind}{pct})</span>"
             if gem_flag:
                 txt = f"<span style='color:#1abc9c'>{txt} [Gem]</span>"
             lines.append(txt)

@@ -4,8 +4,11 @@ import threading
 import time
 from typing import Any, Callable, Dict
 
-from PySide6.QtCore import Qt, QTimer, QThreadPool, QEventLoop
-from PySide6.QtWidgets import QApplication, QLabel, QProgressDialog, QPushButton
+from PySide6.QtCore import Qt, QTimer, QThreadPool, QEventLoop, Signal
+from PySide6.QtWidgets import (
+    QApplication, QLabel, QProgressBar, QDialog, QPushButton,
+    QVBoxLayout, QHBoxLayout,
+)
 
 from app.i18n import tr
 from app.ui.async_worker import _TaskWorker
@@ -27,46 +30,128 @@ def build_pass_progress_callback(window, label: QLabel, prefix: str) -> Callable
     return _cb
 
 
+class _ModernProgressDialog(QDialog):
+    """Modern drop-in replacement for QProgressDialog."""
+
+    canceled = Signal()
+
+    def __init__(self, text: str, title: str, parent=None):
+        super().__init__(parent)
+        from app.ui import theme as _theme
+        c = _theme.C
+
+        self.setWindowTitle(title)
+        self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
+        self.setWindowModality(Qt.ApplicationModal)
+        self.setMinimumWidth(dp(460))
+        self._cancelled = False
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(dp(32), dp(30), dp(32), dp(24))
+        root.setSpacing(0)
+
+        # ── status label ────────────────────────────────────────────────
+        self._label = QLabel(text, self)
+        self._label.setAlignment(Qt.AlignCenter)
+        self._label.setWordWrap(True)
+        self._label.setStyleSheet(
+            f"color: {c['text']}; font-size: {dp(13)}px; background: transparent;"
+        )
+        root.addWidget(self._label)
+        root.addSpacing(dp(22))
+
+        # ── progress bar ─────────────────────────────────────────────────
+        self._bar = QProgressBar(self)
+        self._bar.setRange(0, 100)
+        self._bar.setValue(0)
+        self._bar.setTextVisible(False)
+        self._bar.setFixedHeight(dp(7))
+        self._bar.setStyleSheet(
+            f"""
+            QProgressBar {{
+                background-color: {c['bg_input']};
+                border: none;
+                border-radius: {dp(3)}px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {c['accent']};
+                border-radius: {dp(3)}px;
+            }}
+            """
+        )
+        root.addWidget(self._bar)
+        root.addSpacing(dp(24))
+
+        # ── cancel button ────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        self._cancel_btn = QPushButton(tr("btn.cancel"), self)
+        self._cancel_btn.setFixedWidth(dp(130))
+        self._cancel_btn.setFixedHeight(dp(34))
+        self._cancel_btn.setAutoDefault(False)
+        self._cancel_btn.setDefault(False)
+        self._cancel_btn.setFocusPolicy(Qt.NoFocus)
+        self._cancel_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {c['text_dim']};
+                border: 1px solid {c['border']};
+                border-radius: {dp(6)}px;
+                font-size: {dp(12)}px;
+            }}
+            QPushButton:hover {{
+                color: {c['text']};
+                border-color: {c['text_dim']};
+                background-color: {c['bg_mid']};
+            }}
+            QPushButton:pressed {{
+                background-color: {c['bg_input']};
+            }}
+            """
+        )
+        self._cancel_btn.clicked.connect(self._on_cancel)
+        btn_row.addStretch()
+        btn_row.addWidget(self._cancel_btn)
+        root.addLayout(btn_row)
+
+        self.setStyleSheet(
+            f"QDialog {{ background-color: {c['bg_card']}; border: 1px solid {c['border']}; }}"
+        )
+
+    def _on_cancel(self) -> None:
+        self._cancelled = True
+        self.canceled.emit()
+
+    def wasCanceled(self) -> bool:
+        return self._cancelled
+
+    def setValue(self, v: int) -> None:
+        self._bar.setValue(v)
+
+    def setLabelText(self, text: str) -> None:
+        self._label.setText(text)
+
+    def setRange(self, mn: int, mx: int) -> None:
+        self._bar.setRange(mn, mx)
+
+    # ── QProgressDialog compatibility stubs ──────────────────────────────
+    def setMinimumDuration(self, _): pass
+    def setAutoClose(self, _): pass
+    def setAutoReset(self, _): pass
+    def setCancelButtonText(self, _): pass
+    def setCancelButton(self, _): pass
+
+
 def run_with_busy_progress(
     window,
     text: str,
     work_fn: Callable[[Callable[[], bool], Callable[[Any], None], Callable[[int, int], None]], Any],
 ) -> Any:
     show_extra = bool(getattr(window, "_show_extra_info_enabled", lambda: False)())
-    dlg = QProgressDialog(text, tr("btn.cancel"), 0, 0, window)
-    dlg.setWindowTitle(tr("btn.optimize"))
-    dlg.setLabelText(text)
-    dlg.setWindowModality(Qt.ApplicationModal)
-    dlg.setCancelButtonText(tr("btn.cancel"))
-    dlg.setMinimumDuration(0)
-    dlg.setAutoClose(False)
-    dlg.setAutoReset(False)
+    dlg = _ModernProgressDialog(text, tr("btn.optimize"), parent=window)
     dlg.setRange(0, 100)
     dlg.setValue(0)
-    dlg.setMinimumWidth(dp(430))
-    dlg.setStyleSheet(
-        f"""
-        QProgressDialog {{
-            min-width: {dp(430)}px;
-        }}
-        QProgressBar {{
-            min-height: {dp(18)}px;
-            border-radius: {dp(8)}px;
-        }}
-        QPushButton {{
-            min-width: {dp(120)}px;
-            outline: none;
-        }}
-        QPushButton:focus {{
-            outline: none;
-        }}
-        """
-    )
-    cancel_btn = QPushButton(tr("btn.cancel"), dlg)
-    cancel_btn.setAutoDefault(False)
-    cancel_btn.setDefault(False)
-    cancel_btn.setFocusPolicy(Qt.NoFocus)
-    dlg.setCancelButton(cancel_btn)
     dlg.show()
     QApplication.processEvents()
 

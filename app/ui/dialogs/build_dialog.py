@@ -211,6 +211,32 @@ class BuildDialog(QDialog):
                 ]
 
             # Defense team (first team) on top, offense teams in grid below
+            def _lock_team_list_height(lw: QListWidget) -> None:
+                rows_total = 0
+                for idx in range(lw.count()):
+                    item = lw.item(idx)
+                    if item is None:
+                        continue
+                    hint_h = int(item.sizeHint().height() or 0)
+                    if hint_h <= 0:
+                        hint_h = int(lw.sizeHintForRow(idx) or 0)
+                    rows_total += max(0, int(hint_h))
+                row_gap = max(0, int(lw.spacing() or 0))
+                if lw.count() > 1 and row_gap > 0:
+                    rows_total += row_gap * (lw.count() - 1)
+                margins = lw.contentsMargins()
+                frame_and_margins = (
+                    int(lw.frameWidth() * 2)
+                    + int(margins.top())
+                    + int(margins.bottom())
+                    + dp(6)
+                )
+                target_height = max(dp(120), int(rows_total + frame_and_margins))
+                lw.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                lw.setMinimumHeight(target_height)
+                lw.setMaximumHeight(target_height)
+                lw.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
             def _build_team_list(t: int, team_units: List[Tuple[int, str]]) -> QListWidget:
                 team_effect_cfg = dict(self._order_turn_effects[t]) if t < len(self._order_turn_effects) else {}
                 lw = QListWidget()
@@ -363,6 +389,8 @@ class BuildDialog(QDialog):
                     self._team_spd_tick_combo_by_unit.setdefault(int(uid), []).append(tick_cmb)
                     it.setSizeHint(QSize(0, int(row_min_height)))
                     lw.setItemWidget(it, row_widget)
+                if str(self.mode).strip().lower() == "arena_rush" and self._order_teams:
+                    _lock_team_list_height(lw)
                 self._team_order_lists.append(lw)
                 lw.currentItemChanged.connect(
                     lambda current, _prev, _lw=lw: self._on_team_list_current_item_changed(_lw, current)
@@ -465,27 +493,28 @@ class BuildDialog(QDialog):
         list_layout = QVBoxLayout(list_box)
         list_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
         list_layout.addWidget(self._unit_list, 1)
+        bottom_left_buttons: List[QPushButton] = []
         if self._can_load_current_runes():
             btn_load_runes = QPushButton(tr("btn.load_current_runes"))
             btn_load_runes.setToolTip(tr("tooltip.load_current_runes"))
             btn_load_runes.clicked.connect(self._on_load_current_runes)
-            list_layout.addWidget(btn_load_runes)
+            bottom_left_buttons.append(btn_load_runes)
         btn_load_preferred_all = QPushButton(tr("btn.load_preferred_runes_all"))
         btn_load_preferred_all.setToolTip(tr("tooltip.load_preferred_runes_all"))
         btn_load_preferred_all.clicked.connect(self._on_load_preferred_runes_for_all)
-        list_layout.addWidget(btn_load_preferred_all)
+        bottom_left_buttons.append(btn_load_preferred_all)
         btn_load_preferred_artifacts_all = QPushButton(tr("btn.load_preferred_artifacts_all"))
         btn_load_preferred_artifacts_all.setToolTip(tr("tooltip.load_preferred_artifacts_all"))
         btn_load_preferred_artifacts_all.clicked.connect(self._on_load_preferred_artifacts_for_all)
-        list_layout.addWidget(btn_load_preferred_artifacts_all)
+        bottom_left_buttons.append(btn_load_preferred_artifacts_all)
         btn_load_community_all = QPushButton(tr("btn.load_community_trends_all"))
         btn_load_community_all.setToolTip(tr("tooltip.load_community_trends_all"))
         btn_load_community_all.clicked.connect(self._on_load_community_trends_for_all)
-        list_layout.addWidget(btn_load_community_all)
+        bottom_left_buttons.append(btn_load_community_all)
         btn_restore_saved_preset = QPushButton(tr("btn.restore_saved_preset"))
         btn_restore_saved_preset.setToolTip(tr("tooltip.restore_saved_preset"))
         btn_restore_saved_preset.clicked.connect(self._on_restore_saved_preset)
-        list_layout.addWidget(btn_restore_saved_preset)
+        bottom_left_buttons.append(btn_restore_saved_preset)
         editor_split.addWidget(list_box)
 
         detail_box = QGroupBox(tr("group.build_editor"))
@@ -525,10 +554,18 @@ class BuildDialog(QDialog):
         self._initial_team_speed_lead_pct_by_team = self._team_speed_lead_pct_state()
         self._initial_team_effect_control_state = self._capture_team_effect_control_state()
 
+        footer_row = QHBoxLayout()
+        footer_row.setContentsMargins(0, 0, 0, 0)
+        footer_row.setSpacing(dp(8))
+        for btn in bottom_left_buttons:
+            footer_row.addWidget(btn)
+        footer_row.addStretch(1)
+
         btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
-        layout.addWidget(btns)
+        footer_row.addWidget(btns, 0, Qt.AlignRight)
+        layout.addLayout(footer_row)
 
         # Show only after the full UI is constructed to avoid a brief white flash.
         self.showMaximized()

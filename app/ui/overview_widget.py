@@ -338,8 +338,14 @@ def _style_bar_axis(axis: QBarCategoryAxis | QValueAxis) -> None:
     axis.setLinePenColor(QColor(_theme.C["chart_grid"]))
 
 
+_PCT_KEYS = {"HP%", "ATK%", "DEF%", "CR", "CD", "RES", "ACC"}
+
+
 def _stat_label(eff_id: int, value: Any) -> str:
     key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(eff_id or 0), f"Eff {eff_id}")
+    base = key.rstrip("%")
+    translated = tr("card_stat." + base)
+    name = translated if not translated.startswith("card_stat.") else base
     try:
         v = float(value)
         if abs(v - int(v)) < 1e-9:
@@ -348,7 +354,8 @@ def _stat_label(eff_id: int, value: Any) -> str:
             val = f"{v:.2f}".rstrip("0").rstrip(".")
     except Exception:
         val = str(value)
-    return f"{key} +{val}"
+    suffix = "%" if key in _PCT_KEYS else ""
+    return f"{name} +{val}{suffix}"
 
 
 def _mainstat_key(eff_id: int) -> str:

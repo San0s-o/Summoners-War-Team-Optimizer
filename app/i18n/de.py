@@ -373,10 +373,10 @@ STRINGS: dict[str, str] = {
     "stat.ACC": "Präzision",
 
     # -- Siege cards stat labels ---------------------------------
-    "card_stat.HP": "LP",
-    "card_stat.ATK": "ANG",
-    "card_stat.DEF": "VER",
-    "card_stat.SPD": "Tempo",
+    "card_stat.HP": "HP",
+    "card_stat.ATK": "ATK",
+    "card_stat.DEF": "DEF",
+    "card_stat.SPD": "SPD",
     "card_stat.CR": "Krit. Rate",
     "card_stat.CD": "Krit. Schdn",
     "card_stat.RES": "RES",
@@ -644,7 +644,7 @@ STRINGS: dict[str, str] = {
     "collection.no_import": "Bitte zuerst einen Account importieren.",
     "collection.summary": "6* erweckt: {owned} | Fehlend: {missing}",
     "collection.summary_owned": "6* erweckte Monster: {owned}",
-    "collection.section_owned": "6* erweckte Monster (besessen)",
+    "collection.section_owned": "6* erweckte Monster",
     "collection.section_missing": "Fehlende Monster (erweckte Formen)",
     "collection.nat_group": "Nat {stars}",
     "collection.none": "Keine Einträge.",

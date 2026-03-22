@@ -677,7 +677,19 @@ class OptimizeResultDialog(QDialog):
             src.setStyleSheet(f"color: {_theme.C['text_dim']}; font-size: 7pt;")
             main_v.addWidget(src)
 
-        main_v.addWidget(QLabel(f"{tr('ui.main')}: {self._stat_label(rune.pri_eff)}"))
+        main_lbl = QLabel(self._stat_label(rune.pri_eff))
+        main_lbl.setStyleSheet(
+            f"font-size: 11pt; font-weight: bold; color: {_theme.C['text']};"
+            f" padding: 2px 0px 4px 0px;"
+        )
+        main_v.addWidget(main_lbl)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f"color: {_theme.C['card_border']}; margin: 0px;")
+        sep.setFixedHeight(1)
+        main_v.addWidget(sep)
+
         pfx = self._prefix_text(rune.prefix_eff)
         if pfx != "—":
             main_v.addWidget(QLabel(f"{tr('ui.prefix')}: {pfx}"))
@@ -691,15 +703,13 @@ class OptimizeResultDialog(QDialog):
             grind = int(sec[3] or 0) if len(sec) >= 4 else 0
             key = EFFECT_ID_TO_MAINSTAT_KEY.get(eff_id, f"Effect {eff_id}")
             total = value + grind
-            if self._runes_detailed:
-                if grind:
-                    text = f"{key} {total} <span style='color: #FFD700;'>({value}+{grind})</span>"
-                else:
-                    text = f"{key} {value}"
-            else:
-                text = f"{key} {total}"
+            base_text = self._rune_stat_text(key, total)
+            if self._runes_detailed and grind:
+                pct = "%" if key in self._PCT_KEYS else ""
+                base_text += f" <span style='color: #FFD700;'>({value}+{grind}{pct})</span>"
             if gem_flag:
-                text = f"<span style='color:#1abc9c'>{text} [Gem]</span>"
+                base_text = f"<span style='color:#1abc9c'>{base_text} [Gem]</span>"
+            text = base_text
             lbl = QLabel(text)
             lbl.setTextFormat(Qt.RichText)
             lbl.setStyleSheet(f"font-size: 8pt; color: {_theme.C['text']};")
@@ -707,10 +717,22 @@ class OptimizeResultDialog(QDialog):
 
         return frame
 
+    _PCT_KEYS = {"HP%", "ATK%", "DEF%", "CR", "CD", "RES", "ACC"}
+
+    def _rune_stat_name(self, key: str) -> str:
+        base = key.rstrip("%")
+        translated = tr("card_stat." + base)
+        return translated if not translated.startswith("card_stat.") else base
+
+    def _rune_stat_text(self, key: str, value: int) -> str:
+        name = self._rune_stat_name(key)
+        suffix = "%" if key in self._PCT_KEYS else ""
+        return f"{name} +{value}{suffix}"
+
     def _stat_label(self, stat: Tuple[int, int]) -> str:
         eff_id, value = stat
         key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(eff_id or 0), f"Effect {eff_id}")
-        return f"{key} {self._fmt(value)}"
+        return self._rune_stat_text(key, int(value))
 
     def _prefix_text(self, prefix: Tuple[int, int]) -> str:
         if not prefix or prefix[0] == 0:

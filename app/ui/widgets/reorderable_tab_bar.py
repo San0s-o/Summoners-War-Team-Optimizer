@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Property, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, Property, QPropertyAnimation, QEasingCurve, QTimer
 from PySide6.QtGui import QPainter, QColor
 from PySide6.QtWidgets import QTabBar
 
@@ -50,11 +50,15 @@ class ReorderableTabBar(QTabBar):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        QTimer.singleShot(0, self._snap_indicator)
+
+    def _snap_indicator(self) -> None:
         idx = self.currentIndex()
         if idx >= 0 and self.count() > 0:
             rect = self.tabRect(idx)
             self.__ind_x = float(rect.x())
             self.__ind_w = float(rect.width())
+            self.update()
 
     # ── custom painting: sliding accent line at bottom ───────────
     def paintEvent(self, event) -> None:  # noqa: N802

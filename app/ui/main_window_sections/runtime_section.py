@@ -82,7 +82,6 @@ def run_app(main_window_cls: Type):
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
-    QApplication.setAttribute(Qt.AA_DontUseNativeDialogs)
     app = QApplication(sys.argv)
     _init_dpi_scale(app)
     _apply_physical_dpi_font_scale(app)

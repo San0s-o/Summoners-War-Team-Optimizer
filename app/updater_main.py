@@ -35,7 +35,6 @@ def _init_gui(argv: list[str]) -> QApplication:
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
-    QApplication.setAttribute(Qt.AA_DontUseNativeDialogs)
     app = QApplication(argv)
     apply_dark_palette(app)
 

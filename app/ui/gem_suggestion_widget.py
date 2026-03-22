@@ -202,8 +202,19 @@ def _eff_gain_item(eff: float, gain: float) -> QTableWidgetItem:
     return item
 
 
+_PCT_KEYS = {"HP%", "ATK%", "DEF%", "CR", "CD", "RES", "ACC"}
+
+
 def _stat_name(eff_id: int) -> str:
-    return str(EFFECT_ID_TO_MAINSTAT_KEY.get(int(eff_id or 0), f"Eff {int(eff_id or 0)}"))
+    key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(eff_id or 0), f"Eff {int(eff_id or 0)}")
+    base = key.rstrip("%")
+    translated = tr("card_stat." + base)
+    return translated if not translated.startswith("card_stat.") else base
+
+
+def _pct_suffix(eff_id: int) -> str:
+    key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(eff_id or 0), "")
+    return "%" if key in _PCT_KEYS else ""
 
 
 def _set_name_for(rune: Rune) -> str:
@@ -217,7 +228,7 @@ def _mainstat_text(rune: Rune) -> str:
         value = int((rune.pri_eff or (0, 0))[1] or 0)
         if eff_id <= 0:
             return "-"
-        return f"+{value} {_stat_name(eff_id)}"
+        return f"{_stat_name(eff_id)} +{value}{_pct_suffix(eff_id)}"
     except Exception:
         return "-"
 
@@ -247,9 +258,10 @@ def _substats_text(rune: Rune) -> str:
         base = int(sec[1] or 0) if len(sec) > 1 else 0
         grind = int(sec[3] or 0) if len(sec) > 3 else 0
         total = base + grind
-        token = f"{_stat_name(eff_id)}+{total}"
+        pct = _pct_suffix(eff_id)
+        token = f"{_stat_name(eff_id)} +{total}{pct}"
         if grind > 0:
-            token += f" ({base}+{grind})"
+            token += f" ({base}+{grind}{pct})"
         parts.append(token)
     return ", ".join(parts)
 
@@ -263,12 +275,13 @@ def _substats_html(rune: Rune) -> str:
         base = int(sec[1] or 0) if len(sec) > 1 else 0
         gemmed = int(sec[2] or 0) if len(sec) > 2 else 0
         grind = int(sec[3] or 0) if len(sec) > 3 else 0
-        stat_raw = _stat_name(eff_id)
-        stat = f"<span style='color:#1abc9c'>{stat_raw}</span>" if gemmed else stat_raw
+        pct = _pct_suffix(eff_id)
         total = base + grind
-        token = f"{stat}+{total}"
+        stat_raw = f"{_stat_name(eff_id)} +{total}{pct}"
+        stat = f"<span style='color:#1abc9c'>{stat_raw}</span>" if gemmed else stat_raw
+        token = stat
         if grind > 0:
-            token += f" ({base}+<span style='color:#f39c12'>{grind}</span>)"
+            token += f" ({base}+<span style='color:#f39c12'>{grind}{pct}</span>)"
         parts.append(token)
     return "<span style='color:#9aa4b2'>, </span>".join(parts)
 

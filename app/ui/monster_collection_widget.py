@@ -79,8 +79,8 @@ class _MonsterIcon(QWidget):
 class MonsterCollectionWidget(QWidget):
     """Small-icon collection overview for owned and missing awakened monsters."""
 
-    _ICON_SIZE = 44
-    _ICON_PAD = 3
+    _ICON_SIZE = 66
+    _ICON_PAD = 1
     _MAX_COLS = 18
 
     def __init__(self, parent: QWidget | None = None):
@@ -212,7 +212,7 @@ class MonsterCollectionWidget(QWidget):
         lay.setSpacing(dp(8))
 
         hdr = QLabel(title)
-        hdr.setStyleSheet(f"color: {_theme.C['text']}; font-weight: bold;")
+        hdr.setStyleSheet(f"color: {_theme.C['text']}; font-weight: bold; background: transparent;")
         lay.addWidget(hdr)
 
         if not monsters:
@@ -229,14 +229,15 @@ class MonsterCollectionWidget(QWidget):
 
         for nat in sorted(by_nat.keys(), reverse=True):
             row_label = QLabel(tr("collection.nat_group", stars=int(nat)))
-            row_label.setStyleSheet(f"color: {_theme.C['text_dim']};")
+            row_label.setStyleSheet(f"color: {_theme.C['text_dim']}; background: transparent;")
             lay.addWidget(row_label)
 
             grid_host = QWidget()
+            grid_host.setStyleSheet("background: transparent;")
             grid = QGridLayout(grid_host)
             grid.setContentsMargins(0, 0, 0, 0)
-            grid.setHorizontalSpacing(dp(4))
-            grid.setVerticalSpacing(dp(4))
+            grid.setHorizontalSpacing(dp(1))
+            grid.setVerticalSpacing(dp(1))
 
             for idx, info in enumerate(by_nat[nat]):
                 r = idx // int(self._MAX_COLS)
