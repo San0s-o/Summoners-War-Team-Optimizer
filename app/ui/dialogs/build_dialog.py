@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Set, Tuple
@@ -15,7 +16,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -35,21 +35,12 @@ from PySide6.QtWidgets import (
 
 from app.domain.models import AccountData
 from app.domain.presets import (
-    ARTIFACT_MAIN_KEYS,
     Build,
     BuildStore,
     EFFECT_ID_TO_MAINSTAT_KEY,
     MAINSTAT_KEYS,
-    SLOT2_DEFAULT,
-    SLOT4_DEFAULT,
-    SLOT6_DEFAULT,
 )
 from app.domain.speed_ticks import LEO_LOW_SPD_TICK, allowed_spd_ticks, max_spd_for_tick, min_spd_for_tick
-from app.domain.artifact_effects import (
-    ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE,
-    artifact_effect_label,
-    artifact_effect_is_legacy,
-)
 from app.domain.build_editor_helpers import (
     artifact_pref_from_entry,
     artifact_prefs_from_trend,
@@ -78,10 +69,7 @@ from app.domain.build_editor_helpers import (
     validate_order_tick_plausibility,
 )
 from app.i18n import tr
-from app.services.rune_preference_service import (
-    load_rune_pref_entries as _load_rune_prefs_from_file,
-    save_rune_pref_entry as _save_rune_pref_to_file,
-)
+from app.services.rune_preference_service import RunePrefCache
 from app.services.cloud_learning_service import (
     build_trends_artifact_substat_limit,
     BuildPreferenceTrend,
@@ -91,23 +79,54 @@ from app.services.cloud_learning_service import (
     fetch_build_preference_trends,
 )
 from app.ui.dpi import dp
-from app.ui.widgets.selection_combos import _MainstatMultiCombo, _NoScrollComboBox, _SetMultiCombo
+from app.ui.widgets.selection_combos import _NoScrollComboBox
+from app.ui.widgets.unit_build_editor_widget import (
+    UnitBuildEditorWidget,
+    UnitEditorRefs,
+    set_art_focus_combo_value,
+    set_art_sub_combo_value,
+)
 
 
-def _artifact_kind_label(type_id: int) -> str:
-    if type_id == 1:
-        return tr("artifact.attribute")
-    if type_id == 2:
-        return tr("artifact.type")
-    return str(type_id)
-
-
-def _artifact_effect_label(effect_id: int) -> str:
-    return artifact_effect_label(effect_id, fallback_prefix="Effekt")
-
-
-_MIN_BASE_STATS = ("SPD", "HP", "ATK", "DEF")
 _RUNE_PREFS_PATH = Path(__file__).resolve().parents[2] / "config" / "monster_rune_set_preferences.json"
+
+
+def _lock_team_list_height(lw: "QListWidget") -> None:
+    rows_total = 0
+    for idx in range(lw.count()):
+        item = lw.item(idx)
+        if item is None:
+            continue
+        hint_h = int(item.sizeHint().height() or 0)
+        if hint_h <= 0:
+            hint_h = int(lw.sizeHintForRow(idx) or 0)
+        rows_total += max(0, int(hint_h))
+    row_gap = max(0, int(lw.spacing() or 0))
+    if lw.count() > 1 and row_gap > 0:
+        rows_total += row_gap * (lw.count() - 1)
+    margins = lw.contentsMargins()
+    frame_and_margins = (
+        int(lw.frameWidth() * 2)
+        + int(margins.top())
+        + int(margins.bottom())
+        + dp(6)
+    )
+    target_height = max(dp(120), int(rows_total + frame_and_margins))
+    lw.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    lw.setMinimumHeight(target_height)
+    lw.setMaximumHeight(target_height)
+    lw.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+
+
+@dataclass
+class BuildDialogSnapshot:
+    """Captured initial state for Restore Saved Preset."""
+    build_by_unit: Dict[int, Any]  # Dict[int, Build]
+    unit_list_order: List[int]
+    team_speed_lead_by_team: Dict[int, int]
+    team_speed_lead_pct_by_team: Dict[int, int]
+    team_effect_control_state: Dict[Tuple[int, int], Dict[str, Any]]
 
 
 class BuildDialog(QDialog):
@@ -209,20 +228,11 @@ class BuildDialog(QDialog):
         self._syncing_focus_selection = False
         self._loaded_current_runes = False
         self._loaded_current_runes_snapshot: Dict[str, Any] = {}
-        self._rune_pref_entries_by_master_id: Dict[int, Dict[str, Any]] | None = None
-        self._initial_build_by_unit: Dict[int, Build] = {
-            int(uid): copy.deepcopy((self.preset_store.get_unit_builds(self.mode, int(uid)) or [Build.default_any()])[0])
-            for uid, _label in self._unit_rows
-            if int(uid) > 0
-        }
-        self._initial_unit_list_order: List[int] = []
-        self._initial_team_speed_lead_by_team: Dict[int, int] = {}
-        self._initial_team_speed_lead_pct_by_team: Dict[int, int] = {}
-        self._initial_team_effect_control_state: Dict[Tuple[int, int], Dict[str, Any]] = {}
+        self._rune_pref_cache = RunePrefCache(_RUNE_PREFS_PATH, self._account)
         self._community_trends_loaded = False
         self._community_trend_by_unit: Dict[int, BuildPreferenceTrend] = {}
-        self._community_status_label_by_unit: Dict[int, QLabel] = {}
         self._community_trend_missing_units: Set[int] = set()
+        self._unit_editors: Dict[int, UnitBuildEditorWidget] = {}
 
         if show_order_sections:
             order_box = QGroupBox(tr("group.turn_order"))
@@ -236,193 +246,6 @@ class BuildDialog(QDialog):
                     if self._unit_rows[i : i + self.team_size]
                 ]
 
-            # Defense team (first team) on top, offense teams in grid below
-            def _lock_team_list_height(lw: QListWidget) -> None:
-                rows_total = 0
-                for idx in range(lw.count()):
-                    item = lw.item(idx)
-                    if item is None:
-                        continue
-                    hint_h = int(item.sizeHint().height() or 0)
-                    if hint_h <= 0:
-                        hint_h = int(lw.sizeHintForRow(idx) or 0)
-                    rows_total += max(0, int(hint_h))
-                row_gap = max(0, int(lw.spacing() or 0))
-                if lw.count() > 1 and row_gap > 0:
-                    rows_total += row_gap * (lw.count() - 1)
-                margins = lw.contentsMargins()
-                frame_and_margins = (
-                    int(lw.frameWidth() * 2)
-                    + int(margins.top())
-                    + int(margins.bottom())
-                    + dp(6)
-                )
-                target_height = max(dp(120), int(rows_total + frame_and_margins))
-                lw.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-                lw.setMinimumHeight(target_height)
-                lw.setMaximumHeight(target_height)
-                lw.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-
-            def _build_team_list(t: int, team_units: List[Tuple[int, str]]) -> QListWidget:
-                team_effect_cfg = dict(self._order_turn_effects[t]) if t < len(self._order_turn_effects) else {}
-                lw = QListWidget()
-                lw.setDragDropMode(QAbstractItemView.InternalMove)
-                lw.setDefaultDropAction(Qt.MoveAction)
-                lw.setSelectionMode(QAbstractItemView.SingleSelection)
-                lw.setIconSize(QSize(dp(36), dp(36)))
-                rows_visible = max(1, int(len(team_units)))
-                lw.setMinimumHeight(max(dp(140), rows_visible * dp(46) + dp(14)))
-                lw.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-                sortable: List[Tuple[int, int, int, str, int, int]] = []
-                for pos, (uid, label) in enumerate(team_units):
-                    builds = self.preset_store.get_unit_builds(self.mode, uid)
-                    b0 = builds[0] if builds else Build.default_any()
-                    turn = int(getattr(b0, "turn_order", 0) or 0)
-                    key = int(pos) if self._order_teams is not None else (turn if turn > 0 else 999)
-                    spd_tick = int(getattr(b0, "spd_tick", 0) or 0)
-                    min_cfg = dict(getattr(b0, "min_stats", {}) or {})
-                    min_spd_val = int(min_cfg.get("SPD", 0) or 0) or int(min_cfg.get("SPD_NO_BASE", 0) or 0)
-                    sortable.append((key, pos, uid, label, spd_tick, min_spd_val))
-                sortable.sort(key=lambda x: (x[0], x[1]))
-                for _, _, uid, label, spd_tick, min_spd_val in sortable:
-                    it = QListWidgetItem()
-                    it.setData(Qt.UserRole, int(uid))
-                    lw.addItem(it)
-                    effect_cfg = dict(team_effect_cfg.get(int(uid), {}) or {})
-                    effect_spd_buff = bool(effect_cfg.get("applies_spd_buff", False))
-                    effect_atb_boost_pct = int(float(effect_cfg.get("atb_boost_pct", 0.0) or 0.0))
-                    capability_cfg = dict(self._order_turn_effect_capabilities.get(int(uid), {}) or {})
-                    can_spd_buff = bool(capability_cfg.get("has_spd_buff", False))
-                    can_atb_boost = bool(capability_cfg.get("has_atb_boost", False))
-                    max_atb_boost_pct = int(capability_cfg.get("max_atb_boost_pct", 0) or 0)
-                    if max_atb_boost_pct <= 0:
-                        max_atb_boost_pct = 100
-                    spd_buff_icon_file = str(capability_cfg.get("spd_buff_skill_icon", "") or "")
-                    atb_boost_icon_file = str(capability_cfg.get("atb_boost_skill_icon", "") or "")
-
-                    row_widget = QWidget()
-                    row_layout = QHBoxLayout(row_widget)
-                    row_layout.setContentsMargins(dp(2), dp(4), dp(4), dp(4))
-                    row_layout.setSpacing(dp(4))
-
-                    icon_lbl = QLabel()
-                    icon = self._unit_icon_fn(uid)
-                    if not icon.isNull():
-                        icon_lbl.setPixmap(icon.pixmap(dp(28), dp(28)))
-                    row_layout.addWidget(icon_lbl)
-
-                    txt_lbl = QLabel(label)
-                    txt_lbl.setMinimumWidth(0)
-                    txt_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                    txt_lbl.setWordWrap(False)
-                    row_layout.addWidget(txt_lbl, 1)
-
-                    spd_text = f"SPD {min_spd_val}" if min_spd_val > 0 else ""
-                    spd_lbl = QLabel(spd_text)
-                    spd_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
-                    row_layout.addWidget(spd_lbl)
-
-                    tick_lbl = QLabel(tr("label.spd_tick_short"))
-                    tick_lbl.setFixedWidth(dp(22))
-                    tick_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-                    tick_cmb = _NoScrollComboBox()
-                    tick_labels: List[str] = ["-"]
-                    tick_cmb.addItem("-", 0)
-                    for tick in allowed_spd_ticks(self.mode):
-                        tick_i = int(tick)
-                        if str(self.mode).strip().lower() != "rta" and tick_i == int(LEO_LOW_SPD_TICK):
-                            low_max = int(max_spd_for_tick(tick_i, self.mode) or 0)
-                            threshold = int(low_max + 1) if low_max > 0 else 130
-                            label_txt = f"11 (<{threshold})"
-                            tick_cmb.addItem(label_txt, tick_i)
-                            tick_labels.append(label_txt)
-                            continue
-                        spd_bp = min_spd_for_tick(tick_i, self.mode)
-                        label_txt = f"{tick_i} (>={spd_bp})"
-                        tick_cmb.addItem(label_txt, tick_i)
-                        tick_labels.append(label_txt)
-                    max_text_px = max((tick_cmb.fontMetrics().horizontalAdvance(t) for t in tick_labels), default=0)
-                    tick_width = max(dp(46), int(max_text_px + dp(30)))
-                    tick_cmb.setFixedWidth(tick_width)
-                    idx = tick_cmb.findData(int(spd_tick))
-                    tick_cmb.setCurrentIndex(idx if idx >= 0 else 0)
-                    tick_cmb.setToolTip(tr("tooltip.spd_tick"))
-                    tick_cmb.currentIndexChanged.connect(
-                        lambda _i, _uid=int(uid), _cmb=tick_cmb: self._on_team_spd_tick_changed(_uid, _cmb)
-                    )
-
-                    if self._show_turn_effect_controls:
-                        # Only show controls on monsters that have the capability
-                        if can_spd_buff:
-                            spd_buff_chk = QCheckBox()
-                            _skill_icon = self._load_skill_icon(spd_buff_icon_file)
-                            if _skill_icon:
-                                spd_buff_chk.setIcon(_skill_icon)
-                                spd_buff_chk.setIconSize(QSize(dp(20), dp(20)))
-                            else:
-                                spd_buff_chk.setText("S")
-                            spd_buff_chk.setChecked(bool(effect_spd_buff))
-                            spd_buff_chk.setToolTip(tr("tooltip.effect_spd_buff"))
-                            row_layout.addWidget(spd_buff_chk)
-                        else:
-                            spd_buff_chk = QCheckBox()
-                            spd_buff_chk.setChecked(False)
-                            spd_buff_chk.setVisible(False)
-
-                        if can_atb_boost:
-                            atb_boost_chk = QCheckBox()
-                            _atb_icon = self._load_skill_icon(atb_boost_icon_file)
-                            if _atb_icon:
-                                atb_boost_chk.setIcon(_atb_icon)
-                                atb_boost_chk.setIconSize(QSize(dp(20), dp(20)))
-                            else:
-                                atb_boost_chk.setText("A")
-                            atb_boost_chk.setChecked(bool(effect_atb_boost_pct > 0))
-                            atb_boost_chk.setToolTip(tr("tooltip.effect_atb_boost"))
-                            row_layout.addWidget(atb_boost_chk)
-
-                            atb_boost_spin = QSpinBox()
-                            atb_boost_spin.setMinimum(0)
-                            atb_boost_spin.setMaximum(int(max_atb_boost_pct))
-                            atb_boost_spin.setSingleStep(5)
-                            atb_boost_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-                            atb_boost_spin.setSuffix("%")
-                            atb_boost_spin.setMaximumWidth(dp(56))
-                            if int(effect_atb_boost_pct) > 0:
-                                atb_boost_spin.setValue(min(int(effect_atb_boost_pct), int(max_atb_boost_pct)))
-                            else:
-                                atb_boost_spin.setValue(min(30, int(max_atb_boost_pct)))
-                            atb_boost_spin.setEnabled(bool(atb_boost_chk.isChecked()))
-                            atb_boost_chk.toggled.connect(lambda checked, spin=atb_boost_spin: spin.setEnabled(bool(checked)))
-                            row_layout.addWidget(atb_boost_spin)
-                        else:
-                            atb_boost_chk = QCheckBox()
-                            atb_boost_chk.setChecked(False)
-                            atb_boost_chk.setVisible(False)
-                            atb_boost_spin = QSpinBox()
-                            atb_boost_spin.setValue(0)
-                            atb_boost_spin.setVisible(False)
-
-                        self._team_effect_controls[(int(t), int(uid))] = (spd_buff_chk, atb_boost_chk, atb_boost_spin)
-
-                    # Keep tick controls at the far right for consistent alignment.
-                    row_layout.addWidget(tick_lbl, 0, Qt.AlignVCenter)
-                    row_layout.addWidget(tick_cmb, 0, Qt.AlignVCenter)
-
-                    row_min_height = max(row_widget.sizeHint().height(), tick_cmb.sizeHint().height() + dp(8))
-                    row_widget.setMinimumHeight(row_min_height)
-                    self._team_spd_tick_combo_by_unit.setdefault(int(uid), []).append(tick_cmb)
-                    it.setSizeHint(QSize(0, int(row_min_height)))
-                    lw.setItemWidget(it, row_widget)
-                if str(self.mode).strip().lower() == "arena_rush" and self._order_teams:
-                    _lock_team_list_height(lw)
-                self._team_order_lists.append(lw)
-                lw.currentItemChanged.connect(
-                    lambda current, _prev, _lw=lw: self._on_team_list_current_item_changed(_lw, current)
-                )
-                return lw
-
             if teams and self._order_teams:
                 # Arena rush: Defense (first team) on top, offense teams in grid below
                 def_title = self._order_team_titles[0] if self._order_team_titles else "Team 1"
@@ -431,7 +254,7 @@ class BuildDialog(QDialog):
                 else:
                     def_label = QLabel(f"<b>{def_title}</b>")
                     order_outer.addWidget(def_label)
-                def_lw = _build_team_list(0, teams[0])
+                def_lw = self._build_team_list(0, teams[0])
                 order_outer.addWidget(def_lw)
 
                 if len(teams) > 1:
@@ -454,7 +277,7 @@ class BuildDialog(QDialog):
                             off_grid.addWidget(hdr, header_row, col)
                         else:
                             off_grid.addWidget(QLabel(f"<b>{team_title}</b>"), header_row, col)
-                        off_lw = _build_team_list(t_off, team_units)
+                        off_lw = self._build_team_list(t_off, team_units)
                         off_grid.addWidget(off_lw, list_row, col)
                     order_outer.addLayout(off_grid)
             elif teams:
@@ -473,7 +296,7 @@ class BuildDialog(QDialog):
                     for local_col, t in enumerate(range(start, end)):
                         team_title = self._order_team_titles[t] if t < len(self._order_team_titles) and self._order_team_titles[t] else f"Team {t+1}"
                         page_grid.addWidget(QLabel(f"<b>{team_title}</b>"), 0, local_col)
-                        lw = _build_team_list(t, teams[t])
+                        lw = self._build_team_list(t, teams[t])
                         page_grid.addWidget(lw, 1, local_col)
                     return page_widget
 
@@ -551,27 +374,7 @@ class BuildDialog(QDialog):
                 order_scroll.setMaximumHeight(dp(340))
                 layout.addWidget(order_scroll)
 
-        self._set1_combo: Dict[int, _SetMultiCombo] = {}
-        self._set2_combo: Dict[int, _SetMultiCombo] = {}
-        self._set3_combo: Dict[int, _SetMultiCombo] = {}
-        self._ms2_combo: Dict[int, _MainstatMultiCombo] = {}
-        self._ms4_combo: Dict[int, _MainstatMultiCombo] = {}
-        self._ms6_combo: Dict[int, _MainstatMultiCombo] = {}
-        self._art_attr_focus_combo: Dict[int, QComboBox] = {}
-        self._art_type_focus_combo: Dict[int, QComboBox] = {}
-        self._art_attr_sub1_combo: Dict[int, QComboBox] = {}
-        self._art_attr_sub2_combo: Dict[int, QComboBox] = {}
-        self._art_type_sub1_combo: Dict[int, QComboBox] = {}
-        self._art_type_sub2_combo: Dict[int, QComboBox] = {}
-        self._min_mode_combo: Dict[int, QComboBox] = {}
-        self._min_spd_spin: Dict[int, QSpinBox] = {}
-        self._min_hp_spin: Dict[int, QSpinBox] = {}
-        self._min_atk_spin: Dict[int, QSpinBox] = {}
-        self._min_def_spin: Dict[int, QSpinBox] = {}
-        self._min_cr_spin: Dict[int, QSpinBox] = {}
-        self._min_cd_spin: Dict[int, QSpinBox] = {}
-        self._min_res_spin: Dict[int, QSpinBox] = {}
-        self._min_acc_spin: Dict[int, QSpinBox] = {}
+        # Per-unit widget refs (replaces 22 individual dicts)
         self._unit_label_by_id: Dict[int, str] = {uid: lbl for uid, lbl in self._unit_rows}
         self._unit_editor_stack = QStackedWidget()
         self._unit_list = QListWidget()
@@ -646,10 +449,19 @@ class BuildDialog(QDialog):
         self._unit_list.currentRowChanged.connect(self._on_unit_row_changed)
         if self._unit_list.count() > 0:
             self._unit_list.setCurrentRow(0)
-        self._initial_unit_list_order = self._unit_list_uid_order()
-        self._initial_team_speed_lead_by_team = self._team_speed_lead_uid_state()
-        self._initial_team_speed_lead_pct_by_team = self._team_speed_lead_pct_state()
-        self._initial_team_effect_control_state = self._capture_team_effect_control_state()
+        self._initial_snapshot = BuildDialogSnapshot(
+            build_by_unit={
+                int(uid): copy.deepcopy(
+                    (self.preset_store.get_unit_builds(self.mode, int(uid)) or [Build.default_any()])[0]
+                )
+                for uid, _label in self._unit_rows
+                if int(uid) > 0
+            },
+            unit_list_order=self._unit_list_uid_order(),
+            team_speed_lead_by_team=self._team_speed_lead_uid_state(),
+            team_speed_lead_pct_by_team=self._team_speed_lead_pct_state(),
+            team_effect_control_state=self._capture_team_effect_control_state(),
+        )
 
         footer_row = QHBoxLayout()
         footer_row.setContentsMargins(0, 0, 0, 0)
@@ -673,12 +485,8 @@ class BuildDialog(QDialog):
         focused = QApplication.focusWidget()
         if focused is not None:
             focused.clearFocus()
-        for spin_dict in (
-            self._min_spd_spin, self._min_hp_spin, self._min_atk_spin,
-            self._min_def_spin, self._min_cr_spin, self._min_cd_spin,
-            self._min_res_spin, self._min_acc_spin,
-        ):
-            for spin in spin_dict.values():
+        for refs in self._unit_editors.values():
+            for spin in refs.all_min_spins().values():
                 try:
                     spin.interpretText()
                 except Exception:
@@ -723,6 +531,10 @@ class BuildDialog(QDialog):
             uid = int(item.data(Qt.UserRole) or 0) if item else 0
             if uid > 0:
                 self._ensure_editor_page(int(uid))
+
+    def _editor_refs(self, unit_id: int) -> UnitEditorRefs | None:
+        widget = self._unit_editors.get(int(unit_id or 0))
+        return widget.refs if widget is not None else None
 
     def _row_for_uid_in_unit_list(self, uid: int) -> int:
         target = int(uid or 0)
@@ -834,356 +646,42 @@ class BuildDialog(QDialog):
             return None
         return QIcon(pix)
 
-    def _make_mainstat_combo(self, defaults: List[str]) -> _MainstatMultiCombo:
-        cmb = _MainstatMultiCombo(MAINSTAT_KEYS)
-        # Keep true "Any" as initial state. Concrete values are applied only
-        # when an explicit build mainstat selection exists or user action sets it.
-        _ = defaults
-        cmb.setToolTip(tr("tooltip.mainstat_multi"))
-        cmb.setMinimumWidth(dp(190))
-        return cmb
-
-    def _make_art_focus_combo(self) -> QComboBox:
-        cmb = _NoScrollComboBox()
-        cmb.addItem("Any", "")
-        for key in ARTIFACT_MAIN_KEYS:
-            cmb.addItem(str(key), str(key))
-        cmb.setMinimumWidth(dp(190))
-        return cmb
-
-    def _set_art_focus_combo_value(self, cmb: QComboBox, value: str) -> None:
-        sval = str(value or "").upper()
-        if sval not in ("HP", "ATK", "DEF"):
-            return
-        idx = cmb.findData(sval)
-        if idx >= 0:
-            cmb.setCurrentIndex(idx)
-
-    def _make_min_mode_combo(self, mode: str) -> QComboBox:
-        cmb = _NoScrollComboBox()
-        cmb.addItem(tr("min.mode.with_base"), "with_base")
-        cmb.addItem(tr("min.mode.without_base"), "without_base")
-        idx = cmb.findData(str(mode))
-        cmb.setCurrentIndex(idx if idx >= 0 else 0)
-        cmb.setMinimumWidth(190)
-        return cmb
-
-    def _make_art_sub_combo(self, artifact_type: int) -> QComboBox:
-        cmb = _NoScrollComboBox()
-        cmb.addItem("Any", 0)
-        eids = list(self._artifact_substat_options_by_type.get(int(artifact_type), []))
-        eids.sort(key=lambda x: (artifact_effect_is_legacy(int(x)), int(x)))
-        for eid in eids:
-            cmb.addItem(_artifact_effect_label(int(eid)), int(eid))
-        cmb.setToolTip(tr("tooltip.art_sub", kind=_artifact_kind_label(int(artifact_type))))
-        cmb.setMinimumWidth(190)
-        return cmb
-
-    def _set_art_sub_combo_value(self, cmb: QComboBox, effect_id: int) -> None:
-        eid = int(effect_id or 0)
-        if eid <= 0:
-            return
-        idx = cmb.findData(eid)
-        if idx < 0:
-            cmb.addItem(_artifact_effect_label(eid), eid)
-            idx = cmb.findData(eid)
-        if idx >= 0:
-            cmb.setCurrentIndex(idx)
-
-    def _make_min_stat_spin(self, value: int) -> QSpinBox:
-        spin = QSpinBox()
-        spin.setMinimum(0)
-        spin.setMaximum(99999)
-        spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        spin.setValue(int(value))
-        spin.setMaximumWidth(dp(110))
-        return spin
-
-    def _build_unit_editor(self, unit_id: int, build: Build) -> QWidget:
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        content = QWidget()
-        scroll.setWidget(content)
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(dp(10), dp(10), dp(10), dp(10))
-        content_layout.setSpacing(dp(10))
-
-        cmb_set1 = _SetMultiCombo()
-        cmb_set2 = _SetMultiCombo()
-        cmb_set3 = _SetMultiCombo()
-        cmb_set1.setToolTip(tr("tooltip.set_multi"))
-        cmb_set2.setToolTip(tr("tooltip.set_multi"))
-        cmb_set3.setToolTip(tr("tooltip.set3"))
-        cmb_set1.setMinimumWidth(dp(190))
-        cmb_set2.setMinimumWidth(dp(190))
-        cmb_set3.setMinimumWidth(dp(190))
-
-        slot1_ids, slot2_ids, slot3_ids = parse_set_options_to_slot_ids(build.set_options or [])
-        cmb_set1.set_checked_ids(slot1_ids)
-        cmb_set2.set_checked_ids(slot2_ids)
-        cmb_set3.set_checked_ids(slot3_ids)
-        cmb_set1.selection_changed.connect(lambda _uid=int(unit_id): self._sync_set_combo_constraints_for_unit(_uid))
-        cmb_set2.selection_changed.connect(lambda _uid=int(unit_id): self._sync_set_combo_constraints_for_unit(_uid))
-        cmb_set3.selection_changed.connect(lambda _uid=int(unit_id): self._sync_set_combo_constraints_for_unit(_uid))
-
-        cmb2 = self._make_mainstat_combo(SLOT2_DEFAULT)
-        cmb4 = self._make_mainstat_combo(SLOT4_DEFAULT)
-        cmb6 = self._make_mainstat_combo(SLOT6_DEFAULT)
-        if build.mainstats:
-            if 2 in build.mainstats and build.mainstats[2]:
-                cmb2.set_checked_values([str(x) for x in (build.mainstats[2] or [])])
-            if 4 in build.mainstats and build.mainstats[4]:
-                cmb4.set_checked_values([str(x) for x in (build.mainstats[4] or [])])
-            if 6 in build.mainstats and build.mainstats[6]:
-                cmb6.set_checked_values([str(x) for x in (build.mainstats[6] or [])])
-
-        art_attr_focus = self._make_art_focus_combo()
-        art_type_focus = self._make_art_focus_combo()
-        art_attr_focus.setToolTip(tr("tooltip.art_attr_focus"))
-        art_type_focus.setToolTip(tr("tooltip.art_type_focus"))
-
-        artifact_focus = dict(getattr(build, "artifact_focus", {}) or {})
-        attr_focus_values = [str(x).upper() for x in (artifact_focus.get("attribute") or []) if str(x)]
-        type_focus_values = [str(x).upper() for x in (artifact_focus.get("type") or []) if str(x)]
-        if attr_focus_values:
-            self._set_art_focus_combo_value(art_attr_focus, attr_focus_values[0])
-        if type_focus_values:
-            self._set_art_focus_combo_value(art_type_focus, type_focus_values[0])
-
-        art_attr_sub1 = self._make_art_sub_combo(1)
-        art_attr_sub2 = self._make_art_sub_combo(1)
-        art_type_sub1 = self._make_art_sub_combo(2)
-        art_type_sub2 = self._make_art_sub_combo(2)
-
-        artifact_substats = dict(getattr(build, "artifact_substats", {}) or {})
-        attr_subs = [int(x) for x in (artifact_substats.get("attribute") or []) if int(x) > 0][:2]
-        type_subs = [int(x) for x in (artifact_substats.get("type") or []) if int(x) > 0][:2]
-        if attr_subs:
-            self._set_art_sub_combo_value(art_attr_sub1, attr_subs[0])
-        if len(attr_subs) > 1:
-            self._set_art_sub_combo_value(art_attr_sub2, attr_subs[1])
-        if type_subs:
-            self._set_art_sub_combo_value(art_type_sub1, type_subs[0])
-        if len(type_subs) > 1:
-            self._set_art_sub_combo_value(art_type_sub2, type_subs[1])
-
-        current_min = dict(getattr(build, "min_stats", {}) or {})
-        base_stats = unit_base_stats_for_min(self._account, int(unit_id))
-        min_mode = min_mode_for_build(current_min)
-        min_mode_combo = self._make_min_mode_combo(min_mode)
-        min_spd = self._make_min_stat_spin(min_value_for_build(current_min, "SPD", min_mode, base_stats))
-        min_hp = self._make_min_stat_spin(min_value_for_build(current_min, "HP", min_mode, base_stats))
-        min_atk = self._make_min_stat_spin(min_value_for_build(current_min, "ATK", min_mode, base_stats))
-        min_def = self._make_min_stat_spin(min_value_for_build(current_min, "DEF", min_mode, base_stats))
-        min_cr = self._make_min_stat_spin(min_value_for_build(current_min, "CR", min_mode, base_stats))
-        min_cd = self._make_min_stat_spin(min_value_for_build(current_min, "CD", min_mode, base_stats))
-        min_res = self._make_min_stat_spin(min_value_for_build(current_min, "RES", min_mode, base_stats))
-        min_acc = self._make_min_stat_spin(min_value_for_build(current_min, "ACC", min_mode, base_stats))
-
-        min_spins: Dict[str, QSpinBox] = {
-            "SPD": min_spd,
-            "HP": min_hp,
-            "ATK": min_atk,
-            "DEF": min_def,
-            "CR": min_cr,
-            "CD": min_cd,
-            "RES": min_res,
-            "ACC": min_acc,
-        }
-        min_base_prefix_labels: Dict[str, QLabel] = {}
-
-        def _base_prefix(key: str) -> QLabel:
-            lbl = QLabel(tr("label.min_base_prefix", value=int(base_stats.get(key, 0) or 0)))
-            min_base_prefix_labels[str(key)] = lbl
-            return lbl
-
-        rune_sets_box = QGroupBox(tr("group.build_rune_sets"))
-        rune_sets_layout = QFormLayout(rune_sets_box)
-        rune_sets_layout.addRow(tr("header.set1"), cmb_set1)
-        rune_sets_layout.addRow(tr("header.set2"), cmb_set2)
-        rune_sets_layout.addRow(tr("header.set3"), cmb_set3)
-        pref_btn_row = QWidget()
-        pref_btn_layout = QHBoxLayout(pref_btn_row)
-        pref_btn_layout.setContentsMargins(0, 0, 0, 0)
-        pref_btn_layout.setSpacing(dp(6))
-        btn_load_pref_runes = QPushButton(tr("btn.load_preferred_runes"))
-        btn_load_pref_runes.setToolTip(
-            tr("tooltip.load_preferred_runes") if self._has_rune_pref_for_unit(int(unit_id))
-            else tr("tooltip.load_preferred_runes_missing")
+    def _build_unit_editor(self, unit_id: int, build: Build) -> UnitBuildEditorWidget:
+        widget = UnitBuildEditorWidget(
+            unit_id=int(unit_id),
+            build=build,
+            account=self._account,
+            artifact_options_by_type=self._artifact_substat_options_by_type,
+            has_rune_pref=self._rune_pref_cache.has_rune_pref(int(unit_id)),
+            has_artifact_pref=self._rune_pref_cache.has_artifact_pref(int(unit_id)),
+            community_status_text=self._community_status_text_for_unit(int(unit_id)),
         )
-        btn_load_pref_runes.clicked.connect(lambda _checked=False, _uid=int(unit_id): self._on_load_preferred_runes_for_unit(_uid))
-        btn_load_community = QPushButton(tr("btn.load_community_trends"))
-        btn_load_community.setToolTip(tr("tooltip.load_community_trends"))
-        btn_load_community.clicked.connect(lambda _checked=False, _uid=int(unit_id): self._on_load_community_trends_for_unit(_uid))
-        btn_save_pref_runes = QPushButton(tr("btn.save_preferred_runes"))
-        btn_save_pref_runes.setToolTip(tr("tooltip.save_preferred_runes"))
-        btn_save_pref_runes.clicked.connect(lambda _checked=False, _uid=int(unit_id): self._on_save_preferred_runes_for_unit(_uid))
-        pref_btn_layout.addWidget(btn_load_pref_runes)
-        pref_btn_layout.addWidget(btn_load_community)
-        pref_btn_layout.addWidget(btn_save_pref_runes)
-        pref_btn_layout.addStretch(1)
-        rune_sets_layout.addRow("", pref_btn_row)
-
-        mainstats_box = QGroupBox(tr("group.build_mainstats"))
-        mainstats_layout = QFormLayout(mainstats_box)
-        mainstats_layout.addRow(tr("header.slot2_main"), cmb2)
-        mainstats_layout.addRow(tr("header.slot4_main"), cmb4)
-        mainstats_layout.addRow(tr("header.slot6_main"), cmb6)
-
-        artifact_box = QGroupBox(tr("group.build_artifacts"))
-        artifact_layout = QFormLayout(artifact_box)
-        artifact_layout.addRow(tr("header.attr_main"), art_attr_focus)
-        artifact_layout.addRow(tr("header.attr_sub1"), art_attr_sub1)
-        artifact_layout.addRow(tr("header.attr_sub2"), art_attr_sub2)
-        artifact_layout.addRow(tr("header.type_main"), art_type_focus)
-        artifact_layout.addRow(tr("header.type_sub1"), art_type_sub1)
-        artifact_layout.addRow(tr("header.type_sub2"), art_type_sub2)
-        art_pref_btn_row = QWidget()
-        art_pref_btn_layout = QHBoxLayout(art_pref_btn_row)
-        art_pref_btn_layout.setContentsMargins(0, 0, 0, 0)
-        art_pref_btn_layout.setSpacing(dp(6))
-        btn_load_pref_artifacts = QPushButton(tr("btn.load_preferred_artifacts"))
-        btn_load_pref_artifacts.setToolTip(
-            tr("tooltip.load_preferred_artifacts")
-            if self._has_artifact_pref_for_unit(int(unit_id))
-            else tr("tooltip.load_preferred_artifacts_missing")
-        )
-        btn_load_pref_artifacts.clicked.connect(
-            lambda _checked=False, _uid=int(unit_id): self._on_load_preferred_artifacts_for_unit(_uid)
-        )
-        btn_save_pref_artifacts = QPushButton(tr("btn.save_preferred_artifacts"))
-        btn_save_pref_artifacts.setToolTip(tr("tooltip.save_preferred_artifacts"))
-        btn_save_pref_artifacts.clicked.connect(
-            lambda _checked=False, _uid=int(unit_id): self._on_save_preferred_artifacts_for_unit(_uid)
-        )
-        art_pref_btn_layout.addWidget(btn_load_pref_artifacts)
-        art_pref_btn_layout.addWidget(btn_save_pref_artifacts)
-        art_pref_btn_layout.addStretch(1)
-        artifact_layout.addRow("", art_pref_btn_row)
-
-        top_grid = QGridLayout()
-        top_grid.setContentsMargins(0, 0, 0, 0)
-        top_grid.setHorizontalSpacing(10)
-        top_grid.setVerticalSpacing(8)
-        top_grid.addWidget(rune_sets_box, 0, 0)
-        top_grid.addWidget(mainstats_box, 0, 1)
-        top_grid.addWidget(artifact_box, 0, 2)
-        top_grid.setColumnStretch(0, 1)
-        top_grid.setColumnStretch(1, 1)
-        top_grid.setColumnStretch(2, 1)
-        content_layout.addLayout(top_grid)
-
-        min_stats_box = QGroupBox(tr("group.build_min_stats"))
-        min_stats_layout = QGridLayout(min_stats_box)
-        min_stats_layout.setHorizontalSpacing(12)
-        min_stats_layout.setVerticalSpacing(8)
-        min_stats_layout.addWidget(QLabel(tr("label.min_mode")), 0, 0)
-        min_stats_layout.addWidget(min_mode_combo, 0, 1, 1, 2)
-        min_stats_layout.addWidget(QLabel(tr("label.min_mode_hint")), 1, 0, 1, 4)
-
-        def _make_min_stat_cell(label_text: str, stat_key: str, spin: QSpinBox) -> QWidget:
-            cell = QWidget()
-            row = QHBoxLayout(cell)
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(dp(6))
-            lbl = QLabel(label_text)
-            lbl.setMinimumWidth(dp(56))
-            row.addWidget(lbl)
-            base_lbl = _base_prefix(stat_key)
-            base_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            base_lbl.setMinimumWidth(dp(56))
-            row.addWidget(base_lbl)
-            spin.setMaximumWidth(dp(92))
-            row.addWidget(spin)
-            row.addStretch(1)
-            return cell
-
-        min_stats_layout.addWidget(_make_min_stat_cell(tr("header.min_hp"), "HP", min_hp), 2, 0)
-        min_stats_layout.addWidget(_make_min_stat_cell(tr("header.min_atk"), "ATK", min_atk), 2, 1)
-        min_stats_layout.addWidget(_make_min_stat_cell(tr("header.min_def"), "DEF", min_def), 2, 2)
-        min_stats_layout.addWidget(_make_min_stat_cell(tr("header.min_spd"), "SPD", min_spd), 2, 3)
-        min_stats_layout.addWidget(_make_min_stat_cell(tr("header.min_cr"), "CR", min_cr), 3, 0)
-        min_stats_layout.addWidget(_make_min_stat_cell(tr("header.min_cd"), "CD", min_cd), 3, 1)
-        min_stats_layout.addWidget(_make_min_stat_cell(tr("header.min_res"), "RES", min_res), 3, 2)
-        min_stats_layout.addWidget(_make_min_stat_cell(tr("header.min_acc"), "ACC", min_acc), 3, 3)
-        min_stats_layout.setColumnStretch(4, 1)
-
-        def _sync_min_mode_ui() -> None:
-            mode = str(min_mode_combo.currentData() or "with_base")
-            use_base = mode == "with_base"
-            for lbl in min_base_prefix_labels.values():
-                lbl.setVisible(use_base)
-
-        _tracked_mode = [min_mode]  # mutable to track last applied mode
-
-        def _on_min_mode_changed() -> None:
-            new_mode = str(min_mode_combo.currentData() or "with_base")
-            old_mode = _tracked_mode[0]
-            if new_mode != old_mode:
-                for key, spin in min_spins.items():
-                    cur_val = int(spin.value())
-                    if key in _MIN_BASE_STATS:
-                        base = int(base_stats.get(key, 0) or 0)
-                        if old_mode == "with_base" and new_mode == "without_base":
-                            spin.setValue(base + cur_val)
-                        elif old_mode == "without_base" and new_mode == "with_base":
-                            spin.setValue(max(0, cur_val - base))
-                _tracked_mode[0] = new_mode
-            _sync_min_mode_ui()
-
-        min_mode_combo.currentIndexChanged.connect(lambda *_args: _on_min_mode_changed())
-        _sync_min_mode_ui()
-
-        community_status_lbl = QLabel(self._community_status_text_for_unit(int(unit_id)))
-        community_status_lbl.setWordWrap(True)
-        community_status_lbl.setStyleSheet("color: #8aa1b4;")
-        content_layout.addWidget(community_status_lbl)
-        content_layout.addWidget(min_stats_box)
-        content_layout.addStretch(1)
-
-        self._set1_combo[unit_id] = cmb_set1
-        self._set2_combo[unit_id] = cmb_set2
-        self._set3_combo[unit_id] = cmb_set3
-        self._ms2_combo[unit_id] = cmb2
-        self._ms4_combo[unit_id] = cmb4
-        self._ms6_combo[unit_id] = cmb6
-        self._art_attr_focus_combo[unit_id] = art_attr_focus
-        self._art_type_focus_combo[unit_id] = art_type_focus
-        self._art_attr_sub1_combo[unit_id] = art_attr_sub1
-        self._art_attr_sub2_combo[unit_id] = art_attr_sub2
-        self._art_type_sub1_combo[unit_id] = art_type_sub1
-        self._art_type_sub2_combo[unit_id] = art_type_sub2
-        self._min_mode_combo[unit_id] = min_mode_combo
-        self._min_spd_spin[unit_id] = min_spd
-        self._min_hp_spin[unit_id] = min_hp
-        self._min_atk_spin[unit_id] = min_atk
-        self._min_def_spin[unit_id] = min_def
-        self._min_cr_spin[unit_id] = min_cr
-        self._min_cd_spin[unit_id] = min_cd
-        self._min_res_spin[unit_id] = min_res
-        self._min_acc_spin[unit_id] = min_acc
-        self._community_status_label_by_unit[unit_id] = community_status_lbl
+        widget.load_pref_runes_requested.connect(self._on_load_preferred_runes_for_unit)
+        widget.load_community_trends_requested.connect(self._on_load_community_trends_for_unit)
+        widget.save_pref_runes_requested.connect(self._on_save_preferred_runes_for_unit)
+        widget.load_pref_artifacts_requested.connect(self._on_load_preferred_artifacts_for_unit)
+        widget.save_pref_artifacts_requested.connect(self._on_save_preferred_artifacts_for_unit)
+        widget.set_constraints_changed.connect(self._sync_set_combo_constraints_for_unit)
+        self._unit_editors[unit_id] = widget
         self._sync_set_combo_constraints_for_unit(int(unit_id))
         self._refresh_community_status_label(int(unit_id))
-        return scroll
+        return widget
 
     def _is_set3_allowed_for_unit(self, unit_id: int) -> bool:
-        c1 = self._set1_combo.get(int(unit_id))
-        c2 = self._set2_combo.get(int(unit_id))
-        if c1 is None or c2 is None:
+        refs = self._editor_refs(unit_id)
+        if refs is None:
             return False
-        s1 = c1.checked_sizes()
-        s2 = c2.checked_sizes()
-        if not c1.checked_ids() or not c2.checked_ids():
+        s1 = refs.set1.checked_sizes()
+        s2 = refs.set2.checked_sizes()
+        if not refs.set1.checked_ids() or not refs.set2.checked_ids():
             return False
         return s1 == {2} and s2 == {2}
 
     def _sync_set_combo_constraints_for_unit(self, unit_id: int) -> None:
-        c1 = self._set1_combo.get(int(unit_id))
-        c2 = self._set2_combo.get(int(unit_id))
-        c3 = self._set3_combo.get(int(unit_id))
-        if c1 is None or c2 is None or c3 is None:
+        refs = self._editor_refs(unit_id)
+        if refs is None:
             return
+        c1, c2, c3 = refs.set1, refs.set2, refs.set3
 
         c1.set_enforced_size(None)
         c2.set_enforced_size(None)
@@ -1197,34 +695,12 @@ class BuildDialog(QDialog):
             c3.set_enforced_size(None)
             c3.setEnabled(False)
 
-    def _load_rune_pref_entries(self) -> Dict[int, Dict[str, Any]]:
-        if self._rune_pref_entries_by_master_id is not None:
-            return dict(self._rune_pref_entries_by_master_id)
-        result = _load_rune_prefs_from_file(_RUNE_PREFS_PATH)
-        self._rune_pref_entries_by_master_id = dict(result)
-        return dict(result)
+    # -- Rune preference access (delegated to RunePrefCache) --
 
     def _rune_pref_entry_for_unit(self, unit_id: int) -> Dict[str, Any] | None:
-        entries = self._load_rune_pref_entries()
-        mid = unit_master_id_for_unit(self._account, int(unit_id))
-        if int(mid) > 0 and isinstance(entries.get(int(mid)), dict):
-            return dict(entries[int(mid)])
-        uid = int(unit_id or 0)
-        if uid > 0 and isinstance(entries.get(int(uid)), dict):
-            return dict(entries[int(uid)])
-        return None
+        return self._rune_pref_cache.entry_for_unit(int(unit_id))
 
-    def _has_rune_pref_for_unit(self, unit_id: int) -> bool:
-        return isinstance(self._rune_pref_entry_for_unit(int(unit_id)), dict)
-
-    def _has_artifact_pref_for_unit(self, unit_id: int) -> bool:
-        entry = self._rune_pref_entry_for_unit(int(unit_id))
-        if not isinstance(entry, dict):
-            return False
-        artifact_focus, artifact_substats = artifact_pref_from_entry(entry)
-        return bool(artifact_focus or artifact_substats)
-
-    def _apply_artifact_preferences_to_unit_controls(
+    def _load_artifact_prefs_into_editor(
         self,
         unit_id: int,
         artifact_focus: Dict[str, List[str]] | None = None,
@@ -1235,22 +711,17 @@ class BuildDialog(QDialog):
             return False
 
         self._ensure_editor_page(int(uid))
+        refs = self._editor_refs(uid)
+        if refs is None:
+            return False
         focus_cfg = dict(artifact_focus or {})
         subs_cfg = dict(artifact_substats or {})
 
-        art_attr_focus = self._art_attr_focus_combo.get(int(uid))
-        art_type_focus = self._art_type_focus_combo.get(int(uid))
-        if art_attr_focus is not None:
-            idx_any = art_attr_focus.findData("")
+        for cmb in (refs.art_attr_focus, refs.art_type_focus):
+            idx_any = cmb.findData("")
             if idx_any >= 0:
-                art_attr_focus.setCurrentIndex(int(idx_any))
-        if art_type_focus is not None:
-            idx_any = art_type_focus.findData("")
-            if idx_any >= 0:
-                art_type_focus.setCurrentIndex(int(idx_any))
-        for key, cmb in (("attribute", art_attr_focus), ("type", art_type_focus)):
-            if cmb is None:
-                continue
+                cmb.setCurrentIndex(int(idx_any))
+        for key, cmb in (("attribute", refs.art_attr_focus), ("type", refs.art_type_focus)):
             selected = ""
             for item in list(focus_cfg.get(str(key), []) or []):
                 cand = str(item or "").strip().upper()
@@ -1258,12 +729,10 @@ class BuildDialog(QDialog):
                     selected = cand
                     break
             if selected:
-                self._set_art_focus_combo_value(cmb, selected)
+                set_art_focus_combo_value(cmb, selected)
 
-        art_attr_sub1 = self._art_attr_sub1_combo.get(int(uid))
-        art_attr_sub2 = self._art_attr_sub2_combo.get(int(uid))
-        art_type_sub1 = self._art_type_sub1_combo.get(int(uid))
-        art_type_sub2 = self._art_type_sub2_combo.get(int(uid))
+        art_attr_sub1, art_attr_sub2 = refs.art_attr_sub1, refs.art_attr_sub2
+        art_type_sub1, art_type_sub2 = refs.art_type_sub1, refs.art_type_sub2
         for cmb in (art_attr_sub1, art_attr_sub2, art_type_sub1, art_type_sub2):
             if cmb is None:
                 continue
@@ -1300,13 +769,13 @@ class BuildDialog(QDialog):
                 break
 
         if art_attr_sub1 is not None and len(attr_subs) >= 1:
-            self._set_art_sub_combo_value(art_attr_sub1, int(attr_subs[0]))
+            set_art_sub_combo_value(art_attr_sub1, int(attr_subs[0]))
         if art_attr_sub2 is not None and len(attr_subs) >= 2:
-            self._set_art_sub_combo_value(art_attr_sub2, int(attr_subs[1]))
+            set_art_sub_combo_value(art_attr_sub2, int(attr_subs[1]))
         if art_type_sub1 is not None and len(type_subs) >= 1:
-            self._set_art_sub_combo_value(art_type_sub1, int(type_subs[0]))
+            set_art_sub_combo_value(art_type_sub1, int(type_subs[0]))
         if art_type_sub2 is not None and len(type_subs) >= 2:
-            self._set_art_sub_combo_value(art_type_sub2, int(type_subs[1]))
+            set_art_sub_combo_value(art_type_sub2, int(type_subs[1]))
 
         has_focus = bool(
             list(focus_cfg.get("attribute", []) or [])
@@ -1314,18 +783,14 @@ class BuildDialog(QDialog):
         )
         return bool(has_focus or attr_subs or type_subs)
 
-    def _normalized_set_options_for_unit(self, unit_id: int) -> List[List[int]]:
+    def _read_set_options_from_editor(self, unit_id: int) -> List[List[int]]:
         self._sync_set_combo_constraints_for_unit(int(unit_id))
-        c1 = self._set1_combo.get(int(unit_id))
-        c2 = self._set2_combo.get(int(unit_id))
-        c3 = self._set3_combo.get(int(unit_id))
-        if c1 is None or c2 is None or c3 is None:
+        refs = self._editor_refs(unit_id)
+        if refs is None:
             return []
-
-        set1_ids = [int(x) for x in c1.checked_ids()]
-        set2_ids = [int(x) for x in c2.checked_ids()]
-        set3_ids = [int(x) for x in c3.checked_ids()] if self._is_set3_allowed_for_unit(int(unit_id)) else []
-
+        set1_ids = [int(x) for x in refs.set1.checked_ids()]
+        set2_ids = [int(x) for x in refs.set2.checked_ids()]
+        set3_ids = [int(x) for x in refs.set3.checked_ids()] if self._is_set3_allowed_for_unit(int(unit_id)) else []
         groups: List[List[int]] = []
         if set1_ids:
             groups.append(set1_ids)
@@ -1335,37 +800,32 @@ class BuildDialog(QDialog):
             groups.append(set3_ids)
         if not groups:
             return []
-
         return normalize_set_id_groups(groups)
 
-    def _current_mainstats_by_slot_for_unit(self, unit_id: int) -> Dict[int, List[str]]:
+    def _read_mainstats_from_editor(self, unit_id: int) -> Dict[int, List[str]]:
         out: Dict[int, List[str]] = {2: [], 4: [], 6: []}
-        cmb2 = self._ms2_combo.get(int(unit_id))
-        cmb4 = self._ms4_combo.get(int(unit_id))
-        cmb6 = self._ms6_combo.get(int(unit_id))
-        if cmb2 is not None:
-            out[2] = [str(x) for x in (cmb2.checked_values() or []) if str(x) in MAINSTAT_KEYS]
-        if cmb4 is not None:
-            out[4] = [str(x) for x in (cmb4.checked_values() or []) if str(x) in MAINSTAT_KEYS]
-        if cmb6 is not None:
-            out[6] = [str(x) for x in (cmb6.checked_values() or []) if str(x) in MAINSTAT_KEYS]
+        refs = self._editor_refs(unit_id)
+        if refs is None:
+            return out
+        out[2] = [str(x) for x in (refs.ms2.checked_values() or []) if str(x) in MAINSTAT_KEYS]
+        out[4] = [str(x) for x in (refs.ms4.checked_values() or []) if str(x) in MAINSTAT_KEYS]
+        out[6] = [str(x) for x in (refs.ms6.checked_values() or []) if str(x) in MAINSTAT_KEYS]
         return out
 
     def _current_mainstat_combos_246_for_unit(self, unit_id: int, limit: int = 12) -> List[List[str]]:
-        return mainstat_combos_246(self._current_mainstats_by_slot_for_unit(int(unit_id)), limit)
+        return mainstat_combos_246(self._read_mainstats_from_editor(int(unit_id)), limit)
 
-    def _current_artifact_preferences_for_unit(self, unit_id: int) -> Tuple[Dict[str, List[str]], Dict[str, List[int]]]:
+    def _read_artifact_preferences_from_editor(self, unit_id: int) -> Tuple[Dict[str, List[str]], Dict[str, List[int]]]:
         uid = int(unit_id or 0)
+        refs = self._editor_refs(uid)
         artifact_focus: Dict[str, List[str]] = {}
-        art_attr_focus = self._art_attr_focus_combo.get(int(uid))
-        art_type_focus = self._art_type_focus_combo.get(int(uid))
-        attr_focus_value = str(art_attr_focus.currentData() or "").upper() if art_attr_focus is not None else ""
-        type_focus_value = str(art_type_focus.currentData() or "").upper() if art_type_focus is not None else ""
-        if attr_focus_value in ("HP", "ATK", "DEF"):
-            artifact_focus["attribute"] = [attr_focus_value]
-        if type_focus_value in ("HP", "ATK", "DEF"):
-            artifact_focus["type"] = [type_focus_value]
-
+        if refs is not None:
+            attr_v = str(refs.art_attr_focus.currentData() or "").upper()
+            type_v = str(refs.art_type_focus.currentData() or "").upper()
+            if attr_v in ("HP", "ATK", "DEF"):
+                artifact_focus["attribute"] = [attr_v]
+            if type_v in ("HP", "ATK", "DEF"):
+                artifact_focus["type"] = [type_v]
         artifact_substats: Dict[str, List[int]] = {}
         attr_subs = self._artifact_substat_ids_for_unit(int(uid), "attribute")
         type_subs = self._artifact_substat_ids_for_unit(int(uid), "type")
@@ -1373,53 +833,42 @@ class BuildDialog(QDialog):
             artifact_substats["attribute"] = [int(x) for x in attr_subs[:2]]
         if type_subs:
             artifact_substats["type"] = [int(x) for x in type_subs[:2]]
-
         return artifact_focus, artifact_substats
 
     def _save_rune_pref_entry(self, master_id: int, payload: Dict[str, Any]) -> bool:
-        ok = _save_rune_pref_to_file(_RUNE_PREFS_PATH, master_id, payload)
-        if ok:
-            self._rune_pref_entries_by_master_id = None
-        return ok
+        return self._rune_pref_cache.save(int(master_id), dict(payload or {}))
 
     def _on_load_preferred_runes_for_unit(self, unit_id: int) -> None:
         entry = self._rune_pref_entry_for_unit(int(unit_id))
         if not isinstance(entry, dict):
             return
-
+        refs = self._editor_refs(unit_id)
+        if refs is None:
+            return
         slot1_ids, slot2_ids, slot3_ids = rune_pref_slot_set_ids(entry)
-        c1 = self._set1_combo.get(int(unit_id))
-        c2 = self._set2_combo.get(int(unit_id))
-        c3 = self._set3_combo.get(int(unit_id))
-        if c1 is not None and slot1_ids:
-            c1.set_checked_ids(slot1_ids)
-        if c2 is not None and slot2_ids:
-            c2.set_checked_ids(slot2_ids)
-        if c3 is not None and slot3_ids:
-            c3.set_checked_ids(slot3_ids)
+        if slot1_ids:
+            refs.set1.set_checked_ids(slot1_ids)
+        if slot2_ids:
+            refs.set2.set_checked_ids(slot2_ids)
+        if slot3_ids:
+            refs.set3.set_checked_ids(slot3_ids)
         self._sync_set_combo_constraints_for_unit(int(unit_id))
-
         by_slot = rune_pref_mainstats_by_slot(entry)
-        cmb2 = self._ms2_combo.get(int(unit_id))
-        cmb4 = self._ms4_combo.get(int(unit_id))
-        cmb6 = self._ms6_combo.get(int(unit_id))
-        if cmb2 is not None and by_slot.get(2):
-            cmb2.set_checked_values(list(by_slot[2]))
-        if cmb4 is not None and by_slot.get(4):
-            cmb4.set_checked_values(list(by_slot[4]))
-        if cmb6 is not None and by_slot.get(6):
-            cmb6.set_checked_values(list(by_slot[6]))
+        if by_slot.get(2):
+            refs.ms2.set_checked_values(list(by_slot[2]))
+        if by_slot.get(4):
+            refs.ms4.set_checked_values(list(by_slot[4]))
+        if by_slot.get(6):
+            refs.ms6.set_checked_values(list(by_slot[6]))
 
     def _on_load_preferred_runes_for_all(self) -> None:
-        """Load preferred rune sets and mainstats for all units that have preferences."""
         self._ensure_all_editor_pages()
-        for unit_id in list(self._set1_combo.keys()):
+        for unit_id in list(self._unit_editors.keys()):
             self._on_load_preferred_runes_for_unit(int(unit_id))
 
     def _on_load_preferred_artifacts_for_all(self) -> None:
-        """Load preferred artifact focus/substats for all units that have preferences."""
         self._ensure_all_editor_pages()
-        for unit_id in list(self._set1_combo.keys()):
+        for unit_id in list(self._unit_editors.keys()):
             self._on_load_preferred_artifacts_for_unit(int(unit_id))
 
     def _on_load_preferred_artifacts_for_unit(self, unit_id: int) -> None:
@@ -1432,7 +881,7 @@ class BuildDialog(QDialog):
         artifact_focus, artifact_substats = artifact_pref_from_entry(entry)
         if not (artifact_focus or artifact_substats):
             return
-        self._apply_artifact_preferences_to_unit_controls(
+        self._load_artifact_prefs_into_editor(
             int(uid),
             artifact_focus=artifact_focus,
             artifact_substats=artifact_substats,
@@ -1446,15 +895,15 @@ class BuildDialog(QDialog):
         if master_id <= 0:
             return
 
-        combos = self._normalized_set_options_for_unit(uid)
+        combos = self._read_set_options_from_editor(uid)
         top_set_combos = [list(c) for c in combos[:6]]
         top_set_ids = top_set_ids_from_combos(top_set_combos)
         if not top_set_ids:
             return
 
-        main_by_slot = self._current_mainstats_by_slot_for_unit(uid)
+        main_by_slot = self._read_mainstats_from_editor(uid)
         main_combos = self._current_mainstat_combos_246_for_unit(uid, limit=12)
-        artifact_focus, artifact_substats = self._current_artifact_preferences_for_unit(uid)
+        artifact_focus, artifact_substats = self._read_artifact_preferences_from_editor(uid)
         existing = self._rune_pref_entry_for_unit(uid) or {}
         merged_pref_ids = merge_preferred_set_ids(top_set_ids, existing.get("preferred_set_ids") or [])
 
@@ -1484,7 +933,7 @@ class BuildDialog(QDialog):
         if master_id <= 0:
             return
         existing = self._rune_pref_entry_for_unit(uid) or {}
-        artifact_focus, artifact_substats = self._current_artifact_preferences_for_unit(uid)
+        artifact_focus, artifact_substats = self._read_artifact_preferences_from_editor(uid)
         unit_label = str(self._unit_label_by_id.get(uid, f"Unit {uid}") or f"Unit {uid}")
         payload: Dict[str, Any] = {
             **unit_pref_metadata(self._account, uid, master_id, unit_label, existing),
@@ -1521,14 +970,12 @@ class BuildDialog(QDialog):
         return tr("build.community_status_not_loaded")
 
     def _refresh_community_status_label(self, unit_id: int) -> None:
-        uid = int(unit_id or 0)
-        lbl = self._community_status_label_by_unit.get(int(uid))
-        if lbl is None:
-            return
-        lbl.setText(self._community_status_text_for_unit(int(uid)))
+        widget = self._unit_editors.get(int(unit_id or 0))
+        if widget is not None:
+            widget.set_community_status(self._community_status_text_for_unit(int(unit_id)))
 
     def _refresh_all_community_status_labels(self) -> None:
-        for uid in list(self._community_status_label_by_unit.keys()):
+        for uid in list(self._unit_editors.keys()):
             self._refresh_community_status_label(int(uid))
 
     def _community_trend_for_unit(self, unit_id: int) -> BuildPreferenceTrend | None:
@@ -1544,38 +991,35 @@ class BuildDialog(QDialog):
         )
         return trends_by_mid.get(int(master_id))
 
-    def _apply_community_trend_to_unit_controls(self, unit_id: int, trend: BuildPreferenceTrend) -> bool:
+    def _load_community_trend_into_editor(self, unit_id: int, trend: BuildPreferenceTrend) -> bool:
         uid = int(unit_id or 0)
         if uid <= 0:
             return False
 
         self._ensure_editor_page(int(uid))
+        refs = self._editor_refs(uid)
+        if refs is None:
+            return False
 
         slot1_ids, slot2_ids, slot3_ids = set_slots_from_community_trend(trend, build_trends_set_combo_limit())
-        c1 = self._set1_combo.get(int(uid))
-        c2 = self._set2_combo.get(int(uid))
-        c3 = self._set3_combo.get(int(uid))
-        if c1 is not None and slot1_ids:
-            c1.set_checked_ids(slot1_ids)
-        if c2 is not None and slot2_ids:
-            c2.set_checked_ids(slot2_ids)
-        if c3 is not None and slot3_ids:
-            c3.set_checked_ids(slot3_ids)
+        if slot1_ids:
+            refs.set1.set_checked_ids(slot1_ids)
+        if slot2_ids:
+            refs.set2.set_checked_ids(slot2_ids)
+        if slot3_ids:
+            refs.set3.set_checked_ids(slot3_ids)
         self._sync_set_combo_constraints_for_unit(int(uid))
 
         by_slot = mainstats_from_community_trend(trend, build_trends_mainstat_limit())
-        cmb2 = self._ms2_combo.get(int(uid))
-        cmb4 = self._ms4_combo.get(int(uid))
-        cmb6 = self._ms6_combo.get(int(uid))
-        if cmb2 is not None and by_slot.get(2):
-            cmb2.set_checked_values([str(x) for x in list(by_slot.get(2) or [])])
-        if cmb4 is not None and by_slot.get(4):
-            cmb4.set_checked_values([str(x) for x in list(by_slot.get(4) or [])])
-        if cmb6 is not None and by_slot.get(6):
-            cmb6.set_checked_values([str(x) for x in list(by_slot.get(6) or [])])
+        if by_slot.get(2):
+            refs.ms2.set_checked_values([str(x) for x in list(by_slot.get(2) or [])])
+        if by_slot.get(4):
+            refs.ms4.set_checked_values([str(x) for x in list(by_slot.get(4) or [])])
+        if by_slot.get(6):
+            refs.ms6.set_checked_values([str(x) for x in list(by_slot.get(6) or [])])
 
         trend_art_focus, trend_art_subs = artifact_prefs_from_trend(trend, build_trends_artifact_substat_limit())
-        artifact_signal = self._apply_artifact_preferences_to_unit_controls(
+        artifact_signal = self._load_artifact_prefs_into_editor(
             int(uid),
             artifact_focus=trend_art_focus,
             artifact_substats=trend_art_subs,
@@ -1617,7 +1061,7 @@ class BuildDialog(QDialog):
             self._show_dialog_status(tr("status.community_trends_none"))
             return
 
-        applied = self._apply_community_trend_to_unit_controls(int(uid), trend)
+        applied = self._load_community_trend_into_editor(int(uid), trend)
         if applied:
             self._community_trend_by_unit[int(uid)] = trend
             self._community_trend_missing_units.discard(int(uid))
@@ -1637,7 +1081,7 @@ class BuildDialog(QDialog):
             return
 
         self._ensure_all_editor_pages()
-        unit_ids = [int(uid) for uid in list(self._set1_combo.keys()) if int(uid) > 0]
+        unit_ids = [int(uid) for uid in list(self._unit_editors.keys()) if int(uid) > 0]
         if not unit_ids:
             return
 
@@ -1669,7 +1113,7 @@ class BuildDialog(QDialog):
                 self._community_trend_missing_units.add(int(uid))
                 self._refresh_community_status_label(int(uid))
                 continue
-            if self._apply_community_trend_to_unit_controls(int(uid), trend):
+            if self._load_community_trend_into_editor(int(uid), trend):
                 self._community_trend_by_unit[int(uid)] = trend
                 self._community_trend_missing_units.discard(int(uid))
                 applied_count += 1
@@ -1683,99 +1127,64 @@ class BuildDialog(QDialog):
         else:
             self._show_dialog_status(tr("status.community_trends_none"))
 
-    def _apply_build_to_unit_controls(self, unit_id: int, build: Build) -> None:
+    def _load_build_into_editor(self, unit_id: int, build: Build) -> None:
         uid = int(unit_id or 0)
         if uid <= 0:
             return
         self._ensure_editor_page(int(uid))
+        refs = self._editor_refs(uid)
+        if refs is None:
+            return
 
-        c1 = self._set1_combo.get(int(uid))
-        c2 = self._set2_combo.get(int(uid))
-        c3 = self._set3_combo.get(int(uid))
         slot1_ids, slot2_ids, slot3_ids = parse_set_options_to_slot_ids(list(build.set_options or []))
-        if c1 is not None:
-            c1.set_checked_ids(list(slot1_ids))
-        if c2 is not None:
-            c2.set_checked_ids(list(slot2_ids))
-        if c3 is not None:
-            c3.set_checked_ids(list(slot3_ids))
+        refs.set1.set_checked_ids(list(slot1_ids))
+        refs.set2.set_checked_ids(list(slot2_ids))
+        refs.set3.set_checked_ids(list(slot3_ids))
         self._sync_set_combo_constraints_for_unit(int(uid))
 
         mainstats = dict(getattr(build, "mainstats", {}) or {})
         ms2_vals = list(mainstats.get(2) or mainstats.get("2") or [])
         ms4_vals = list(mainstats.get(4) or mainstats.get("4") or [])
         ms6_vals = list(mainstats.get(6) or mainstats.get("6") or [])
-        cmb2 = self._ms2_combo.get(int(uid))
-        cmb4 = self._ms4_combo.get(int(uid))
-        cmb6 = self._ms6_combo.get(int(uid))
-        if cmb2 is not None:
-            cmb2.set_checked_values([str(x) for x in ms2_vals if str(x) in MAINSTAT_KEYS])
-        if cmb4 is not None:
-            cmb4.set_checked_values([str(x) for x in ms4_vals if str(x) in MAINSTAT_KEYS])
-        if cmb6 is not None:
-            cmb6.set_checked_values([str(x) for x in ms6_vals if str(x) in MAINSTAT_KEYS])
+        refs.ms2.set_checked_values([str(x) for x in ms2_vals if str(x) in MAINSTAT_KEYS])
+        refs.ms4.set_checked_values([str(x) for x in ms4_vals if str(x) in MAINSTAT_KEYS])
+        refs.ms6.set_checked_values([str(x) for x in ms6_vals if str(x) in MAINSTAT_KEYS])
 
         artifact_focus = dict(getattr(build, "artifact_focus", {}) or {})
-        attr_focus_values = [str(x).upper() for x in (artifact_focus.get("attribute") or []) if str(x)]
-        type_focus_values = [str(x).upper() for x in (artifact_focus.get("type") or []) if str(x)]
-        art_attr_focus = self._art_attr_focus_combo.get(int(uid))
-        art_type_focus = self._art_type_focus_combo.get(int(uid))
-        if art_attr_focus is not None:
-            idx_any = art_attr_focus.findData("")
+        attr_focus_vals = [str(x).upper() for x in (artifact_focus.get("attribute") or []) if str(x)]
+        type_focus_vals = [str(x).upper() for x in (artifact_focus.get("type") or []) if str(x)]
+        for cmb in (refs.art_attr_focus, refs.art_type_focus):
+            idx_any = cmb.findData("")
             if idx_any >= 0:
-                art_attr_focus.setCurrentIndex(int(idx_any))
-            if attr_focus_values:
-                self._set_art_focus_combo_value(art_attr_focus, attr_focus_values[0])
-        if art_type_focus is not None:
-            idx_any = art_type_focus.findData("")
-            if idx_any >= 0:
-                art_type_focus.setCurrentIndex(int(idx_any))
-            if type_focus_values:
-                self._set_art_focus_combo_value(art_type_focus, type_focus_values[0])
+                cmb.setCurrentIndex(int(idx_any))
+        if attr_focus_vals:
+            set_art_focus_combo_value(refs.art_attr_focus, attr_focus_vals[0])
+        if type_focus_vals:
+            set_art_focus_combo_value(refs.art_type_focus, type_focus_vals[0])
 
         artifact_substats = dict(getattr(build, "artifact_substats", {}) or {})
         attr_subs = [int(x) for x in (artifact_substats.get("attribute") or []) if int(x) > 0][:2]
         type_subs = [int(x) for x in (artifact_substats.get("type") or []) if int(x) > 0][:2]
-        art_attr_sub1 = self._art_attr_sub1_combo.get(int(uid))
-        art_attr_sub2 = self._art_attr_sub2_combo.get(int(uid))
-        art_type_sub1 = self._art_type_sub1_combo.get(int(uid))
-        art_type_sub2 = self._art_type_sub2_combo.get(int(uid))
-        for cmb in (art_attr_sub1, art_attr_sub2, art_type_sub1, art_type_sub2):
-            if cmb is None:
-                continue
+        for cmb in (refs.art_attr_sub1, refs.art_attr_sub2, refs.art_type_sub1, refs.art_type_sub2):
             idx_any = cmb.findData(0)
             if idx_any >= 0:
                 cmb.setCurrentIndex(int(idx_any))
-        if art_attr_sub1 is not None and len(attr_subs) >= 1:
-            self._set_art_sub_combo_value(art_attr_sub1, int(attr_subs[0]))
-        if art_attr_sub2 is not None and len(attr_subs) >= 2:
-            self._set_art_sub_combo_value(art_attr_sub2, int(attr_subs[1]))
-        if art_type_sub1 is not None and len(type_subs) >= 1:
-            self._set_art_sub_combo_value(art_type_sub1, int(type_subs[0]))
-        if art_type_sub2 is not None and len(type_subs) >= 2:
-            self._set_art_sub_combo_value(art_type_sub2, int(type_subs[1]))
+        if len(attr_subs) >= 1:
+            set_art_sub_combo_value(refs.art_attr_sub1, int(attr_subs[0]))
+        if len(attr_subs) >= 2:
+            set_art_sub_combo_value(refs.art_attr_sub2, int(attr_subs[1]))
+        if len(type_subs) >= 1:
+            set_art_sub_combo_value(refs.art_type_sub1, int(type_subs[0]))
+        if len(type_subs) >= 2:
+            set_art_sub_combo_value(refs.art_type_sub2, int(type_subs[1]))
 
         current_min = dict(getattr(build, "min_stats", {}) or {})
         base_stats = unit_base_stats_for_min(self._account, int(uid))
         min_mode = min_mode_for_build(current_min)
-        min_mode_combo = self._min_mode_combo.get(int(uid))
-        if min_mode_combo is not None:
-            idx = min_mode_combo.findData(str(min_mode))
-            if idx >= 0:
-                min_mode_combo.setCurrentIndex(int(idx))
-        spin_by_key: Dict[str, QSpinBox | None] = {
-            "SPD": self._min_spd_spin.get(int(uid)),
-            "HP": self._min_hp_spin.get(int(uid)),
-            "ATK": self._min_atk_spin.get(int(uid)),
-            "DEF": self._min_def_spin.get(int(uid)),
-            "CR": self._min_cr_spin.get(int(uid)),
-            "CD": self._min_cd_spin.get(int(uid)),
-            "RES": self._min_res_spin.get(int(uid)),
-            "ACC": self._min_acc_spin.get(int(uid)),
-        }
-        for stat_key, spin in spin_by_key.items():
-            if spin is None:
-                continue
+        idx = refs.min_mode.findData(str(min_mode))
+        if idx >= 0:
+            refs.min_mode.setCurrentIndex(int(idx))
+        for stat_key, spin in refs.all_min_spins().items():
             spin.setValue(int(min_value_for_build(current_min, str(stat_key), str(min_mode), base_stats)))
 
         target_tick = int(getattr(build, "spd_tick", 0) or 0)
@@ -1784,33 +1193,32 @@ class BuildDialog(QDialog):
             tick_cmb.setCurrentIndex(int(idx) if idx >= 0 else 0)
 
     def _on_restore_saved_preset(self) -> None:
+        snap = self._initial_snapshot
         self._ensure_all_editor_pages()
-        for unit_id, build in self._initial_build_by_unit.items():
-            self._apply_build_to_unit_controls(int(unit_id), copy.deepcopy(build))
-        self._restore_unit_list_uid_order(list(self._initial_unit_list_order))
+        for unit_id, build in snap.build_by_unit.items():
+            self._load_build_into_editor(int(unit_id), copy.deepcopy(build))
+        self._restore_unit_list_uid_order(list(snap.unit_list_order))
         self._community_trends_loaded = False
         self._community_trend_by_unit = {}
         self._community_trend_missing_units = set()
         self._refresh_all_community_status_labels()
 
         for team_idx, cmb in self._team_speed_lead_combo_by_team.items():
-            target_uid = int(self._initial_team_speed_lead_by_team.get(int(team_idx), 0) or 0)
+            target_uid = int(snap.team_speed_lead_by_team.get(int(team_idx), 0) or 0)
             idx = cmb.findData(int(target_uid))
             cmb.setCurrentIndex(int(idx) if idx >= 0 else 0)
         for team_idx, spin in self._team_speed_lead_pct_spin_by_team.items():
-            val = int(self._initial_team_speed_lead_pct_by_team.get(int(team_idx), int(spin.value())) or 0)
+            val = int(snap.team_speed_lead_pct_by_team.get(int(team_idx), int(spin.value())) or 0)
             spin.setValue(max(int(spin.minimum()), min(int(spin.maximum()), int(val))))
         for key, controls in self._team_effect_controls.items():
-            team_idx = int(key[0])
-            uid = int(key[1])
-            raw = dict(self._initial_team_effect_control_state.get((team_idx, uid), {}) or {})
+            team_idx, uid = int(key[0]), int(key[1])
+            raw = dict(snap.team_effect_control_state.get((team_idx, uid), {}) or {})
             spd_chk, atb_chk, atb_spin = controls
             spd_chk.setChecked(bool(raw.get("applies_spd_buff", False)))
             atb_chk.setChecked(bool(raw.get("atb_boost_enabled", False)))
             atb_val = int(raw.get("atb_boost_pct", 0) or 0)
             atb_spin.setValue(max(int(atb_spin.minimum()), min(int(atb_spin.maximum()), int(atb_val))))
 
-        # Undo accidental "load current runes" so comparison snapshot is not carried over.
         self._loaded_current_runes = False
         self._loaded_current_runes_snapshot = {}
 
@@ -1821,22 +1229,18 @@ class BuildDialog(QDialog):
         # This action updates all units, so ensure all editors exist first.
         self._ensure_all_editor_pages()
         rune_mode = rune_mode_for_mode(self.mode)
-        for unit_id in list(self._set1_combo.keys()):
+        for unit_id in list(self._unit_editors.keys()):
+            refs = self._editor_refs(unit_id)
+            if refs is None:
+                continue
             equipped = self._account.equipped_runes_for(int(unit_id), rune_mode)
             if not equipped:
                 continue
             slot1_ids, slot2_ids, slot3_ids = slot_ids_from_equipped_runes(equipped)
-            c1 = self._set1_combo.get(unit_id)
-            c2 = self._set2_combo.get(unit_id)
-            c3 = self._set3_combo.get(unit_id)
-            if c1:
-                c1.set_checked_ids(slot1_ids)
-            if c2:
-                c2.set_checked_ids(slot2_ids)
-            if c3:
-                c3.set_checked_ids(slot3_ids)
+            refs.set1.set_checked_ids(slot1_ids)
+            refs.set2.set_checked_ids(slot2_ids)
+            refs.set3.set_checked_ids(slot3_ids)
             self._sync_set_combo_constraints_for_unit(int(unit_id))
-            # Load mainstats from slots 2, 4, 6
             for r in equipped:
                 slot = int(r.slot_no or 0)
                 if slot not in (2, 4, 6):
@@ -1845,15 +1249,9 @@ class BuildDialog(QDialog):
                 ms_key = EFFECT_ID_TO_MAINSTAT_KEY.get(eff_id, "")
                 if not ms_key:
                     continue
-                cmb = None
-                if slot == 2:
-                    cmb = self._ms2_combo.get(unit_id)
-                elif slot == 4:
-                    cmb = self._ms4_combo.get(unit_id)
-                elif slot == 6:
-                    cmb = self._ms6_combo.get(unit_id)
-                if cmb:
-                    cmb.set_checked_values([ms_key])
+                ms_cmb = {2: refs.ms2, 4: refs.ms4, 6: refs.ms6}.get(slot)
+                if ms_cmb:
+                    ms_cmb.set_checked_values([ms_key])
         self._loaded_current_runes = True
         self._loaded_current_runes_snapshot = capture_current_runes_snapshot(self._account, list(self._unit_rows_by_uid.keys()), rune_mode)
 
@@ -1964,6 +1362,164 @@ class BuildDialog(QDialog):
         self._team_speed_lead_pct_spin_by_team[int(team_index)] = pct_spin
         return row
 
+    def _build_team_list(self, team_idx: int, team_units: List[Tuple[int, str]]) -> "QListWidget":
+        team_effect_cfg = dict(self._order_turn_effects[team_idx]) if team_idx < len(self._order_turn_effects) else {}
+        lw = QListWidget()
+        lw.setDragDropMode(QAbstractItemView.InternalMove)
+        lw.setDefaultDropAction(Qt.MoveAction)
+        lw.setSelectionMode(QAbstractItemView.SingleSelection)
+        lw.setIconSize(QSize(dp(36), dp(36)))
+        rows_visible = max(1, int(len(team_units)))
+        lw.setMinimumHeight(max(dp(140), rows_visible * dp(46) + dp(14)))
+        lw.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sortable: List[Tuple[int, int, int, str, int, int]] = []
+        for pos, (uid, label) in enumerate(team_units):
+            builds = self.preset_store.get_unit_builds(self.mode, uid)
+            b0 = builds[0] if builds else Build.default_any()
+            turn = int(getattr(b0, "turn_order", 0) or 0)
+            key = int(pos) if self._order_teams is not None else (turn if turn > 0 else 999)
+            spd_tick = int(getattr(b0, "spd_tick", 0) or 0)
+            min_cfg = dict(getattr(b0, "min_stats", {}) or {})
+            min_spd_val = int(min_cfg.get("SPD", 0) or 0) or int(min_cfg.get("SPD_NO_BASE", 0) or 0)
+            sortable.append((key, pos, uid, label, spd_tick, min_spd_val))
+        sortable.sort(key=lambda x: (x[0], x[1]))
+        for _, _, uid, label, spd_tick, min_spd_val in sortable:
+            it = QListWidgetItem()
+            it.setData(Qt.UserRole, int(uid))
+            lw.addItem(it)
+            effect_cfg = dict(team_effect_cfg.get(int(uid), {}) or {})
+            effect_spd_buff = bool(effect_cfg.get("applies_spd_buff", False))
+            effect_atb_boost_pct = int(float(effect_cfg.get("atb_boost_pct", 0.0) or 0.0))
+            capability_cfg = dict(self._order_turn_effect_capabilities.get(int(uid), {}) or {})
+            can_spd_buff = bool(capability_cfg.get("has_spd_buff", False))
+            can_atb_boost = bool(capability_cfg.get("has_atb_boost", False))
+            max_atb_boost_pct = int(capability_cfg.get("max_atb_boost_pct", 0) or 0)
+            if max_atb_boost_pct <= 0:
+                max_atb_boost_pct = 100
+            spd_buff_icon_file = str(capability_cfg.get("spd_buff_skill_icon", "") or "")
+            atb_boost_icon_file = str(capability_cfg.get("atb_boost_skill_icon", "") or "")
+
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(dp(2), dp(4), dp(4), dp(4))
+            row_layout.setSpacing(dp(4))
+
+            icon_lbl = QLabel()
+            icon = self._unit_icon_fn(uid)
+            if not icon.isNull():
+                icon_lbl.setPixmap(icon.pixmap(dp(28), dp(28)))
+            row_layout.addWidget(icon_lbl)
+
+            txt_lbl = QLabel(label)
+            txt_lbl.setMinimumWidth(0)
+            txt_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            txt_lbl.setWordWrap(False)
+            row_layout.addWidget(txt_lbl, 1)
+
+            spd_text = f"SPD {min_spd_val}" if min_spd_val > 0 else ""
+            spd_lbl = QLabel(spd_text)
+            spd_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+            row_layout.addWidget(spd_lbl)
+
+            tick_lbl = QLabel(tr("label.spd_tick_short"))
+            tick_lbl.setFixedWidth(dp(22))
+            tick_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            tick_cmb = _NoScrollComboBox()
+            tick_labels: List[str] = ["-"]
+            tick_cmb.addItem("-", 0)
+            for tick in allowed_spd_ticks(self.mode):
+                tick_i = int(tick)
+                if str(self.mode).strip().lower() != "rta" and tick_i == int(LEO_LOW_SPD_TICK):
+                    low_max = int(max_spd_for_tick(tick_i, self.mode) or 0)
+                    threshold = int(low_max + 1) if low_max > 0 else 130
+                    label_txt = f"11 (<{threshold})"
+                    tick_cmb.addItem(label_txt, tick_i)
+                    tick_labels.append(label_txt)
+                    continue
+                spd_bp = min_spd_for_tick(tick_i, self.mode)
+                label_txt = f"{tick_i} (>={spd_bp})"
+                tick_cmb.addItem(label_txt, tick_i)
+                tick_labels.append(label_txt)
+            max_text_px = max((tick_cmb.fontMetrics().horizontalAdvance(tl) for tl in tick_labels), default=0)
+            tick_width = max(dp(46), int(max_text_px + dp(30)))
+            tick_cmb.setFixedWidth(tick_width)
+            idx = tick_cmb.findData(int(spd_tick))
+            tick_cmb.setCurrentIndex(idx if idx >= 0 else 0)
+            tick_cmb.setToolTip(tr("tooltip.spd_tick"))
+            tick_cmb.currentIndexChanged.connect(
+                lambda _i, _uid=int(uid), _cmb=tick_cmb: self._on_team_spd_tick_changed(_uid, _cmb)
+            )
+
+            if self._show_turn_effect_controls:
+                if can_spd_buff:
+                    spd_buff_chk = QCheckBox()
+                    _skill_icon = self._load_skill_icon(spd_buff_icon_file)
+                    if _skill_icon:
+                        spd_buff_chk.setIcon(_skill_icon)
+                        spd_buff_chk.setIconSize(QSize(dp(20), dp(20)))
+                    else:
+                        spd_buff_chk.setText("S")
+                    spd_buff_chk.setChecked(bool(effect_spd_buff))
+                    spd_buff_chk.setToolTip(tr("tooltip.effect_spd_buff"))
+                    row_layout.addWidget(spd_buff_chk)
+                else:
+                    spd_buff_chk = QCheckBox()
+                    spd_buff_chk.setChecked(False)
+                    spd_buff_chk.setVisible(False)
+
+                if can_atb_boost:
+                    atb_boost_chk = QCheckBox()
+                    _atb_icon = self._load_skill_icon(atb_boost_icon_file)
+                    if _atb_icon:
+                        atb_boost_chk.setIcon(_atb_icon)
+                        atb_boost_chk.setIconSize(QSize(dp(20), dp(20)))
+                    else:
+                        atb_boost_chk.setText("A")
+                    atb_boost_chk.setChecked(bool(effect_atb_boost_pct > 0))
+                    atb_boost_chk.setToolTip(tr("tooltip.effect_atb_boost"))
+                    row_layout.addWidget(atb_boost_chk)
+
+                    atb_boost_spin = QSpinBox()
+                    atb_boost_spin.setMinimum(0)
+                    atb_boost_spin.setMaximum(int(max_atb_boost_pct))
+                    atb_boost_spin.setSingleStep(5)
+                    atb_boost_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+                    atb_boost_spin.setSuffix("%")
+                    atb_boost_spin.setMaximumWidth(dp(56))
+                    if int(effect_atb_boost_pct) > 0:
+                        atb_boost_spin.setValue(min(int(effect_atb_boost_pct), int(max_atb_boost_pct)))
+                    else:
+                        atb_boost_spin.setValue(min(30, int(max_atb_boost_pct)))
+                    atb_boost_spin.setEnabled(bool(atb_boost_chk.isChecked()))
+                    atb_boost_chk.toggled.connect(lambda checked, spin=atb_boost_spin: spin.setEnabled(bool(checked)))
+                    row_layout.addWidget(atb_boost_spin)
+                else:
+                    atb_boost_chk = QCheckBox()
+                    atb_boost_chk.setChecked(False)
+                    atb_boost_chk.setVisible(False)
+                    atb_boost_spin = QSpinBox()
+                    atb_boost_spin.setValue(0)
+                    atb_boost_spin.setVisible(False)
+
+                self._team_effect_controls[(int(team_idx), int(uid))] = (spd_buff_chk, atb_boost_chk, atb_boost_spin)
+
+            row_layout.addWidget(tick_lbl, 0, Qt.AlignVCenter)
+            row_layout.addWidget(tick_cmb, 0, Qt.AlignVCenter)
+
+            row_min_height = max(row_widget.sizeHint().height(), tick_cmb.sizeHint().height() + dp(8))
+            row_widget.setMinimumHeight(row_min_height)
+            self._team_spd_tick_combo_by_unit.setdefault(int(uid), []).append(tick_cmb)
+            it.setSizeHint(QSize(0, int(row_min_height)))
+            lw.setItemWidget(it, row_widget)
+        if str(self.mode).strip().lower() == "arena_rush" and self._order_teams:
+            _lock_team_list_height(lw)
+        self._team_order_lists.append(lw)
+        lw.currentItemChanged.connect(
+            lambda current, _prev, _lw=lw: self._on_team_list_current_item_changed(_lw, current)
+        )
+        return lw
+
     def team_order_by_lists(self) -> List[List[int]]:
         out: List[List[int]] = []
         for lw in self._team_order_lists:
@@ -2036,12 +1592,15 @@ class BuildDialog(QDialog):
         )
 
     def _artifact_substat_ids_for_unit(self, unit_id: int, kind: str) -> List[int]:
+        refs = self._editor_refs(int(unit_id))
+        if refs is None:
+            return []
         if str(kind) == "attribute":
-            c1 = self._art_attr_sub1_combo.get(int(unit_id))
-            c2 = self._art_attr_sub2_combo.get(int(unit_id))
+            c1 = refs.art_attr_sub1
+            c2 = refs.art_attr_sub2
         else:
-            c1 = self._art_type_sub1_combo.get(int(unit_id))
-            c2 = self._art_type_sub2_combo.get(int(unit_id))
+            c1 = refs.art_type_sub1
+            c2 = refs.art_type_sub2
         vals: List[int] = []
         seen: Set[int] = set()
         for cmb in (c1, c2):
@@ -2064,29 +1623,23 @@ class BuildDialog(QDialog):
         team_turn_order_by_uid = self._team_turn_order_by_unit() if self._persist_order_fields else {}
         team_spd_tick_by_uid = self._team_spd_tick_by_unit() if self._persist_order_fields else {}
 
-        for unit_id in self._set1_combo.keys():
-            self._sync_set_combo_constraints_for_unit(int(unit_id))
+        for unit_id in self._unit_editors.keys():
+            # _read_set_options_from_editor already calls _sync_set_combo_constraints_for_unit
+            refs = self._editor_refs(int(unit_id))
+            normalized_options = self._read_set_options_from_editor(int(unit_id))
 
-            set1_ids = [int(x) for x in self._set1_combo[unit_id].checked_ids()]
-            set2_ids = [int(x) for x in self._set2_combo[unit_id].checked_ids()]
-            set3_ids = [int(x) for x in self._set3_combo[unit_id].checked_ids()] if self._is_set3_allowed_for_unit(int(unit_id)) else []
+            if not normalized_options and refs is not None:
+                has_sel = (
+                    bool(refs.set1.checked_ids())
+                    or bool(refs.set2.checked_ids())
+                    or (self._is_set3_allowed_for_unit(int(unit_id)) and bool(refs.set3.checked_ids()))
+                )
+                if has_sel:
+                    unit_label = self._unit_label_by_id.get(unit_id, str(unit_id))
+                    raise ValueError(tr("val.set_invalid", unit=unit_label))
 
-            groups: List[List[int]] = []
-            if set1_ids:
-                groups.append(set1_ids)
-            if set2_ids:
-                groups.append(set2_ids)
-            if set3_ids:
-                groups.append(set3_ids)
-
-            normalized_options = normalize_set_id_groups(groups)
-
-            if groups and not normalized_options:
-                unit_label = self._unit_label_by_id.get(unit_id, str(unit_id))
-                raise ValueError(tr("val.set_invalid", unit=unit_label))
-
-            by_slot = self._current_mainstats_by_slot_for_unit(unit_id)
-            artifact_focus, artifact_substats = self._current_artifact_preferences_for_unit(unit_id)
+            by_slot = self._read_mainstats_from_editor(int(unit_id))
+            artifact_focus, artifact_substats = self._read_artifact_preferences_from_editor(int(unit_id))
             optimize_order = int(optimize_order_by_uid.get(unit_id, 0) or 0)
             existing_builds = self.preset_store.get_unit_builds(self.mode, int(unit_id))
             existing_build = existing_builds[0] if existing_builds else Build.default_any()
@@ -2095,17 +1648,17 @@ class BuildDialog(QDialog):
             if self._persist_order_fields:
                 turn_order = int(team_turn_order_by_uid.get(unit_id, turn_order) or 0)
                 spd_tick = int(team_spd_tick_by_uid.get(unit_id, spd_tick) or 0)
-            min_mode = str(self._min_mode_combo[unit_id].currentData() or "with_base")
+            min_mode = str(refs.min_mode.currentData() or "with_base") if refs else "with_base"
             base_stats = unit_base_stats_for_min(self._account, int(unit_id))
             min_stats = build_min_stats(min_mode, base_stats, {
-                "SPD": self._min_spd_spin[unit_id].value(),
-                "HP": self._min_hp_spin[unit_id].value(),
-                "ATK": self._min_atk_spin[unit_id].value(),
-                "DEF": self._min_def_spin[unit_id].value(),
-                "CR": self._min_cr_spin[unit_id].value(),
-                "CD": self._min_cd_spin[unit_id].value(),
-                "RES": self._min_res_spin[unit_id].value(),
-                "ACC": self._min_acc_spin[unit_id].value(),
+                "SPD": refs.min_spd.value() if refs else 0,
+                "HP": refs.min_hp.value() if refs else 0,
+                "ATK": refs.min_atk.value() if refs else 0,
+                "DEF": refs.min_def.value() if refs else 0,
+                "CR": refs.min_cr.value() if refs else 0,
+                "CD": refs.min_cd.value() if refs else 0,
+                "RES": refs.min_res.value() if refs else 0,
+                "ACC": refs.min_acc.value() if refs else 0,
             })
 
             set_options = set_id_combos_to_names(normalized_options)
