@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import copy
-import json
 from math import ceil
-from itertools import combinations, product
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Set, Tuple
 
@@ -42,8 +40,6 @@ from app.domain.presets import (
     BuildStore,
     EFFECT_ID_TO_MAINSTAT_KEY,
     MAINSTAT_KEYS,
-    SET_NAMES,
-    SET_SIZES,
     SLOT2_DEFAULT,
     SLOT4_DEFAULT,
     SLOT6_DEFAULT,
@@ -54,7 +50,38 @@ from app.domain.artifact_effects import (
     artifact_effect_label,
     artifact_effect_is_legacy,
 )
+from app.domain.build_editor_helpers import (
+    artifact_pref_from_entry,
+    artifact_prefs_from_trend,
+    build_min_stats,
+    can_load_current_runes,
+    mainstat_combos_246,
+    capture_current_runes_snapshot,
+    collect_artifact_substat_options_by_type,
+    mainstats_from_community_trend,
+    min_mode_for_build,
+    min_value_for_build,
+    merge_preferred_set_ids,
+    normalize_set_id_groups,
+    parse_set_options_to_slot_ids,
+    rune_mode_for_mode,
+    slot_ids_from_equipped_runes,
+    top_set_ids_from_combos,
+    rune_pref_mainstats_by_slot,
+    rune_pref_slot_set_ids,
+    sanitize_rune_snapshot,
+    set_id_combos_to_names,
+    set_slots_from_community_trend,
+    unit_base_stats_for_min,
+    unit_master_id_for_unit,
+    unit_pref_metadata,
+    validate_order_tick_plausibility,
+)
 from app.i18n import tr
+from app.services.rune_preference_service import (
+    load_rune_pref_entries as _load_rune_prefs_from_file,
+    save_rune_pref_entry as _save_rune_pref_to_file,
+)
 from app.services.cloud_learning_service import (
     build_trends_artifact_substat_limit,
     BuildPreferenceTrend,
@@ -80,7 +107,6 @@ def _artifact_effect_label(effect_id: int) -> str:
 
 
 _MIN_BASE_STATS = ("SPD", "HP", "ATK", "DEF")
-_MIN_BASE_AWARE_STATS = ("SPD", "HP", "ATK", "DEF", "CR", "CD", "RES", "ACC")
 _RUNE_PREFS_PATH = Path(__file__).resolve().parents[2] / "config" / "monster_rune_set_preferences.json"
 
 
@@ -169,7 +195,7 @@ class BuildDialog(QDialog):
         }
         self._order_speed_lead_pct_by_team: List[int] = [int(v or 0) for v in (order_speed_lead_pct_by_team or [])]
         self._persist_order_fields = bool(persist_order_fields)
-        self._artifact_substat_options_by_type = self._collect_artifact_substat_options_by_type(self._account)
+        self._artifact_substat_options_by_type = collect_artifact_substat_options_by_type(self._account)
 
         layout = QVBoxLayout(self)
 
@@ -432,17 +458,88 @@ class BuildDialog(QDialog):
                         off_grid.addWidget(off_lw, list_row, col)
                     order_outer.addLayout(off_grid)
             elif teams:
-                # Siege/WGB: teams in a grid, max 5 per row
-                _teams_per_row = 5
-                teams_grid = QGridLayout()
-                for t, team_units in enumerate(teams):
-                    team_title = self._order_team_titles[t] if t < len(self._order_team_titles) and self._order_team_titles[t] else f"Team {t+1}"
-                    col = t % _teams_per_row
-                    row_base = (t // _teams_per_row) * 2
-                    teams_grid.addWidget(QLabel(f"<b>{team_title}</b>"), row_base, col)
-                    lw = _build_team_list(t, team_units)
-                    teams_grid.addWidget(lw, row_base + 1, col)
-                order_outer.addLayout(teams_grid)
+                # Siege/WGB: paginated teams, max 5 per page (no scrollbars)
+                _teams_per_page = 5
+                num_teams = len(teams)
+                num_pages = max(1, ceil(num_teams / _teams_per_page))
+
+                def _build_page_grid(page_idx: int) -> QWidget:
+                    page_widget = QWidget()
+                    page_grid = QGridLayout(page_widget)
+                    page_grid.setSpacing(dp(8))
+                    page_grid.setContentsMargins(0, 0, 0, 0)
+                    start = page_idx * _teams_per_page
+                    end = min(start + _teams_per_page, num_teams)
+                    for local_col, t in enumerate(range(start, end)):
+                        team_title = self._order_team_titles[t] if t < len(self._order_team_titles) and self._order_team_titles[t] else f"Team {t+1}"
+                        page_grid.addWidget(QLabel(f"<b>{team_title}</b>"), 0, local_col)
+                        lw = _build_team_list(t, teams[t])
+                        page_grid.addWidget(lw, 1, local_col)
+                    return page_widget
+
+                if num_pages == 1:
+                    order_outer.addWidget(_build_page_grid(0))
+                else:
+                    pages_stack = QStackedWidget()
+                    for pi in range(num_pages):
+                        pages_stack.addWidget(_build_page_grid(pi))
+                    order_outer.addWidget(pages_stack)
+
+                    # Navigation: ‹ dots ›
+                    _sz = dp(12)
+                    _arrow_ss = (
+                        "QPushButton {"
+                        " background: transparent; border: none; padding: 0px;"
+                        f" min-height: 0px; min-width: 0px; font-size: {dp(16)}px; color: #aaa;"
+                        "}"
+                        "QPushButton:hover { color: #fff; }"
+                    )
+
+                    def _dot_style(active: bool) -> str:
+                        col = "#3498db" if active else "#555"
+                        hov = "#5faee3" if active else "#777"
+                        r = _sz // 2
+                        return (
+                            f"QPushButton {{ background: {col}; border-radius: {r}px; border: none;"
+                            f" padding: 0px; min-height: {_sz}px; max-height: {_sz}px;"
+                            f" min-width: {_sz}px; max-width: {_sz}px; }}"
+                            f"QPushButton:hover {{ background: {hov}; }}"
+                        )
+
+                    page_dots: List[QPushButton] = []
+
+                    def _go_to_page(p: int) -> None:
+                        p = max(0, min(num_pages - 1, p))
+                        pages_stack.setCurrentIndex(p)
+                        for i, d in enumerate(page_dots):
+                            d.setStyleSheet(_dot_style(i == p))
+
+                    dot_bar = QHBoxLayout()
+                    dot_bar.setAlignment(Qt.AlignCenter)
+                    dot_bar.setSpacing(dp(8))
+                    dot_bar.setContentsMargins(0, dp(4), 0, 0)
+
+                    prev_btn = QPushButton("‹")
+                    prev_btn.setFixedSize(dp(20), dp(20))
+                    prev_btn.setStyleSheet(_arrow_ss)
+                    prev_btn.clicked.connect(lambda _checked=False: _go_to_page(pages_stack.currentIndex() - 1))
+                    dot_bar.addWidget(prev_btn)
+
+                    for pi in range(num_pages):
+                        dot = QPushButton()
+                        dot.setFixedSize(_sz, _sz)
+                        dot.setStyleSheet(_dot_style(pi == 0))
+                        dot.clicked.connect(lambda _checked=False, pp=pi: _go_to_page(pp))
+                        dot_bar.addWidget(dot)
+                        page_dots.append(dot)
+
+                    next_btn = QPushButton("›")
+                    next_btn.setFixedSize(dp(20), dp(20))
+                    next_btn.setStyleSheet(_arrow_ss)
+                    next_btn.clicked.connect(lambda _checked=False: _go_to_page(pages_stack.currentIndex() + 1))
+                    dot_bar.addWidget(next_btn)
+
+                    order_outer.addLayout(dot_bar)
 
             if str(self.mode).strip().lower() == "arena_rush":
                 # In arena rush the content height is stable; avoid an extra inner scrollbar.
@@ -451,7 +548,7 @@ class BuildDialog(QDialog):
                 order_scroll = QScrollArea()
                 order_scroll.setWidgetResizable(True)
                 order_scroll.setWidget(order_box)
-                order_scroll.setMaximumHeight(340)
+                order_scroll.setMaximumHeight(dp(340))
                 layout.addWidget(order_scroll)
 
         self._set1_combo: Dict[int, _SetMultiCombo] = {}
@@ -494,7 +591,7 @@ class BuildDialog(QDialog):
         list_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
         list_layout.addWidget(self._unit_list, 1)
         bottom_left_buttons: List[QPushButton] = []
-        if self._can_load_current_runes():
+        if can_load_current_runes(self._account, self.mode):
             btn_load_runes = QPushButton(tr("btn.load_current_runes"))
             btn_load_runes.setToolTip(tr("tooltip.load_current_runes"))
             btn_load_runes.clicked.connect(self._on_load_current_runes)
@@ -762,22 +859,6 @@ class BuildDialog(QDialog):
         if idx >= 0:
             cmb.setCurrentIndex(idx)
 
-    def _min_mode_for_build(self, min_cfg: Dict[str, int]) -> str:
-        for key in _MIN_BASE_STATS:
-            if int(min_cfg.get(f"{key}_NO_BASE", 0) or 0) > 0:
-                return "without_base"
-        return "with_base"
-
-    def _min_value_for_build(self, min_cfg: Dict[str, int], key: str, mode: str, base_stats: Dict[str, int]) -> int:
-        stat_key = str(key).upper()
-        if str(mode) == "without_base" and stat_key in _MIN_BASE_STATS:
-            return int(min_cfg.get(f"{stat_key}_NO_BASE", 0) or 0)
-        if str(mode) == "with_base" and stat_key in _MIN_BASE_AWARE_STATS:
-            raw_total = int(min_cfg.get(stat_key, 0) or 0)
-            base_val = int(base_stats.get(stat_key, 0) or 0)
-            return max(0, raw_total - base_val)
-        return int(min_cfg.get(stat_key, 0) or 0)
-
     def _make_min_mode_combo(self, mode: str) -> QComboBox:
         cmb = _NoScrollComboBox()
         cmb.addItem(tr("min.mode.with_base"), "with_base")
@@ -786,23 +867,6 @@ class BuildDialog(QDialog):
         cmb.setCurrentIndex(idx if idx >= 0 else 0)
         cmb.setMinimumWidth(190)
         return cmb
-
-    def _unit_base_stats_for_min(self, unit_id: int) -> Dict[str, int]:
-        if not self._account:
-            return {"SPD": 0, "HP": 0, "ATK": 0, "DEF": 0, "CR": 0, "CD": 0, "RES": 0, "ACC": 0}
-        unit = self._account.units_by_id.get(int(unit_id))
-        if unit is None:
-            return {"SPD": 0, "HP": 0, "ATK": 0, "DEF": 0, "CR": 0, "CD": 0, "RES": 0, "ACC": 0}
-        return {
-            "SPD": int(unit.base_spd or 0),
-            "HP": int((unit.base_con or 0) * 15),
-            "ATK": int(unit.base_atk or 0),
-            "DEF": int(unit.base_def or 0),
-            "CR": int(unit.crit_rate or 15),
-            "CD": int(unit.crit_dmg or 50),
-            "RES": int(unit.base_res or 15),
-            "ACC": int(unit.base_acc or 0),
-        }
 
     def _make_art_sub_combo(self, artifact_type: int) -> QComboBox:
         cmb = _NoScrollComboBox()
@@ -854,7 +918,7 @@ class BuildDialog(QDialog):
         cmb_set2.setMinimumWidth(dp(190))
         cmb_set3.setMinimumWidth(dp(190))
 
-        slot1_ids, slot2_ids, slot3_ids = self._parse_set_options_to_slot_ids(build.set_options or [])
+        slot1_ids, slot2_ids, slot3_ids = parse_set_options_to_slot_ids(build.set_options or [])
         cmb_set1.set_checked_ids(slot1_ids)
         cmb_set2.set_checked_ids(slot2_ids)
         cmb_set3.set_checked_ids(slot3_ids)
@@ -904,17 +968,17 @@ class BuildDialog(QDialog):
             self._set_art_sub_combo_value(art_type_sub2, type_subs[1])
 
         current_min = dict(getattr(build, "min_stats", {}) or {})
-        base_stats = self._unit_base_stats_for_min(int(unit_id))
-        min_mode = self._min_mode_for_build(current_min)
+        base_stats = unit_base_stats_for_min(self._account, int(unit_id))
+        min_mode = min_mode_for_build(current_min)
         min_mode_combo = self._make_min_mode_combo(min_mode)
-        min_spd = self._make_min_stat_spin(self._min_value_for_build(current_min, "SPD", min_mode, base_stats))
-        min_hp = self._make_min_stat_spin(self._min_value_for_build(current_min, "HP", min_mode, base_stats))
-        min_atk = self._make_min_stat_spin(self._min_value_for_build(current_min, "ATK", min_mode, base_stats))
-        min_def = self._make_min_stat_spin(self._min_value_for_build(current_min, "DEF", min_mode, base_stats))
-        min_cr = self._make_min_stat_spin(self._min_value_for_build(current_min, "CR", min_mode, base_stats))
-        min_cd = self._make_min_stat_spin(self._min_value_for_build(current_min, "CD", min_mode, base_stats))
-        min_res = self._make_min_stat_spin(self._min_value_for_build(current_min, "RES", min_mode, base_stats))
-        min_acc = self._make_min_stat_spin(self._min_value_for_build(current_min, "ACC", min_mode, base_stats))
+        min_spd = self._make_min_stat_spin(min_value_for_build(current_min, "SPD", min_mode, base_stats))
+        min_hp = self._make_min_stat_spin(min_value_for_build(current_min, "HP", min_mode, base_stats))
+        min_atk = self._make_min_stat_spin(min_value_for_build(current_min, "ATK", min_mode, base_stats))
+        min_def = self._make_min_stat_spin(min_value_for_build(current_min, "DEF", min_mode, base_stats))
+        min_cr = self._make_min_stat_spin(min_value_for_build(current_min, "CR", min_mode, base_stats))
+        min_cd = self._make_min_stat_spin(min_value_for_build(current_min, "CD", min_mode, base_stats))
+        min_res = self._make_min_stat_spin(min_value_for_build(current_min, "RES", min_mode, base_stats))
+        min_acc = self._make_min_stat_spin(min_value_for_build(current_min, "ACC", min_mode, base_stats))
 
         min_spins: Dict[str, QSpinBox] = {
             "SPD": min_spd,
@@ -1103,45 +1167,6 @@ class BuildDialog(QDialog):
         self._refresh_community_status_label(int(unit_id))
         return scroll
 
-    def _parse_set_options_to_slot_ids(self, set_options: List[List[str]]) -> Tuple[List[int], List[int], List[int]]:
-        parsed: List[List[int]] = []
-        for opt in (set_options or []):
-            if not isinstance(opt, list):
-                continue
-            row: List[int] = []
-            for name in opt:
-                sid = next((int(k) for k, sname in SET_NAMES.items() if sname == str(name)), 0)
-                if sid > 0:
-                    row.append(int(sid))
-            if row:
-                parsed.append(row)
-
-        if not parsed:
-            return [], [], []
-
-        lengths = {len(r) for r in parsed if r}
-        if len(lengths) == 1 and 1 <= next(iter(lengths)) <= 3:
-            width = int(next(iter(lengths)))
-            slots: List[List[int]] = []
-            for pos in range(width):
-                vals: List[int] = []
-                seen: Set[int] = set()
-                for row in parsed:
-                    sid = int(row[pos])
-                    if sid <= 0 or sid in seen:
-                        continue
-                    seen.add(sid)
-                    vals.append(sid)
-                slots.append(vals)
-            while len(slots) < 3:
-                slots.append([])
-            return slots[0], slots[1], slots[2]
-
-        first = [int(x) for x in (parsed[0] if parsed else [])]
-        while len(first) < 3:
-            first.append(0)
-        return [first[0]] if first[0] > 0 else [], [first[1]] if first[1] > 0 else [], [first[2]] if first[2] > 0 else []
-
     def _is_set3_allowed_for_unit(self, unit_id: int) -> bool:
         c1 = self._set1_combo.get(int(unit_id))
         c2 = self._set2_combo.get(int(unit_id))
@@ -1175,41 +1200,13 @@ class BuildDialog(QDialog):
     def _load_rune_pref_entries(self) -> Dict[int, Dict[str, Any]]:
         if self._rune_pref_entries_by_master_id is not None:
             return dict(self._rune_pref_entries_by_master_id)
-        out: Dict[int, Dict[str, Any]] = {}
-        p = Path(_RUNE_PREFS_PATH)
-        if p.exists():
-            try:
-                raw = json.loads(p.read_text(encoding="utf-8", errors="replace"))
-            except Exception:
-                raw = {}
-            if isinstance(raw, dict):
-                by_id = raw.get("by_com2us_id", raw)
-                if isinstance(by_id, dict):
-                    for mid_raw, entry_raw in by_id.items():
-                        try:
-                            mid = int(mid_raw or 0)
-                        except Exception:
-                            continue
-                        if mid <= 0 or not isinstance(entry_raw, dict):
-                            continue
-                        out[int(mid)] = dict(entry_raw or {})
-        self._rune_pref_entries_by_master_id = dict(out)
-        return dict(out)
-
-    def _unit_master_id_for_unit(self, unit_id: int) -> int:
-        uid = int(unit_id or 0)
-        if uid <= 0:
-            return 0
-        if self._account:
-            u = self._account.units_by_id.get(int(uid))
-            if u is not None and int(getattr(u, "unit_master_id", 0) or 0) > 0:
-                return int(getattr(u, "unit_master_id", 0) or 0)
-        # Fallback (e.g. without account context).
-        return int(uid)
+        result = _load_rune_prefs_from_file(_RUNE_PREFS_PATH)
+        self._rune_pref_entries_by_master_id = dict(result)
+        return dict(result)
 
     def _rune_pref_entry_for_unit(self, unit_id: int) -> Dict[str, Any] | None:
         entries = self._load_rune_pref_entries()
-        mid = self._unit_master_id_for_unit(int(unit_id))
+        mid = unit_master_id_for_unit(self._account, int(unit_id))
         if int(mid) > 0 and isinstance(entries.get(int(mid)), dict):
             return dict(entries[int(mid)])
         uid = int(unit_id or 0)
@@ -1220,203 +1217,12 @@ class BuildDialog(QDialog):
     def _has_rune_pref_for_unit(self, unit_id: int) -> bool:
         return isinstance(self._rune_pref_entry_for_unit(int(unit_id)), dict)
 
-    def _artifact_pref_from_entry(self, entry: Dict[str, Any]) -> Tuple[Dict[str, List[str]], Dict[str, List[int]]]:
-        artifact_focus: Dict[str, List[str]] = {}
-        focus_raw = dict(entry.get("artifact_focus") or {})
-        for key in ("attribute", "type"):
-            selected = ""
-            for item in list(focus_raw.get(key, []) or []):
-                cand = str(item or "").strip().upper()
-                if cand in ("HP", "ATK", "DEF"):
-                    selected = cand
-                    break
-            if selected:
-                artifact_focus[str(key)] = [selected]
-
-        artifact_substats: Dict[str, List[int]] = {}
-        subs_raw = dict(entry.get("artifact_substats") or {})
-        for key in ("attribute", "type"):
-            vals: List[int] = []
-            seen: Set[int] = set()
-            for item in list(subs_raw.get(key, []) or []):
-                try:
-                    eid = int(item or 0)
-                except Exception:
-                    eid = 0
-                if eid <= 0 or eid in seen:
-                    continue
-                seen.add(eid)
-                vals.append(int(eid))
-                if len(vals) >= 2:
-                    break
-            if vals:
-                artifact_substats[str(key)] = list(vals)
-
-        return artifact_focus, artifact_substats
-
     def _has_artifact_pref_for_unit(self, unit_id: int) -> bool:
         entry = self._rune_pref_entry_for_unit(int(unit_id))
         if not isinstance(entry, dict):
             return False
-        artifact_focus, artifact_substats = self._artifact_pref_from_entry(entry)
+        artifact_focus, artifact_substats = artifact_pref_from_entry(entry)
         return bool(artifact_focus or artifact_substats)
-
-    def _normalize_mainstat_pref_key(self, value: Any) -> str:
-        raw = str(value or "").strip().upper().replace(" ", "")
-        if not raw:
-            return ""
-        mapping = {
-            "HP": "HP%",
-            "HP%": "HP%",
-            "HPP": "HP%",
-            "ATK": "ATK%",
-            "ATK%": "ATK%",
-            "ATKP": "ATK%",
-            "DEF": "DEF%",
-            "DEF%": "DEF%",
-            "DEFP": "DEF%",
-            "SPD": "SPD",
-            "CR": "CR",
-            "CD": "CD",
-            "RES": "RES",
-            "ACC": "ACC",
-        }
-        key = mapping.get(raw, raw)
-        return str(key) if str(key) in MAINSTAT_KEYS else ""
-
-    def _rune_pref_slot_set_ids(self, entry: Dict[str, Any]) -> Tuple[List[int], List[int], List[int]]:
-        combos_raw = list(entry.get("top_set_combos") or []) + list(entry.get("preferred_set_combos") or [])
-        combos: List[List[int]] = []
-        seen_combo_keys: Set[Tuple[int, ...]] = set()
-        for combo in combos_raw:
-            if not isinstance(combo, (list, tuple)):
-                continue
-            row: List[int] = []
-            for x in list(combo)[:3]:
-                sid = int(x or 0)
-                if sid > 0 and sid in SET_NAMES:
-                    row.append(int(sid))
-            if row:
-                key = tuple(int(v) for v in row)
-                if key in seen_combo_keys:
-                    continue
-                seen_combo_keys.add(key)
-                combos.append(row)
-
-        # Fallback: derive coverage-friendly combos from top/preferred set IDs.
-        if not combos:
-            ranked_ids: List[int] = []
-            for sid in [int(x) for x in (entry.get("top_set_ids") or []) + (entry.get("preferred_set_ids") or [])]:
-                if sid > 0 and sid in SET_NAMES and sid not in ranked_ids:
-                    ranked_ids.append(int(sid))
-                if len(ranked_ids) >= 8:
-                    break
-            four_sets = [sid for sid in ranked_ids if int(SET_SIZES.get(int(sid), 2) or 2) == 4]
-            two_sets = [sid for sid in ranked_ids if int(SET_SIZES.get(int(sid), 2) or 2) == 2]
-            if four_sets and two_sets:
-                for a in four_sets:
-                    for b in two_sets:
-                        combos.append([int(a), int(b)])
-                        if len(combos) >= 12:
-                            break
-                    if len(combos) >= 12:
-                        break
-            elif len(two_sets) >= 2:
-                for a, b in combinations(two_sets, 2):
-                    combos.append([int(a), int(b)])
-                    if len(combos) >= 12:
-                        break
-                if len(two_sets) >= 3 and len(combos) < 12:
-                    for a, b, c in combinations(two_sets, 3):
-                        combos.append([int(a), int(b), int(c)])
-                        if len(combos) >= 12:
-                            break
-            elif ranked_ids:
-                combos = [[int(sid)] for sid in ranked_ids[:3]]
-
-        if combos:
-            by_width: Dict[int, List[List[int]]] = {1: [], 2: [], 3: []}
-            for row in combos:
-                w = int(len(row))
-                if 1 <= w <= 3:
-                    by_width[w].append(list(row))
-
-            best_layout: Tuple[List[int], List[int], List[int]] | None = None
-            best_score: Tuple[int, int] = (-1, -1)  # (covered combos, width)
-            for width in (3, 2, 1):
-                rows = list(by_width.get(int(width), []) or [])
-                if not rows:
-                    continue
-                slots: List[List[int]] = []
-                for pos in range(int(width)):
-                    vals: List[int] = []
-                    seen_vals: Set[int] = set()
-                    for row in rows:
-                        sid = int(row[pos] or 0)
-                        if sid <= 0 or sid in seen_vals:
-                            continue
-                        seen_vals.add(int(sid))
-                        vals.append(int(sid))
-                    slots.append(vals)
-                while len(slots) < 3:
-                    slots.append([])
-                s1, s2, s3 = slots[0], slots[1], slots[2]
-                # UI constraint: Set 3 only available if Set1+Set2 are both 2-set only.
-                if width == 3:
-                    if any(int(SET_SIZES.get(int(sid), 2) or 2) != 2 for sid in (s1 + s2)):
-                        continue
-                covered = len(rows)
-                score = (int(covered), int(width))
-                if score > best_score:
-                    best_score = score
-                    best_layout = (list(s1), list(s2), list(s3))
-
-            if best_layout is not None:
-                return best_layout
-
-            first = list(combos[0])
-            while len(first) < 3:
-                first.append(0)
-            return (
-                [int(first[0])] if int(first[0]) > 0 else [],
-                [int(first[1])] if int(first[1]) > 0 else [],
-                [int(first[2])] if int(first[2]) > 0 else [],
-            )
-
-        top_set_ids = [int(x) for x in (entry.get("top_set_ids") or []) if int(x) > 0 and int(x) in SET_NAMES]
-        while len(top_set_ids) < 3:
-            top_set_ids.append(0)
-        return (
-            [int(top_set_ids[0])] if int(top_set_ids[0]) > 0 else [],
-            [int(top_set_ids[1])] if int(top_set_ids[1]) > 0 else [],
-            [int(top_set_ids[2])] if int(top_set_ids[2]) > 0 else [],
-        )
-
-    def _rune_pref_mainstats_by_slot(self, entry: Dict[str, Any]) -> Dict[int, List[str]]:
-        out: Dict[int, List[str]] = {2: [], 4: [], 6: []}
-        by_slot = entry.get("top_mainstats_by_slot")
-        if isinstance(by_slot, dict):
-            for slot in (2, 4, 6):
-                vals_raw = by_slot.get(str(slot), by_slot.get(int(slot), []))
-                for raw in list(vals_raw or []):
-                    key = self._normalize_mainstat_pref_key(raw)
-                    if key and key not in out[slot]:
-                        out[slot].append(key)
-
-        combos_raw = list(entry.get("top_mainstat_combos_246") or [])
-        for combo in combos_raw:
-            if not isinstance(combo, (list, tuple)) or len(combo) < 3:
-                continue
-            for idx, slot in enumerate((2, 4, 6)):
-                key = self._normalize_mainstat_pref_key(combo[idx])
-                if key and key not in out[slot]:
-                    out[slot].append(key)
-
-        return {
-            2: [str(x) for x in out[2] if str(x) in MAINSTAT_KEYS],
-            4: [str(x) for x in out[4] if str(x) in MAINSTAT_KEYS],
-            6: [str(x) for x in out[6] if str(x) in MAINSTAT_KEYS],
-        }
 
     def _apply_artifact_preferences_to_unit_controls(
         self,
@@ -1530,26 +1336,7 @@ class BuildDialog(QDialog):
         if not groups:
             return []
 
-        normalized: List[List[int]] = []
-        seen_opts: Set[Tuple[int, ...]] = set()
-        for opt in product(*groups):
-            cleaned: List[int] = []
-            for sid in opt:
-                sid_i = int(sid or 0)
-                if sid_i <= 0 or sid_i not in SET_NAMES:
-                    continue
-                cleaned.append(int(sid_i))
-            if not cleaned:
-                continue
-            total_pieces = sum(int(SET_SIZES.get(int(sid), 2) or 2) for sid in cleaned)
-            if int(total_pieces) > 6:
-                continue
-            key = tuple(cleaned)
-            if key in seen_opts:
-                continue
-            seen_opts.add(key)
-            normalized.append(list(cleaned))
-        return normalized
+        return normalize_set_id_groups(groups)
 
     def _current_mainstats_by_slot_for_unit(self, unit_id: int) -> Dict[int, List[str]]:
         out: Dict[int, List[str]] = {2: [], 4: [], 6: []}
@@ -1565,18 +1352,7 @@ class BuildDialog(QDialog):
         return out
 
     def _current_mainstat_combos_246_for_unit(self, unit_id: int, limit: int = 12) -> List[List[str]]:
-        by_slot = self._current_mainstats_by_slot_for_unit(int(unit_id))
-        s2 = list(by_slot.get(2) or [])
-        s4 = list(by_slot.get(4) or [])
-        s6 = list(by_slot.get(6) or [])
-        if not s2 or not s4 or not s6:
-            return []
-        out: List[List[str]] = []
-        for a, b, c in product(s2, s4, s6):
-            out.append([str(a), str(b), str(c)])
-            if len(out) >= int(max(1, int(limit or 1))):
-                break
-        return out
+        return mainstat_combos_246(self._current_mainstats_by_slot_for_unit(int(unit_id)), limit)
 
     def _current_artifact_preferences_for_unit(self, unit_id: int) -> Tuple[Dict[str, List[str]], Dict[str, List[int]]]:
         uid = int(unit_id or 0)
@@ -1600,55 +1376,18 @@ class BuildDialog(QDialog):
 
         return artifact_focus, artifact_substats
 
-    def _element_name_for_master_id(self, master_id: int) -> str:
-        elem_map = {1: "Water", 2: "Fire", 3: "Wind", 4: "Light", 5: "Dark"}
-        m = int(master_id or 0)
-        if m <= 0:
-            return ""
-        return str(elem_map.get(int(m % 10), "") or "")
-
     def _save_rune_pref_entry(self, master_id: int, payload: Dict[str, Any]) -> bool:
-        mid = int(master_id or 0)
-        if mid <= 0:
-            return False
-        p = Path(_RUNE_PREFS_PATH)
-        raw: Dict[str, Any] = {}
-        if p.exists():
-            try:
-                loaded = json.loads(p.read_text(encoding="utf-8", errors="replace"))
-                if isinstance(loaded, dict):
-                    raw = dict(loaded)
-            except Exception:
-                raw = {}
-        by_id = raw.get("by_com2us_id")
-        if isinstance(by_id, dict):
-            entries = dict(by_id)
-            raw["by_com2us_id"] = entries
-        else:
-            # Keep compat for legacy flat files, but prefer explicit envelope.
-            entries = {}
-            for k, v in dict(raw).items():
-                try:
-                    if int(k) > 0 and isinstance(v, dict):
-                        entries[str(int(k))] = dict(v)
-                except Exception:
-                    continue
-            raw["by_com2us_id"] = entries
-
-        existing = dict(entries.get(str(mid), {}) or {})
-        existing.update(dict(payload or {}))
-        entries[str(mid)] = existing
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self._rune_pref_entries_by_master_id = None
-        return True
+        ok = _save_rune_pref_to_file(_RUNE_PREFS_PATH, master_id, payload)
+        if ok:
+            self._rune_pref_entries_by_master_id = None
+        return ok
 
     def _on_load_preferred_runes_for_unit(self, unit_id: int) -> None:
         entry = self._rune_pref_entry_for_unit(int(unit_id))
         if not isinstance(entry, dict):
             return
 
-        slot1_ids, slot2_ids, slot3_ids = self._rune_pref_slot_set_ids(entry)
+        slot1_ids, slot2_ids, slot3_ids = rune_pref_slot_set_ids(entry)
         c1 = self._set1_combo.get(int(unit_id))
         c2 = self._set2_combo.get(int(unit_id))
         c3 = self._set3_combo.get(int(unit_id))
@@ -1660,7 +1399,7 @@ class BuildDialog(QDialog):
             c3.set_checked_ids(slot3_ids)
         self._sync_set_combo_constraints_for_unit(int(unit_id))
 
-        by_slot = self._rune_pref_mainstats_by_slot(entry)
+        by_slot = rune_pref_mainstats_by_slot(entry)
         cmb2 = self._ms2_combo.get(int(unit_id))
         cmb4 = self._ms4_combo.get(int(unit_id))
         cmb6 = self._ms6_combo.get(int(unit_id))
@@ -1690,7 +1429,7 @@ class BuildDialog(QDialog):
         entry = self._rune_pref_entry_for_unit(int(uid))
         if not isinstance(entry, dict):
             return
-        artifact_focus, artifact_substats = self._artifact_pref_from_entry(entry)
+        artifact_focus, artifact_substats = artifact_pref_from_entry(entry)
         if not (artifact_focus or artifact_substats):
             return
         self._apply_artifact_preferences_to_unit_controls(
@@ -1703,22 +1442,13 @@ class BuildDialog(QDialog):
         uid = int(unit_id or 0)
         if uid <= 0:
             return
-        master_id = self._unit_master_id_for_unit(uid)
+        master_id = unit_master_id_for_unit(self._account, uid)
         if master_id <= 0:
             return
 
         combos = self._normalized_set_options_for_unit(uid)
         top_set_combos = [list(c) for c in combos[:6]]
-        top_set_ids: List[int] = []
-        for combo in top_set_combos:
-            for sid in combo:
-                si = int(sid or 0)
-                if si > 0 and si in SET_NAMES and si not in top_set_ids:
-                    top_set_ids.append(int(si))
-                if len(top_set_ids) >= 6:
-                    break
-            if len(top_set_ids) >= 6:
-                break
+        top_set_ids = top_set_ids_from_combos(top_set_combos)
         if not top_set_ids:
             return
 
@@ -1726,20 +1456,11 @@ class BuildDialog(QDialog):
         main_combos = self._current_mainstat_combos_246_for_unit(uid, limit=12)
         artifact_focus, artifact_substats = self._current_artifact_preferences_for_unit(uid)
         existing = self._rune_pref_entry_for_unit(uid) or {}
-        merged_pref_ids: List[int] = []
-        for sid in top_set_ids + [int(x) for x in (existing.get("preferred_set_ids") or []) if int(x) > 0]:
-            si = int(sid or 0)
-            if si > 0 and si in SET_NAMES and si not in merged_pref_ids:
-                merged_pref_ids.append(int(si))
-            if len(merged_pref_ids) >= 10:
-                break
+        merged_pref_ids = merge_preferred_set_ids(top_set_ids, existing.get("preferred_set_ids") or [])
 
         unit_label = str(self._unit_label_by_id.get(uid, f"Unit {uid}") or f"Unit {uid}")
         payload: Dict[str, Any] = {
-            "name": str(existing.get("name") or unit_label),
-            "element": str(existing.get("element") or self._element_name_for_master_id(master_id)),
-            "archetype": str(existing.get("archetype") or "Unknown"),
-            "awaken_level": int(existing.get("awaken_level", 1) or 1),
+            **unit_pref_metadata(self._account, uid, master_id, unit_label, existing),
             "top_set_ids": list(top_set_ids[:3]),
             "preferred_set_ids": list(merged_pref_ids[:10]),
             "top_set_combos": list(top_set_combos),
@@ -1753,49 +1474,23 @@ class BuildDialog(QDialog):
             "artifact_focus": dict(artifact_focus),
             "artifact_substats": dict(artifact_substats),
         }
-        if "base_stars" in existing:
-            payload["base_stars"] = int(existing.get("base_stars", 0) or 0)
-        elif self._account:
-            unit_obj = self._account.units_by_id.get(uid)
-            if unit_obj is not None:
-                payload["base_stars"] = int(getattr(unit_obj, "unit_class", 0) or 0)
         self._save_rune_pref_entry(master_id=master_id, payload=payload)
 
     def _on_save_preferred_artifacts_for_unit(self, unit_id: int) -> None:
         uid = int(unit_id or 0)
         if uid <= 0:
             return
-        master_id = self._unit_master_id_for_unit(uid)
+        master_id = unit_master_id_for_unit(self._account, uid)
         if master_id <= 0:
             return
         existing = self._rune_pref_entry_for_unit(uid) or {}
         artifact_focus, artifact_substats = self._current_artifact_preferences_for_unit(uid)
+        unit_label = str(self._unit_label_by_id.get(uid, f"Unit {uid}") or f"Unit {uid}")
         payload: Dict[str, Any] = {
+            **unit_pref_metadata(self._account, uid, master_id, unit_label, existing),
             "artifact_focus": dict(artifact_focus),
             "artifact_substats": dict(artifact_substats),
         }
-        if "name" in existing:
-            payload["name"] = str(existing.get("name") or "")
-        else:
-            payload["name"] = str(self._unit_label_by_id.get(uid, f"Unit {uid}") or f"Unit {uid}")
-        if "element" in existing:
-            payload["element"] = str(existing.get("element") or "")
-        else:
-            payload["element"] = str(self._element_name_for_master_id(master_id))
-        if "archetype" in existing:
-            payload["archetype"] = str(existing.get("archetype") or "Unknown")
-        else:
-            payload["archetype"] = "Unknown"
-        if "awaken_level" in existing:
-            payload["awaken_level"] = int(existing.get("awaken_level", 1) or 1)
-        else:
-            payload["awaken_level"] = 1
-        if "base_stars" in existing:
-            payload["base_stars"] = int(existing.get("base_stars", 0) or 0)
-        elif self._account:
-            unit_obj = self._account.units_by_id.get(uid)
-            if unit_obj is not None:
-                payload["base_stars"] = int(getattr(unit_obj, "unit_class", 0) or 0)
         self._save_rune_pref_entry(master_id=master_id, payload=payload)
 
     def _show_dialog_status(self, text: str, timeout_ms: int = 5000) -> None:
@@ -1840,7 +1535,7 @@ class BuildDialog(QDialog):
         uid = int(unit_id or 0)
         if uid <= 0:
             return None
-        master_id = self._unit_master_id_for_unit(int(uid))
+        master_id = unit_master_id_for_unit(self._account, int(uid))
         if master_id <= 0:
             return None
         trends_by_mid = fetch_build_preference_trends(
@@ -1849,52 +1544,6 @@ class BuildDialog(QDialog):
         )
         return trends_by_mid.get(int(master_id))
 
-    def _set_slots_from_community_trend(self, trend: BuildPreferenceTrend) -> Tuple[List[int], List[int], List[int]]:
-        top_n = max(1, int(build_trends_set_combo_limit()))
-        set_options: List[List[str]] = []
-        seen: Set[Tuple[str, ...]] = set()
-        for combo in list(trend.top_set_combos or [])[:top_n]:
-            names: List[str] = []
-            total_pieces = 0
-            for sid in list(combo or [])[:3]:
-                sid_i = int(sid or 0)
-                set_name = str(SET_NAMES.get(int(sid_i), "") or "")
-                if not set_name:
-                    continue
-                names.append(set_name)
-                total_pieces += int(SET_SIZES.get(int(sid_i), 2) or 2)
-            if not names or int(total_pieces) > 6:
-                continue
-            key = tuple(names)
-            if key in seen:
-                continue
-            seen.add(key)
-            set_options.append(names)
-            if len(set_options) >= 16:
-                break
-        return self._parse_set_options_to_slot_ids(set_options)
-
-    def _mainstats_from_community_trend(self, trend: BuildPreferenceTrend) -> Dict[int, List[str]]:
-        top_n = max(1, int(build_trends_mainstat_limit()))
-        raw_slot_map: Dict[str, List[str]] = {
-            "2": [str(x) for x in list((trend.mainstats_by_slot or {}).get(2, []) or [])[:top_n]],
-            "4": [str(x) for x in list((trend.mainstats_by_slot or {}).get(4, []) or [])[:top_n]],
-            "6": [str(x) for x in list((trend.mainstats_by_slot or {}).get(6, []) or [])[:top_n]],
-        }
-        entry = {
-            "top_mainstats_by_slot": raw_slot_map,
-            "top_mainstat_combos_246": [
-                list(x)
-                for x in list(trend.top_mainstat_combos_246 or [])[:top_n]
-                if isinstance(x, list)
-            ],
-        }
-        by_slot = self._rune_pref_mainstats_by_slot(entry)
-        for slot in (2, 4, 6):
-            vals = [str(x) for x in list(by_slot.get(int(slot), []) or [])]
-            by_slot[int(slot)] = vals[:top_n]
-        return by_slot
-
     def _apply_community_trend_to_unit_controls(self, unit_id: int, trend: BuildPreferenceTrend) -> bool:
         uid = int(unit_id or 0)
         if uid <= 0:
@@ -1902,7 +1551,7 @@ class BuildDialog(QDialog):
 
         self._ensure_editor_page(int(uid))
 
-        slot1_ids, slot2_ids, slot3_ids = self._set_slots_from_community_trend(trend)
+        slot1_ids, slot2_ids, slot3_ids = set_slots_from_community_trend(trend, build_trends_set_combo_limit())
         c1 = self._set1_combo.get(int(uid))
         c2 = self._set2_combo.get(int(uid))
         c3 = self._set3_combo.get(int(uid))
@@ -1914,7 +1563,7 @@ class BuildDialog(QDialog):
             c3.set_checked_ids(slot3_ids)
         self._sync_set_combo_constraints_for_unit(int(uid))
 
-        by_slot = self._mainstats_from_community_trend(trend)
+        by_slot = mainstats_from_community_trend(trend, build_trends_mainstat_limit())
         cmb2 = self._ms2_combo.get(int(uid))
         cmb4 = self._ms4_combo.get(int(uid))
         cmb6 = self._ms6_combo.get(int(uid))
@@ -1925,20 +1574,7 @@ class BuildDialog(QDialog):
         if cmb6 is not None and by_slot.get(6):
             cmb6.set_checked_values([str(x) for x in list(by_slot.get(6) or [])])
 
-        art_sub_limit = max(1, int(build_trends_artifact_substat_limit()))
-        trend_art_focus = dict(trend.artifact_focus or {})
-        trend_art_subs = {
-            "attribute": [
-                int(x)
-                for x in list((trend.artifact_substats or {}).get("attribute", []) or [])
-                if int(x) > 0
-            ][:art_sub_limit],
-            "type": [
-                int(x)
-                for x in list((trend.artifact_substats or {}).get("type", []) or [])
-                if int(x) > 0
-            ][:art_sub_limit],
-        }
+        trend_art_focus, trend_art_subs = artifact_prefs_from_trend(trend, build_trends_artifact_substat_limit())
         artifact_signal = self._apply_artifact_preferences_to_unit_controls(
             int(uid),
             artifact_focus=trend_art_focus,
@@ -2007,7 +1643,7 @@ class BuildDialog(QDialog):
 
         unit_master_by_uid: Dict[int, int] = {}
         for uid in unit_ids:
-            master_id = self._unit_master_id_for_unit(int(uid))
+            master_id = unit_master_id_for_unit(self._account, int(uid))
             if master_id > 0:
                 unit_master_by_uid[int(uid)] = int(master_id)
         if not unit_master_by_uid:
@@ -2056,7 +1692,7 @@ class BuildDialog(QDialog):
         c1 = self._set1_combo.get(int(uid))
         c2 = self._set2_combo.get(int(uid))
         c3 = self._set3_combo.get(int(uid))
-        slot1_ids, slot2_ids, slot3_ids = self._parse_set_options_to_slot_ids(list(build.set_options or []))
+        slot1_ids, slot2_ids, slot3_ids = parse_set_options_to_slot_ids(list(build.set_options or []))
         if c1 is not None:
             c1.set_checked_ids(list(slot1_ids))
         if c2 is not None:
@@ -2120,8 +1756,8 @@ class BuildDialog(QDialog):
             self._set_art_sub_combo_value(art_type_sub2, int(type_subs[1]))
 
         current_min = dict(getattr(build, "min_stats", {}) or {})
-        base_stats = self._unit_base_stats_for_min(int(uid))
-        min_mode = self._min_mode_for_build(current_min)
+        base_stats = unit_base_stats_for_min(self._account, int(uid))
+        min_mode = min_mode_for_build(current_min)
         min_mode_combo = self._min_mode_combo.get(int(uid))
         if min_mode_combo is not None:
             idx = min_mode_combo.findData(str(min_mode))
@@ -2140,7 +1776,7 @@ class BuildDialog(QDialog):
         for stat_key, spin in spin_by_key.items():
             if spin is None:
                 continue
-            spin.setValue(int(self._min_value_for_build(current_min, str(stat_key), str(min_mode), base_stats)))
+            spin.setValue(int(min_value_for_build(current_min, str(stat_key), str(min_mode), base_stats)))
 
         target_tick = int(getattr(build, "spd_tick", 0) or 0)
         for tick_cmb in list(self._team_spd_tick_combo_by_unit.get(int(uid), []) or []):
@@ -2184,39 +1820,12 @@ class BuildDialog(QDialog):
             return
         # This action updates all units, so ensure all editors exist first.
         self._ensure_all_editor_pages()
-        rune_mode = self._rune_mode_for_load_current_runes()
+        rune_mode = rune_mode_for_mode(self.mode)
         for unit_id in list(self._set1_combo.keys()):
             equipped = self._account.equipped_runes_for(int(unit_id), rune_mode)
             if not equipped:
                 continue
-            # Count complete set instances (e.g. 6x Shield => 3 complete Shield sets).
-            set_counts: Dict[int, int] = {}
-            for r in equipped:
-                sid = int(r.set_id or 0)
-                if sid > 0:
-                    set_counts[sid] = set_counts.get(sid, 0) + 1
-            active_sets: List[int] = []
-            for sid, cnt in set_counts.items():
-                if sid not in SET_NAMES:
-                    continue
-                required = int(SET_SIZES.get(sid, 2))
-                if required <= 0:
-                    continue
-                complete_count = int(cnt // required)
-                for _ in range(max(0, complete_count)):
-                    active_sets.append(int(sid))
-            # Distribute into set slots by size: 4-sets first, then 2-sets
-            active_sets.sort(key=lambda s: (-int(SET_SIZES.get(s, 2)), s))
-            slot1_ids: List[int] = []
-            slot2_ids: List[int] = []
-            slot3_ids: List[int] = []
-            for sid in active_sets:
-                if not slot1_ids:
-                    slot1_ids.append(sid)
-                elif not slot2_ids:
-                    slot2_ids.append(sid)
-                else:
-                    slot3_ids.append(sid)
+            slot1_ids, slot2_ids, slot3_ids = slot_ids_from_equipped_runes(equipped)
             c1 = self._set1_combo.get(unit_id)
             c2 = self._set2_combo.get(unit_id)
             c3 = self._set3_combo.get(unit_id)
@@ -2246,79 +1855,8 @@ class BuildDialog(QDialog):
                 if cmb:
                     cmb.set_checked_values([ms_key])
         self._loaded_current_runes = True
-        self._loaded_current_runes_snapshot = self._capture_current_runes_snapshot(rune_mode)
+        self._loaded_current_runes_snapshot = capture_current_runes_snapshot(self._account, list(self._unit_rows_by_uid.keys()), rune_mode)
 
-    def _can_load_current_runes(self) -> bool:
-        mode_key = str(self.mode or "").strip().lower()
-        return bool(self._account) and mode_key in ("siege", "wgb", "rta", "arena_rush")
-
-    def _rune_mode_for_load_current_runes(self) -> str:
-        mode_key = str(self.mode or "").strip().lower()
-        if mode_key == "rta":
-            return "rta"
-        if mode_key in ("siege", "wgb"):
-            # PvP/Siege equips from guild_rune_equip.
-            return "siege"
-        if mode_key == "arena_rush":
-            # Arena Rush preloads current PvE equips.
-            return "pve"
-        return "pve"
-
-    def _capture_current_runes_snapshot(self, rune_mode: str) -> Dict[str, Any]:
-        if not self._account:
-            return {}
-        runes_by_unit: Dict[int, Dict[int, int]] = {}
-        artifacts_by_unit: Dict[int, Dict[int, int]] = {}
-        for unit_id in [int(uid) for uid in self._unit_rows_by_uid.keys() if int(uid) > 0]:
-            equipped = self._account.equipped_runes_for(int(unit_id), str(rune_mode))
-            slot_map: Dict[int, int] = {}
-            for rune in (equipped or []):
-                slot = int(getattr(rune, "slot_no", 0) or 0)
-                rid = int(getattr(rune, "rune_id", 0) or 0)
-                if 1 <= slot <= 6 and rid > 0:
-                    slot_map[int(slot)] = int(rid)
-            if slot_map:
-                runes_by_unit[int(unit_id)] = slot_map
-
-            art_map = self._equipped_artifacts_for_unit(int(unit_id), str(rune_mode))
-            if art_map:
-                artifacts_by_unit[int(unit_id)] = art_map
-
-        return {
-            "mode": str(rune_mode),
-            "runes_by_unit": runes_by_unit,
-            "artifacts_by_unit": artifacts_by_unit,
-        }
-
-    def _equipped_artifacts_for_unit(self, unit_id: int, rune_mode: str) -> Dict[int, int]:
-        if not self._account:
-            return {}
-        uid = int(unit_id or 0)
-        if uid <= 0:
-            return {}
-
-        by_id = {int(a.artifact_id): a for a in (self._account.artifacts or [])}
-        out: Dict[int, int] = {}
-
-        if str(rune_mode).strip().lower() == "rta":
-            for aid in (self._account.rta_artifact_equip.get(int(uid), []) or []):
-                art = by_id.get(int(aid))
-                if art is None:
-                    continue
-                art_type = int(getattr(art, "type_", 0) or 0)
-                if art_type in (1, 2) and art_type not in out:
-                    out[int(art_type)] = int(aid)
-            if len(out) >= 2:
-                return out
-
-        for art in (self._account.artifacts or []):
-            if int(getattr(art, "occupied_id", 0) or 0) != int(uid):
-                continue
-            art_type = int(getattr(art, "type_", 0) or 0)
-            aid = int(getattr(art, "artifact_id", 0) or 0)
-            if art_type in (1, 2) and aid > 0 and art_type not in out:
-                out[int(art_type)] = int(aid)
-        return out
 
     def loaded_current_runes_snapshot(self) -> Dict[str, Any] | None:
         if not bool(self._loaded_current_runes):
@@ -2326,39 +1864,7 @@ class BuildDialog(QDialog):
         snap = dict(self._loaded_current_runes_snapshot or {})
         if not snap:
             return None
-        runes_raw = dict(snap.get("runes_by_unit") or {})
-        artifacts_raw = dict(snap.get("artifacts_by_unit") or {})
-        runes_by_unit: Dict[int, Dict[int, int]] = {}
-        artifacts_by_unit: Dict[int, Dict[int, int]] = {}
-        for uid, by_slot in runes_raw.items():
-            ui = int(uid or 0)
-            if ui <= 0:
-                continue
-            clean_slots: Dict[int, int] = {}
-            for slot, rid in dict(by_slot or {}).items():
-                s = int(slot or 0)
-                r = int(rid or 0)
-                if 1 <= s <= 6 and r > 0:
-                    clean_slots[int(s)] = int(r)
-            if clean_slots:
-                runes_by_unit[int(ui)] = clean_slots
-        for uid, by_type in artifacts_raw.items():
-            ui = int(uid or 0)
-            if ui <= 0:
-                continue
-            clean_types: Dict[int, int] = {}
-            for art_type, aid in dict(by_type or {}).items():
-                t = int(art_type or 0)
-                a = int(aid or 0)
-                if t in (1, 2) and a > 0:
-                    clean_types[int(t)] = int(a)
-            if clean_types:
-                artifacts_by_unit[int(ui)] = clean_types
-        return {
-            "mode": str(snap.get("mode", "")),
-            "runes_by_unit": runes_by_unit,
-            "artifacts_by_unit": artifacts_by_unit,
-        }
+        return sanitize_rune_snapshot(snap)
 
     def _optimize_order_by_unit(self) -> Dict[int, int]:
         source = self._opt_order_list or self._unit_list
@@ -2516,137 +2022,18 @@ class BuildDialog(QDialog):
                 return title
         return f"Team {int(team_index) + 1}"
 
-    def _has_spd_buff_before_turn(
-        self,
-        team_order: List[int],
-        team_effect_cfg: Dict[int, Dict[str, Any]],
-        target_uid: int,
-    ) -> bool:
-        order = [int(uid) for uid in (team_order or []) if int(uid) > 0]
-        tu = int(target_uid or 0)
-        if tu <= 0 or tu not in order:
-            return False
-        pos_target = order.index(int(tu))
-        for pos, caster_uid in enumerate(order):
-            if pos >= pos_target:
-                break
-            cfg = dict((team_effect_cfg or {}).get(int(caster_uid), {}) or {})
-            if bool(cfg.get("applies_spd_buff", False)):
-                return True
-        return False
-
-    def _atb_boost_before_turn_pct(
-        self,
-        team_order: List[int],
-        team_effect_cfg: Dict[int, Dict[str, Any]],
-        target_uid: int,
-    ) -> float:
-        order = [int(uid) for uid in (team_order or []) if int(uid) > 0]
-        tu = int(target_uid or 0)
-        if tu <= 0 or tu not in order:
-            return 0.0
-        pos_target = order.index(int(tu))
-        total = 0.0
-        for pos, caster_uid in enumerate(order):
-            if pos >= pos_target:
-                break
-            cfg = dict((team_effect_cfg or {}).get(int(caster_uid), {}) or {})
-            total += max(0.0, float(cfg.get("atb_boost_pct", 0.0) or 0.0))
-        return max(0.0, min(95.0, float(total)))
-
     def _validate_order_tick_plausibility(self) -> None:
         if not bool(self._persist_order_fields):
             return
         if not self._team_order_lists:
             return
-
         team_orders = self.team_order_by_lists()
         tick_by_uid = self._team_spd_tick_by_unit()
         effect_teams = self.team_turn_effects_by_lists() if self._show_turn_effect_controls else []
-        is_arena_rush = str(self.mode or "").strip().lower() == "arena_rush"
-
-        for team_index, team_order in enumerate(team_orders):
-            order = [int(uid) for uid in (team_order or []) if int(uid) > 0]
-            if len(order) <= 1:
-                continue
-            team_title = self._team_title(int(team_index))
-            effect_cfg = dict(effect_teams[int(team_index)]) if int(team_index) < len(effect_teams) else {}
-
-            floor_by_uid: Dict[int, int] = {}
-            cap_by_uid: Dict[int, int] = {}
-            for uid in order:
-                tick = int(tick_by_uid.get(int(uid), 0) or 0)
-                if tick <= 0:
-                    continue
-                min_tick_spd = int(min_spd_for_tick(int(tick), self.mode) or 0)
-                max_tick_spd = int(max_spd_for_tick(int(tick), self.mode) or 0)
-                floor = int(min_tick_spd)
-                if is_arena_rush and min_tick_spd > 0:
-                    speed_factor = 1.0
-                    if self._has_spd_buff_before_turn(order, effect_cfg, int(uid)):
-                        speed_factor += 0.30
-                    atb_before = self._atb_boost_before_turn_pct(order, effect_cfg, int(uid))
-                    atb_factor = 1.0 - (max(0.0, float(atb_before)) / 100.0)
-                    atb_factor = max(0.05, min(1.0, atb_factor))
-                    floor = int(ceil((float(min_tick_spd) * float(atb_factor)) / max(1e-9, float(speed_factor))))
-                if floor > 0:
-                    floor_by_uid[int(uid)] = int(floor)
-                if max_tick_spd > 0:
-                    cap_by_uid[int(uid)] = int(max_tick_spd)
-
-            for uid in order:
-                ui = int(uid)
-                floor = int(floor_by_uid.get(ui, 0) or 0)
-                cap = int(cap_by_uid.get(ui, 0) or 0)
-                if floor > 0 and cap > 0 and floor > cap:
-                    label = self._unit_label_by_id.get(int(ui), str(ui))
-                    tick = int(tick_by_uid.get(int(ui), 0) or 0)
-                    raise ValueError(
-                        f"Plausibilitaetsfehler ({team_title}): {label} hat ungueltigen Tick {tick} "
-                        f"(minimale SPD {floor} > maximale SPD {cap})."
-                    )
-
-            for idx in range(1, len(order)):
-                prev_uid = int(order[idx - 1])
-                cur_uid = int(order[idx])
-                prev_cap = int(cap_by_uid.get(int(prev_uid), 0) or 0)
-                cur_floor = int(floor_by_uid.get(int(cur_uid), 0) or 0)
-                if prev_cap > 0 and cur_floor > 0 and prev_cap <= cur_floor:
-                    prev_label = self._unit_label_by_id.get(int(prev_uid), str(prev_uid))
-                    cur_label = self._unit_label_by_id.get(int(cur_uid), str(cur_uid))
-                    raise ValueError(
-                        f"Plausibilitaetsfehler ({team_title}): Turnorder Position {idx}->{idx + 1} nicht stimmig. "
-                        f"{prev_label} kann mit max. SPD {prev_cap} nicht vor {cur_label} "
-                        f"(min. SPD {cur_floor}) ziehen."
-                    )
-
-    def _collect_artifact_substat_options_by_type(self, account: AccountData | None) -> Dict[int, List[int]]:
-        out: Dict[int, Set[int]] = {
-            1: set(ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE.get(1, [])),
-            2: set(ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE.get(2, [])),
-        }
-        if not account:
-            return {
-                1: sorted(out[1]),
-                2: sorted(out[2]),
-            }
-        for art in (account.artifacts or []):
-            art_type = int(getattr(art, "type_", 0) or 0)
-            if art_type not in (1, 2):
-                continue
-            for sec in (getattr(art, "sec_effects", []) or []):
-                if not sec:
-                    continue
-                try:
-                    eid = int(sec[0] or 0)
-                except Exception:
-                    continue
-                if eid > 0:
-                    out[art_type].add(eid)
-        return {
-            1: sorted(out[1]),
-            2: sorted(out[2]),
-        }
+        order_team_titles = [self._team_title(i) for i in range(len(team_orders))]
+        validate_order_tick_plausibility(
+            team_orders, tick_by_uid, effect_teams, self.mode, self._unit_label_by_id, order_team_titles
+        )
 
     def _artifact_substat_ids_for_unit(self, unit_id: int, kind: str) -> List[int]:
         if str(kind) == "attribute":
@@ -2692,43 +2079,14 @@ class BuildDialog(QDialog):
             if set3_ids:
                 groups.append(set3_ids)
 
-            option_ids: List[List[int]] = []
-            if groups:
-                option_ids = [list(opt) for opt in product(*groups)]
+            normalized_options = normalize_set_id_groups(groups)
 
-            normalized_options: List[List[int]] = []
-            seen_opts: Set[Tuple[int, ...]] = set()
-            for opt in option_ids:
-                cleaned: List[int] = []
-                for sid in opt:
-                    sid_i = int(sid)
-                    if sid_i <= 0 or sid_i not in SET_NAMES:
-                        continue
-                    # Keep duplicates (e.g. Shield+Shield+Shield).
-                    # Deduplicating here would collapse valid 2-set stacks to one set.
-                    cleaned.append(sid_i)
-                if not cleaned:
-                    continue
-                total_pieces = sum(int(SET_SIZES.get(sid, 2)) for sid in cleaned)
-                if total_pieces > 6:
-                    continue
-                key = tuple(cleaned)
-                if key in seen_opts:
-                    continue
-                seen_opts.add(key)
-                normalized_options.append(cleaned)
-
-            if option_ids and not normalized_options:
+            if groups and not normalized_options:
                 unit_label = self._unit_label_by_id.get(unit_id, str(unit_id))
                 raise ValueError(tr("val.set_invalid", unit=unit_label))
 
-            ms2_values = [str(x) for x in self._ms2_combo[unit_id].checked_values()]
-            ms4_values = [str(x) for x in self._ms4_combo[unit_id].checked_values()]
-            ms6_values = [str(x) for x in self._ms6_combo[unit_id].checked_values()]
-            art_attr_focus_value = str(self._art_attr_focus_combo[unit_id].currentData() or "").upper()
-            art_type_focus_value = str(self._art_type_focus_combo[unit_id].currentData() or "").upper()
-            art_attr_substats = self._artifact_substat_ids_for_unit(unit_id, "attribute")
-            art_type_substats = self._artifact_substat_ids_for_unit(unit_id, "type")
+            by_slot = self._current_mainstats_by_slot_for_unit(unit_id)
+            artifact_focus, artifact_substats = self._current_artifact_preferences_for_unit(unit_id)
             optimize_order = int(optimize_order_by_uid.get(unit_id, 0) or 0)
             existing_builds = self.preset_store.get_unit_builds(self.mode, int(unit_id))
             existing_build = existing_builds[0] if existing_builds else Build.default_any()
@@ -2738,70 +2096,20 @@ class BuildDialog(QDialog):
                 turn_order = int(team_turn_order_by_uid.get(unit_id, turn_order) or 0)
                 spd_tick = int(team_spd_tick_by_uid.get(unit_id, spd_tick) or 0)
             min_mode = str(self._min_mode_combo[unit_id].currentData() or "with_base")
-            base_stats = self._unit_base_stats_for_min(int(unit_id))
-            min_stats: Dict[str, int] = {}
-            if self._min_spd_spin[unit_id].value() > 0:
-                bonus_val = int(self._min_spd_spin[unit_id].value())
-                if min_mode == "without_base":
-                    min_stats["SPD_NO_BASE"] = bonus_val
-                else:
-                    min_stats["SPD"] = int(base_stats.get("SPD", 0) or 0) + bonus_val
-            if self._min_hp_spin[unit_id].value() > 0:
-                bonus_val = int(self._min_hp_spin[unit_id].value())
-                if min_mode == "without_base":
-                    min_stats["HP_NO_BASE"] = bonus_val
-                else:
-                    min_stats["HP"] = int(base_stats.get("HP", 0) or 0) + bonus_val
-            if self._min_atk_spin[unit_id].value() > 0:
-                bonus_val = int(self._min_atk_spin[unit_id].value())
-                if min_mode == "without_base":
-                    min_stats["ATK_NO_BASE"] = bonus_val
-                else:
-                    min_stats["ATK"] = int(base_stats.get("ATK", 0) or 0) + bonus_val
-            if self._min_def_spin[unit_id].value() > 0:
-                bonus_val = int(self._min_def_spin[unit_id].value())
-                if min_mode == "without_base":
-                    min_stats["DEF_NO_BASE"] = bonus_val
-                else:
-                    min_stats["DEF"] = int(base_stats.get("DEF", 0) or 0) + bonus_val
-            if self._min_cr_spin[unit_id].value() > 0:
-                bonus_val = int(self._min_cr_spin[unit_id].value())
-                min_stats["CR"] = (int(base_stats.get("CR", 0) or 0) + bonus_val) if min_mode == "with_base" else bonus_val
-            if self._min_cd_spin[unit_id].value() > 0:
-                bonus_val = int(self._min_cd_spin[unit_id].value())
-                min_stats["CD"] = (int(base_stats.get("CD", 0) or 0) + bonus_val) if min_mode == "with_base" else bonus_val
-            if self._min_res_spin[unit_id].value() > 0:
-                bonus_val = int(self._min_res_spin[unit_id].value())
-                min_stats["RES"] = (int(base_stats.get("RES", 0) or 0) + bonus_val) if min_mode == "with_base" else bonus_val
-            if self._min_acc_spin[unit_id].value() > 0:
-                bonus_val = int(self._min_acc_spin[unit_id].value())
-                min_stats["ACC"] = (int(base_stats.get("ACC", 0) or 0) + bonus_val) if min_mode == "with_base" else bonus_val
+            base_stats = unit_base_stats_for_min(self._account, int(unit_id))
+            min_stats = build_min_stats(min_mode, base_stats, {
+                "SPD": self._min_spd_spin[unit_id].value(),
+                "HP": self._min_hp_spin[unit_id].value(),
+                "ATK": self._min_atk_spin[unit_id].value(),
+                "DEF": self._min_def_spin[unit_id].value(),
+                "CR": self._min_cr_spin[unit_id].value(),
+                "CD": self._min_cd_spin[unit_id].value(),
+                "RES": self._min_res_spin[unit_id].value(),
+                "ACC": self._min_acc_spin[unit_id].value(),
+            })
 
-            set_options = []
-            for opt in normalized_options:
-                names = [SET_NAMES[sid] for sid in opt if sid in SET_NAMES]
-                if names:
-                    set_options.append(names)
-
-            mainstats: Dict[int, List[str]] = {}
-            if ms2_values:
-                mainstats[2] = ms2_values
-            if ms4_values:
-                mainstats[4] = ms4_values
-            if ms6_values:
-                mainstats[6] = ms6_values
-
-            artifact_focus: Dict[str, List[str]] = {}
-            if art_attr_focus_value in ("HP", "ATK", "DEF"):
-                artifact_focus["attribute"] = [art_attr_focus_value]
-            if art_type_focus_value in ("HP", "ATK", "DEF"):
-                artifact_focus["type"] = [art_type_focus_value]
-
-            artifact_substats: Dict[str, List[int]] = {}
-            if art_attr_substats:
-                artifact_substats["attribute"] = [int(x) for x in art_attr_substats[:2]]
-            if art_type_substats:
-                artifact_substats["type"] = [int(x) for x in art_type_substats[:2]]
+            set_options = set_id_combos_to_names(normalized_options)
+            mainstats: Dict[int, List[str]] = {s: v for s, v in by_slot.items() if v}
 
             b = Build(
                 id="default",
