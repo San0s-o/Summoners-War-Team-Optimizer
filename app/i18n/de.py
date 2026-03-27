@@ -167,6 +167,7 @@ STRINGS: dict[str, str] = {
     "group.build_rune_sets": "Runen-Sets",
     "group.build_mainstats": "Mainstats (Slots 2/4/6)",
     "group.build_artifacts": "Artefakte",
+    "group.build_advanced_settings": "Erweiterte Einstellungen",
     "group.build_min_stats": "Mindestwerte",
     "group.build_stat_weights": "Stat-Prioritäten",
     "tooltip.stat_weights": "Gibt an, wie wichtig ein Stat für den Optimierer-Score ist (0.0 = ignorieren, 1.0 = volles Gewicht). Beeinflusst nicht die Mindestwert-Constraints.",
@@ -296,6 +297,8 @@ STRINGS: dict[str, str] = {
     "status.community_trends_loaded": "Community-Trend geladen: {count} Monster mit Prior.",
     "status.community_trends_none": "Keine Community-Priors für die aktuelle Auswahl gefunden.",
     "status.community_trends_disabled": "Community-Trends sind deaktiviert.",
+    "status.pref_runes_saved": "Bevorzugte Runen gespeichert für {name}.",
+    "status.pref_artifacts_saved": "Bevorzugte Artefakte gespeichert für {name}.",
 
     # -- Validation Messages -------------------------------------
     "val.incomplete_team": "{label}: Team {team} ist unvollständig ({have}/{need}).",

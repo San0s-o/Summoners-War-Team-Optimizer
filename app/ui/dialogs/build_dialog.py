@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Set, Tuple
@@ -81,7 +82,22 @@ from app.ui.widgets.unit_build_editor_widget import (
 )
 
 
-_RUNE_PREFS_PATH = Path(__file__).resolve().parents[2] / "config" / "monster_rune_set_preferences.json"
+def _rune_prefs_path() -> Path:
+    if getattr(sys, "frozen", False):
+        from app.services.account_persistence import user_data_dir
+        return user_data_dir() / "monster_rune_set_preferences.json"
+    return Path(__file__).resolve().parents[2] / "config" / "monster_rune_set_preferences.json"
+
+
+def _rune_prefs_fallback_path() -> "Path | None":
+    """Returns the bundled read-only preferences file as fallback (frozen EXE only)."""
+    if not getattr(sys, "frozen", False):
+        return None
+    meipass = getattr(sys, "_MEIPASS", None)
+    if not meipass:
+        return None
+    p = Path(meipass) / "app" / "config" / "monster_rune_set_preferences.json"
+    return p if p.exists() else None
 
 
 @dataclass
@@ -154,7 +170,7 @@ class BuildDialog(QDialog):
         self._order_section: SingleTeamOrderEditor | None = None
         self._loaded_current_runes = False
         self._loaded_current_runes_snapshot: Dict[str, Any] = {}
-        self._rune_pref_cache = RunePrefCache(_RUNE_PREFS_PATH, self._account)
+        self._rune_pref_cache = RunePrefCache(_rune_prefs_path(), self._account, _rune_prefs_fallback_path())
         self._community_trends_loaded = False
         self._community_trend_by_unit: Dict[int, BuildPreferenceTrend] = {}
         self._community_trend_missing_units: Set[int] = set()
@@ -790,7 +806,8 @@ class BuildDialog(QDialog):
             "artifact_focus": dict(artifact_focus),
             "artifact_substats": dict(artifact_substats),
         }
-        self._save_rune_pref_entry(master_id=master_id, payload=payload)
+        if self._save_rune_pref_entry(master_id=master_id, payload=payload):
+            self._show_dialog_status(tr("status.pref_runes_saved", name=unit_label))
 
     def _on_save_preferred_artifacts_for_unit(self, unit_id: int) -> None:
         uid = int(unit_id or 0)
@@ -807,7 +824,9 @@ class BuildDialog(QDialog):
             "artifact_focus": dict(artifact_focus),
             "artifact_substats": dict(artifact_substats),
         }
-        self._save_rune_pref_entry(master_id=master_id, payload=payload)
+        unit_label = str(self._unit_label_by_id.get(uid, f"Unit {uid}") or f"Unit {uid}")
+        if self._save_rune_pref_entry(master_id=master_id, payload=payload):
+            self._show_dialog_status(tr("status.pref_artifacts_saved", name=unit_label))
 
     def _show_dialog_status(self, text: str, timeout_ms: int = 5000) -> None:
         parent = self.parentWidget()

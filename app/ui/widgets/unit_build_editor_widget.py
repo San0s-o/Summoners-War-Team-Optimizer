@@ -540,16 +540,36 @@ class UnitBuildEditorWidget(QScrollArea):
 
         bottom_row = QWidget()
         bottom_row_layout = QHBoxLayout(bottom_row)
-        bottom_row_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_row_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
         bottom_row_layout.setSpacing(dp(10))
         bottom_row_layout.addWidget(min_stats_box, 3)
         bottom_row_layout.addWidget(stat_weights_box, 1)
+        bottom_row.setVisible(False)
+
+        adv_toggle_btn = QPushButton(f"▶  {tr('group.build_advanced_settings')}")
+        adv_toggle_btn.setObjectName("collapsibleHeader")
+        adv_toggle_btn.setCheckable(True)
+        adv_toggle_btn.setChecked(False)
+
+        def _toggle_adv(checked: bool) -> None:
+            bottom_row.setVisible(checked)
+            arrow = "▼" if checked else "▶"
+            adv_toggle_btn.setText(f"{arrow}  {tr('group.build_advanced_settings')}")
+
+        adv_toggle_btn.toggled.connect(_toggle_adv)
+
+        adv_outer = QWidget()
+        adv_outer_layout = QVBoxLayout(adv_outer)
+        adv_outer_layout.setContentsMargins(0, 0, 0, 0)
+        adv_outer_layout.setSpacing(0)
+        adv_outer_layout.addWidget(adv_toggle_btn)
+        adv_outer_layout.addWidget(bottom_row)
 
         community_status_lbl = QLabel(community_status_text)
         community_status_lbl.setWordWrap(True)
         community_status_lbl.setStyleSheet("color: #8aa1b4;")
         content_layout.addWidget(community_status_lbl)
-        content_layout.addWidget(bottom_row)
+        content_layout.addWidget(adv_outer)
         content_layout.addStretch(1)
 
         c = _theme.C
@@ -567,6 +587,18 @@ class UnitBuildEditorWidget(QScrollArea):
                 padding: 0 {dp(6)}px;
                 color: {c['text_dim']};
             }}
+            QPushButton#collapsibleHeader {{
+                text-align: left;
+                padding: {dp(5)}px {dp(8)}px;
+                border: 1px solid {c['border']};
+                border-radius: {dp(6)}px;
+                color: {c['text_dim']};
+                background: transparent;
+            }}
+            QPushButton#collapsibleHeader:hover {{
+                background: rgba(255,255,255,0.04);
+            }}
+
             QComboBox, QSpinBox {{
                 border-radius: {dp(6)}px;
             }}

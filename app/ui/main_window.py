@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Callable, Any
@@ -18,7 +19,7 @@ from app.domain.presets import (
     BuildStore,
 )
 from app.engine.greedy_optimizer import GreedyUnitResult
-from app.services.account_persistence import AccountPersistence
+from app.services.account_persistence import AccountPersistence, user_data_dir
 from app.domain.team_store import TeamStore, Team
 from app.domain.optimization_store import OptimizationStore
 from app.ui.main_window_sections.builders_and_saved import (
@@ -212,7 +213,7 @@ class MainWindow(QMainWindow):
         # paths
         self.project_root = Path(__file__).resolve().parents[2]
         self.assets_dir = self.project_root / "app" / "assets"
-        self.config_dir = self.project_root / "app" / "config"
+        self.config_dir = user_data_dir() if getattr(sys, "frozen", False) else self.project_root / "app" / "config"
         self.presets_path = self.config_dir / "build_presets.json"
 
         # Monster DB (offline)

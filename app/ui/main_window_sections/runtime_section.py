@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from app.services.account_persistence import user_data_dir
 from app.ui.app_identity import apply_windows_app_user_model_id, resolve_app_icon
 from app.ui.dpi import init_dpi_scale as _init_dpi_scale, _REF_DPI
 from app.ui.license_flow import _apply_license_title, _ensure_license_accepted
@@ -86,7 +87,7 @@ def run_app(main_window_cls: Type):
     _init_dpi_scale(app)
     _apply_physical_dpi_font_scale(app)
     # Load saved theme preference before applying palette
-    _config_dir = Path(__file__).resolve().parents[2] / "config"
+    _config_dir = user_data_dir() if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2] / "config"
     _settings_path = _config_dir / "app_settings.json"
     if _settings_path.exists():
         try:
@@ -100,7 +101,7 @@ def run_app(main_window_cls: Type):
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
     import app.i18n as i18n
-    config_dir = Path(__file__).resolve().parents[2] / "config"
+    config_dir = user_data_dir() if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2] / "config"
     i18n.init(config_dir)
     license_info = _ensure_license_accepted()
     if not license_info:
