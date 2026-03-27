@@ -407,8 +407,8 @@ class BuildDialog(QDialog):
         focused = QApplication.focusWidget()
         if focused is not None:
             focused.clearFocus()
-        for refs in self._unit_editors.values():
-            for spin in refs.all_min_spins().values():
+        for widget in self._unit_editors.values():
+            for spin in widget.refs.all_min_spins().values():
                 try:
                     spin.interpretText()
                 except Exception:
@@ -1052,6 +1052,11 @@ class BuildDialog(QDialog):
         for stat_key, spin in refs.all_min_spins().items():
             spin.setValue(int(min_value_for_build(current_min, str(stat_key), str(min_mode), base_stats)))
 
+        current_weights = dict(getattr(build, "stat_weights", {}) or {})
+        for stat_key, slider in refs.all_stat_weight_sliders().items():
+            val = float(current_weights.get(str(stat_key), 0.5))
+            slider.setValue(int(round(val * 10)))
+
         target_tick = int(getattr(build, "spd_tick", 0) or 0)
         if self._order_section is not None:
             self._order_section.set_spd_tick_for_unit(int(uid), target_tick)
@@ -1180,6 +1185,17 @@ class BuildDialog(QDialog):
                 break
         return vals
 
+    def _read_stat_weights_from_editor(self, unit_id: int) -> Dict[str, float]:
+        refs = self._editor_refs(int(unit_id))
+        if refs is None:
+            return {}
+        result = {}
+        for key, slider in refs.all_stat_weight_sliders().items():
+            val = round(int(slider.value()) / 10.0, 1)
+            if val != 0.5:
+                result[str(key)] = val
+        return result
+
     def _read_min_stats_from_editor(self, unit_id: int) -> Dict[str, int]:
         refs = self._editor_refs(int(unit_id))
         min_mode = str(refs.min_mode.currentData() or "with_base") if refs else "with_base"
@@ -1213,6 +1229,7 @@ class BuildDialog(QDialog):
         by_slot = self._read_mainstats_from_editor(int(unit_id))
         artifact_focus, artifact_substats = self._read_artifact_preferences_from_editor(int(unit_id))
         min_stats = self._read_min_stats_from_editor(int(unit_id))
+        stat_weights = self._read_stat_weights_from_editor(int(unit_id))
         return Build(
             id="default",
             name="Default",
@@ -1224,6 +1241,7 @@ class BuildDialog(QDialog):
             set_options=set_id_combos_to_names(normalized_options),
             mainstats={s: v for s, v in by_slot.items() if v},
             min_stats=min_stats,
+            stat_weights=stat_weights,
             artifact_focus=artifact_focus,
             artifact_substats=artifact_substats,
         )

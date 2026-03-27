@@ -59,6 +59,19 @@ DEFENSIVE_STAT_SCORE_WEIGHTS: Dict[int, int] = {
     12: 8,   # ACC
 }
 
+# Maps user-facing stat names to the rune effect IDs they cover.
+# Used to translate Build.stat_weights into per-effect-ID multipliers.
+_STAT_NAME_TO_IDS: Dict[str, List[int]] = {
+    "HP":  [1, 2],   # HP flat, HP%
+    "ATK": [3, 4],   # ATK flat, ATK%
+    "DEF": [5, 6],   # DEF flat, DEF%
+    "SPD": [8],
+    "CR":  [9],
+    "CD":  [10],
+    "RES": [11],
+    "ACC": [12],
+}
+
 SET_SCORE_BONUS: Dict[int, int] = {
     3: 160,   # Swift
     13: 140,  # Violent
@@ -1017,14 +1030,20 @@ def _artifact_scaling_score_proxy(art: Artifact, scaling_stat: str = "") -> int:
     return int(score)
 
 
-def _score_stat(eff_id: int, value: int) -> int:
+def _score_stat(eff_id: int, value: int, stat_multipliers: Optional[Dict[int, float]] = None) -> int:
     eff = int(eff_id or 0)
-    return int(STAT_SCORE_WEIGHTS.get(eff, 0) * int(value or 0))
+    base = int(STAT_SCORE_WEIGHTS.get(eff, 0) * int(value or 0))
+    if stat_multipliers and eff in stat_multipliers:
+        return int(base * float(stat_multipliers[eff]))
+    return base
 
 
-def _score_stat_defensive(eff_id: int, value: int) -> int:
+def _score_stat_defensive(eff_id: int, value: int, stat_multipliers: Optional[Dict[int, float]] = None) -> int:
     eff = int(eff_id or 0)
-    return int(DEFENSIVE_STAT_SCORE_WEIGHTS.get(eff, 0) * int(value or 0))
+    base = int(DEFENSIVE_STAT_SCORE_WEIGHTS.get(eff, 0) * int(value or 0))
+    if stat_multipliers and eff in stat_multipliers:
+        return int(base * float(stat_multipliers[eff]))
+    return base
 
 
 def _is_attack_type_unit(base_hp: int, base_atk: int, base_def: int, archetype: str = "") -> bool:
@@ -1219,8 +1238,12 @@ def _projected_rune_mainstat_value(r: Rune) -> int:
     return int(round(float(raw) * factor))
 
 
-def _rune_quality_score(r: Rune, uid: int,
-                        rta_rune_ids_for_unit: Optional[Set[int]] = None) -> int:
+def _rune_quality_score(
+    r: Rune,
+    uid: int,
+    rta_rune_ids_for_unit: Optional[Set[int]] = None,
+    stat_multipliers: Optional[Dict[int, float]] = None,
+) -> int:
     score = 0
     score += int(r.upgrade_curr or 0) * 8
     score += int(r.rank or 0) * 6
@@ -1228,8 +1251,8 @@ def _rune_quality_score(r: Rune, uid: int,
     score += int(SET_SCORE_BONUS.get(int(r.set_id or 0), 0))
 
     # Main stat and prefix stat
-    score += _score_stat(int(r.pri_eff[0] or 0), int(_projected_rune_mainstat_value(r)))
-    score += _score_stat(int(r.prefix_eff[0] or 0), int(r.prefix_eff[1] or 0))
+    score += _score_stat(int(r.pri_eff[0] or 0), int(_projected_rune_mainstat_value(r)), stat_multipliers)
+    score += _score_stat(int(r.prefix_eff[0] or 0), int(r.prefix_eff[1] or 0), stat_multipliers)
 
     # Penalize flat mains on even slots when no build mainstat forces it
     if not _is_good_even_slot_mainstat(int(r.pri_eff[0] or 0), int(r.slot_no or 0)):
@@ -1242,7 +1265,7 @@ def _rune_quality_score(r: Rune, uid: int,
         eff_id = int(sec[0] or 0)
         val = int(sec[1] or 0)
         grind = int(sec[3] or 0) if len(sec) >= 4 else 0
-        score += _score_stat(eff_id, val + grind)
+        score += _score_stat(eff_id, val + grind, stat_multipliers)
 
     # Keep currently equipped rune on same unit slightly preferred
     if rta_rune_ids_for_unit is not None:
@@ -1259,14 +1282,15 @@ def _rune_quality_score_defensive(
     r: Rune,
     uid: int,
     rta_rune_ids_for_unit: Optional[Set[int]] = None,
+    stat_multipliers: Optional[Dict[int, float]] = None,
 ) -> int:
     score = 0
     score += int(r.upgrade_curr or 0) * 8
     score += int(r.rank or 0) * 6
     score += int(r.rune_class or 0) * 10
 
-    score += _score_stat_defensive(int(r.pri_eff[0] or 0), int(_projected_rune_mainstat_value(r)))
-    score += _score_stat_defensive(int(r.prefix_eff[0] or 0), int(r.prefix_eff[1] or 0))
+    score += _score_stat_defensive(int(r.pri_eff[0] or 0), int(_projected_rune_mainstat_value(r)), stat_multipliers)
+    score += _score_stat_defensive(int(r.prefix_eff[0] or 0), int(r.prefix_eff[1] or 0), stat_multipliers)
 
     for sec in (r.sec_eff or []):
         if not sec:
@@ -1274,7 +1298,7 @@ def _rune_quality_score_defensive(
         eff_id = int(sec[0] or 0)
         val = int(sec[1] or 0)
         grind = int(sec[3] or 0) if len(sec) >= 4 else 0
-        score += _score_stat_defensive(eff_id, val + grind)
+        score += _score_stat_defensive(eff_id, val + grind, stat_multipliers)
 
     if not _is_good_even_slot_mainstat(int(r.pri_eff[0] or 0), int(r.slot_no or 0)):
         score -= 140
@@ -1286,6 +1310,57 @@ def _rune_quality_score_defensive(
         score += 45
 
     return int(score)
+
+
+def _rune_stat_preference_bonus(r: Rune, stat_multipliers: Dict[int, float]) -> int:
+    """Extra score for stats the user has weighted above default (multiplier > 1.0).
+    Applied in ALL objective modes so preferences are always respected."""
+    score = 0
+    for eff_id, mult in stat_multipliers.items():
+        delta = float(mult) - 1.0
+        if delta == 0.0:
+            continue
+        base_weight = int(STAT_SCORE_WEIGHTS.get(int(eff_id), 0))
+        if base_weight == 0:
+            continue
+        total_val = 0
+        if int(r.pri_eff[0] or 0) == eff_id:
+            total_val += int(_projected_rune_mainstat_value(r))
+        if int(r.prefix_eff[0] or 0) == eff_id:
+            total_val += int(r.prefix_eff[1] or 0)
+        for sec in (r.sec_eff or []):
+            if not sec or int(sec[0] or 0) != eff_id:
+                continue
+            total_val += int(sec[1] or 0) + (int(sec[3] or 0) if len(sec) >= 4 else 0)
+        if total_val:
+            score += int(base_weight * total_val * delta)
+    return score
+
+
+_STAT_FOCUS_FOR_RUNE_EFF_ID: Dict[int, str] = {
+    1: "HP", 2: "HP",
+    3: "ATK", 4: "ATK",
+    5: "DEF", 6: "DEF",
+}
+
+
+def _artifact_stat_preference_bonus(art: Artifact, stat_multipliers: Dict[int, float]) -> int:
+    """Bonus/penalty for artifacts whose main stat matches user-weighted stats."""
+    if not stat_multipliers:
+        return 0
+    focus = str(_artifact_focus_key(art) or "").upper()
+    if not focus:
+        return 0
+    max_delta = 0.0
+    for eff_id, mult in stat_multipliers.items():
+        stat_name = _STAT_FOCUS_FOR_RUNE_EFF_ID.get(int(eff_id), "")
+        if stat_name == focus:
+            delta = float(mult) - 1.0
+            if abs(delta) > abs(max_delta):
+                max_delta = delta
+    if max_delta == 0.0:
+        return 0
+    return int(160 * max_delta)
 
 
 def _artifact_focus_key(art: Artifact) -> str:
@@ -2915,6 +2990,20 @@ def _solve_single_unit_best(
         and str(unit_role) in ("defense", "hp", "support")
     )
     scaling_stat = _scaling_stat_from_hints(artifact_hints)
+
+    # Build per-effect-ID multipliers from the first active build's stat_weights.
+    # Missing stat = 1.0 (no change). 0.0 = ignore stat in scoring.
+    _stat_multipliers: Dict[int, float] = {}
+    for _b in builds:
+        if getattr(_b, "enabled", True):
+            _sw = dict(getattr(_b, "stat_weights", {}) or {})
+            if _sw:
+                for _sname, _wval in _sw.items():
+                    for _sid in _STAT_NAME_TO_IDS.get(str(_sname), []):
+                        _stat_multipliers[_sid] = float(_wval) * 2.0
+            break
+    _stat_muls: Optional[Dict[int, float]] = _stat_multipliers if _stat_multipliers else None
+
     quality_terms = []
     for slot in range(1, 7):
         for r in runes_by_slot[slot]:
@@ -2929,6 +3018,10 @@ def _solve_single_unit_best(
                 eff_bonus = int(round(float(rune_efficiency(r)) * float(eff_scale)))
                 if eff_bonus:
                     quality_terms.append(eff_bonus * v)
+                if _stat_muls:
+                    pref_bonus = _rune_stat_preference_bonus(r, _stat_muls)
+                    if pref_bonus:
+                        quality_terms.append(pref_bonus * v)
                 if favor_defense_for_role:
                     def_q = int(_rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit))
                     if def_q:
@@ -2964,9 +3057,9 @@ def _solve_single_unit_best(
                     quality_terms.append((int(RUNE_SCALING_BONUS_WEIGHT) * scaling_bonus) * v)
             else:
                 if favor_defense_for_role:
-                    w = _rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit)
+                    w = _rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit, _stat_muls)
                 else:
-                    w = _rune_quality_score(r, uid, rta_rune_ids_for_unit)
+                    w = _rune_quality_score(r, uid, rta_rune_ids_for_unit, _stat_muls)
                 quality_terms.append(w * v)
                 if favor_damage_for_atk_type:
                     eff_weight = int(ARENA_RUSH_ATK_RUNE_EFF_WEIGHT)
@@ -3079,6 +3172,10 @@ def _solve_single_unit_best(
                     )
                     if context_bonus:
                         quality_terms.append((int(ARTIFACT_ROLE_CONTEXT_WEIGHT) * context_bonus) * av)
+                if _stat_muls:
+                    art_pref_bonus = _artifact_stat_preference_bonus(art, _stat_muls)
+                    if art_pref_bonus:
+                        quality_terms.append(art_pref_bonus * av)
             else:
                 if favor_defense_for_role:
                     aw = _artifact_quality_score_defensive(
@@ -3103,6 +3200,10 @@ def _solve_single_unit_best(
                 art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(eff_weight)))
                 if art_eff_bonus:
                     quality_terms.append(art_eff_bonus * av)
+                if _stat_muls:
+                    art_pref_bonus = _artifact_stat_preference_bonus(art, _stat_muls)
+                    if art_pref_bonus:
+                        quality_terms.append(art_pref_bonus * av)
                 if favor_damage_for_atk_type:
                     dmg_bonus = _artifact_damage_score_proxy(
                         art,
@@ -3409,7 +3510,7 @@ def _solve_single_unit_best(
     if is_cancelled and is_cancelled():
         return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
 
-    if speed_hard_priority or bool(force_speed_priority):
+    if speed_hard_priority or bool(force_speed_priority) or bool(_stat_muls) or int(speed_tiebreak_weight) > 0:
         # Fix 1: Phase 1 (max speed) uses a short time cap — in practice done in <0.1s.
         # Phase 2 (quality) gets the full time budget.
         solver.parameters.max_time_in_seconds = min(1.5, float(time_limit_s) * 0.25)
@@ -3420,7 +3521,11 @@ def _solve_single_unit_best(
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             best_speed = int(solver.Value(final_speed_expr))
             keep_speed_min = int(best_speed)
-            if not bool(force_speed_priority):
+            if _stat_muls:
+                # User has set stat priorities: allow a small fixed slack so the
+                # optimizer can explore different rune combinations.
+                keep_speed_min = max(0, int(best_speed) - 10)
+            elif not bool(force_speed_priority):
                 keep_speed_min = max(0, int(best_speed) - max(0, int(speed_slack_for_quality)))
             # Keep speed near optimum but allow small slack so quality can win.
             model.Add(final_speed_expr >= keep_speed_min)

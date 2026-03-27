@@ -142,6 +142,9 @@ class Build:
     set_options: List[List[str]] = field(default_factory=list)
     mainstats: Dict[int, List[str]] = field(default_factory=dict)
     min_stats: Dict[str, int] = field(default_factory=dict)
+    # Stat priority weights 0.0–1.0: scale how important each stat is for scoring.
+    # Missing key = 1.0 (full weight, default behaviour unchanged).
+    stat_weights: Dict[str, float] = field(default_factory=dict)
     # Artifact constraints:
     # keys: "attribute" (type_=1), "type" (type_=2)
     artifact_focus: Dict[str, List[str]] = field(default_factory=dict)      # HP/ATK/DEF (multi-select)
@@ -292,6 +295,7 @@ def _build_to_json(b: Build) -> Dict[str, Any]:
         "set_options": b.set_options or [],
         "mainstats": {str(k): (v or []) for k, v in (b.mainstats or {}).items()},
         "min_stats": {str(k): int(v) for k, v in (b.min_stats or {}).items()},
+        "stat_weights": {str(k): float(v) for k, v in (b.stat_weights or {}).items()},
         "artifact_focus": {
             str(k): [str(x).upper() for x in (v or []) if str(x)]
             for k, v in (b.artifact_focus or {}).items()
@@ -368,6 +372,20 @@ def _parse_build(raw: Any) -> Optional[Build]:
             if val > 0:
                 min_stats[key] = val
 
+    stat_weights_raw = raw.get("stat_weights") or {}
+    stat_weights: Dict[str, float] = {}
+    if isinstance(stat_weights_raw, dict):
+        for k, v in stat_weights_raw.items():
+            key = str(k).strip().upper()
+            if key not in ("HP", "ATK", "DEF", "SPD", "CR", "CD", "RES", "ACC"):
+                continue
+            try:
+                val = float(v)
+            except Exception:
+                continue
+            if 0.0 <= val <= 1.0:
+                stat_weights[key] = val
+
     artifact_focus_raw = raw.get("artifact_focus") or {}
     artifact_focus: Dict[str, List[str]] = {}
     if isinstance(artifact_focus_raw, dict):
@@ -422,6 +440,7 @@ def _parse_build(raw: Any) -> Optional[Build]:
         set_options=set_options,
         mainstats=mainstats,
         min_stats=min_stats,
+        stat_weights=stat_weights,
         artifact_focus=artifact_focus,
         artifact_substats=artifact_substats,
     )

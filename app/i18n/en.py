@@ -168,6 +168,8 @@ STRINGS: dict[str, str] = {
     "group.build_mainstats": "Mainstats (Slots 2/4/6)",
     "group.build_artifacts": "Artifacts",
     "group.build_min_stats": "Minimum Stats",
+    "group.build_stat_weights": "Stat Priorities",
+    "tooltip.stat_weights": "Scale how important each stat is for the optimizer score (0.0 = ignore, 1.0 = full weight). Does not affect minimum stat constraints.",
 
     # -- Table Headers -------------------------------------------
     "header.monster": "Monster",

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -102,6 +103,14 @@ class UnitEditorRefs:
     min_cd: Any
     min_res: Any
     min_acc: Any
+    wt_hp: Any
+    wt_atk: Any
+    wt_def: Any
+    wt_spd: Any
+    wt_cr: Any
+    wt_cd: Any
+    wt_res: Any
+    wt_acc: Any
     community_status_label: Any
 
     def all_min_spins(self) -> Dict[str, Any]:
@@ -116,6 +125,18 @@ class UnitEditorRefs:
             "ACC": self.min_acc,
         }
 
+    def all_stat_weight_sliders(self) -> Dict[str, Any]:
+        return {
+            "HP": self.wt_hp,
+            "ATK": self.wt_atk,
+            "DEF": self.wt_def,
+            "SPD": self.wt_spd,
+            "CR": self.wt_cr,
+            "CD": self.wt_cd,
+            "RES": self.wt_res,
+            "ACC": self.wt_acc,
+        }
+
 
 class UnitBuildEditorWidget(QScrollArea):
     """Self-contained per-unit build editor page.
@@ -124,13 +145,13 @@ class UnitBuildEditorWidget(QScrollArea):
     dialog can connect and handle them without tight coupling.
     """
 
-    load_pref_runes_requested = Signal(int)
-    load_community_trends_requested = Signal(int)
-    save_pref_runes_requested = Signal(int)
-    load_pref_artifacts_requested = Signal(int)
-    save_pref_artifacts_requested = Signal(int)
+    load_pref_runes_requested = Signal(object)
+    load_community_trends_requested = Signal(object)
+    save_pref_runes_requested = Signal(object)
+    load_pref_artifacts_requested = Signal(object)
+    save_pref_artifacts_requested = Signal(object)
     # Emitted when any set-combo selection changes; the dialog syncs constraints.
-    set_constraints_changed = Signal(int)
+    set_constraints_changed = Signal(object)
 
     def __init__(
         self,
@@ -217,6 +238,17 @@ class UnitBuildEditorWidget(QScrollArea):
         spin.setValue(int(value))
         spin.setMaximumWidth(dp(110))
         return spin
+
+    @staticmethod
+    def _make_stat_weight_slider(value: float) -> QSlider:
+        slider = QSlider(Qt.Horizontal)
+        slider.setMinimum(0)
+        slider.setMaximum(10)
+        slider.setSingleStep(1)
+        slider.setPageStep(1)
+        slider.setValue(int(round(float(value) * 10)))
+        slider.setMinimumWidth(dp(80))
+        return slider
 
     # ------------------------------------------------------------------
     # UI construction
@@ -317,6 +349,18 @@ class UnitBuildEditorWidget(QScrollArea):
             "CR": min_cr, "CD": min_cd, "RES": min_res, "ACC": min_acc,
         }
         min_base_prefix_labels: Dict[str, QLabel] = {}
+
+        # ---- Stat priority weights ----
+        # 0.0 = ignore, 0.5 = neutral (default), 1.0 = double weight in optimizer
+        current_weights = dict(getattr(build, "stat_weights", {}) or {})
+        wt_hp = self._make_stat_weight_slider(float(current_weights.get("HP", 0.5)))
+        wt_atk = self._make_stat_weight_slider(float(current_weights.get("ATK", 0.5)))
+        wt_def = self._make_stat_weight_slider(float(current_weights.get("DEF", 0.5)))
+        wt_spd = self._make_stat_weight_slider(float(current_weights.get("SPD", 0.5)))
+        wt_cr = self._make_stat_weight_slider(float(current_weights.get("CR", 0.5)))
+        wt_cd = self._make_stat_weight_slider(float(current_weights.get("CD", 0.5)))
+        wt_res = self._make_stat_weight_slider(float(current_weights.get("RES", 0.5)))
+        wt_acc = self._make_stat_weight_slider(float(current_weights.get("ACC", 0.5)))
 
         def _base_prefix(key: str) -> QLabel:
             lbl = QLabel(tr("label.min_base_prefix", value=int(base_stats.get(key, 0) or 0)))
@@ -463,11 +507,49 @@ class UnitBuildEditorWidget(QScrollArea):
         min_mode_combo.currentIndexChanged.connect(lambda *_args: _on_min_mode_changed())
         _sync_min_mode_ui()
 
+        # ---- Stat weights box ----
+        stat_weights_box = QGroupBox(tr("group.build_stat_weights"))
+        stat_weights_box.setObjectName("unitEditorSection")
+        stat_weights_box.setToolTip(tr("tooltip.stat_weights"))
+        sw_layout = QGridLayout(stat_weights_box)
+        sw_layout.setHorizontalSpacing(dp(8))
+        sw_layout.setVerticalSpacing(dp(4))
+        # col 0=label, 1=slider, 2=value | col 3=label, 4=slider, 5=value
+        sw_layout.setColumnMinimumWidth(0, dp(36))
+        sw_layout.setColumnStretch(1, 1)
+        sw_layout.setColumnMinimumWidth(2, dp(24))
+        sw_layout.setColumnMinimumWidth(3, dp(36))
+        sw_layout.setColumnStretch(4, 1)
+        sw_layout.setColumnMinimumWidth(5, dp(24))
+
+        _stats = [
+            ("HP",  wt_hp),  ("CR",  wt_cr),
+            ("ATK", wt_atk), ("CD",  wt_cd),
+            ("DEF", wt_def), ("RES", wt_res),
+            ("SPD", wt_spd), ("ACC", wt_acc),
+        ]
+        for _i, (label_text, slider) in enumerate(_stats):
+            _row, _col = _i // 2, (_i % 2) * 3
+            lbl = QLabel(label_text)
+            sw_layout.addWidget(lbl, _row, _col)
+            sw_layout.addWidget(slider, _row, _col + 1)
+            val_lbl = QLabel(f"{slider.value() / 10:.1f}")
+            val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            slider.valueChanged.connect(lambda v, vl=val_lbl: vl.setText(f"{v / 10:.1f}"))
+            sw_layout.addWidget(val_lbl, _row, _col + 2)
+
+        bottom_row = QWidget()
+        bottom_row_layout = QHBoxLayout(bottom_row)
+        bottom_row_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_row_layout.setSpacing(dp(10))
+        bottom_row_layout.addWidget(min_stats_box, 3)
+        bottom_row_layout.addWidget(stat_weights_box, 1)
+
         community_status_lbl = QLabel(community_status_text)
         community_status_lbl.setWordWrap(True)
         community_status_lbl.setStyleSheet("color: #8aa1b4;")
         content_layout.addWidget(community_status_lbl)
-        content_layout.addWidget(min_stats_box)
+        content_layout.addWidget(bottom_row)
         content_layout.addStretch(1)
 
         c = _theme.C
@@ -503,5 +585,7 @@ class UnitBuildEditorWidget(QScrollArea):
             min_mode=min_mode_combo,
             min_spd=min_spd, min_hp=min_hp, min_atk=min_atk, min_def=min_def,
             min_cr=min_cr, min_cd=min_cd, min_res=min_res, min_acc=min_acc,
+            wt_hp=wt_hp, wt_atk=wt_atk, wt_def=wt_def, wt_spd=wt_spd,
+            wt_cr=wt_cr, wt_cd=wt_cd, wt_res=wt_res, wt_acc=wt_acc,
             community_status_label=community_status_lbl,
         )
