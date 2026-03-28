@@ -60,8 +60,10 @@ def apply_tab_style(window) -> None:
 def show_help_dialog(window) -> None:
     dlg = QDialog(window)
     dlg.setWindowTitle(tr("help.title"))
-    dlg.resize(dp(620), dp(520))
+    dlg.resize(dp(720), dp(660))
     layout = QVBoxLayout(dlg)
+    layout.setContentsMargins(dp(14), dp(14), dp(14), dp(14))
+    layout.setSpacing(dp(10))
 
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
@@ -72,8 +74,8 @@ def show_help_dialog(window) -> None:
     content.setTextFormat(Qt.RichText)
     content.setWordWrap(True)
     content.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-    content.setContentsMargins(dp(16), dp(12), dp(16), dp(12))
-    content.setStyleSheet("font-size: 10pt; line-height: 1.5;")
+    content.setContentsMargins(dp(14), dp(10), dp(20), dp(14))
+    content.setStyleSheet("font-size: 10pt;")
     content.setText(tr("help.content"))
     scroll.setWidget(content)
 

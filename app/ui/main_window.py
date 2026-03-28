@@ -529,8 +529,9 @@ class MainWindow(QMainWindow):
         self,
         text: str,
         work_fn: Callable[[Callable[[], bool], Callable[[Any], None], Callable[[int, int], None]], Any],
+        steps: list | None = None,
     ) -> Any:
-        return _sec_run_with_busy_progress(self, text, work_fn)
+        return _sec_run_with_busy_progress(self, text, work_fn, steps=steps)
 
     # ============================================================
     # Helpers: names+icons

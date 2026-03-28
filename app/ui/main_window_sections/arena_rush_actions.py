@@ -799,7 +799,7 @@ def on_validate_arena_rush(window) -> None:
     if not ok:
         QMessageBox.critical(window, tr("val.title_arena"), msg)
         return
-    QMessageBox.information(window, tr("val.title_arena_ok"), msg)
+    show_toast(window, msg, "success")
 
 
 def on_edit_presets_arena_rush(window) -> None:
@@ -951,7 +951,7 @@ def on_edit_presets_arena_rush(window) -> None:
         window.arena_offense_turn_effects = new_effect_state
         save_arena_rush_ui_state(window)
         window.presets.save(window.presets_path)
-        QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
+        show_toast(window, tr("dlg.builds_saved_title"), "success")
 
 
 def _arena_speed_leader_bonus_map(
@@ -1008,8 +1008,6 @@ def on_optimize_arena_rush(window) -> None:
     quality_profile = str(window.combo_quality_profile_arena_rush.currentData() or "gpu_combo")
     workers = window._effective_workers(quality_profile, window.combo_workers_arena_rush)
     running_text = tr("result.opt_running", mode=tr("arena_rush.mode"))
-    window.lbl_arena_rush_validate.setText(running_text)
-    window.statusBar().showMessage(running_text)
 
     all_selected_uids: List[int] = list(defense_ids)
     for sel in offense_teams:
@@ -1145,6 +1143,7 @@ def on_optimize_arena_rush(window) -> None:
     res = window._run_with_busy_progress(
         running_text,
         _run_arena_rush,
+        steps=[tr("opt.progress.step_prep"), tr("opt.progress.step_defense"), tr("opt.progress.step_offense")],
     )
 
     _ok = bool(getattr(res, "ok", False))
@@ -1154,20 +1153,21 @@ def on_optimize_arena_rush(window) -> None:
     show_toast(window, final_msg, "success" if _ok else "warning")
     window.arena_rush_result_cards.setVisible(False)
 
-    combined_results = list(res.defense.results)
-    teams_for_save: List[List[int]] = [list(defense_ids)]
-    team_headers: Dict[int, str] = {0: tr("label.arena_defense")}
-    for idx, off in enumerate(res.offenses, start=1):
-        combined_results.extend(off.optimization.results)
-        teams_for_save.append(list(off.team_unit_ids or []))
-        team_headers[int(idx)] = tr("label.arena_offense", n=int(off.team_index) + 1)
+    if res is not None and getattr(getattr(res, "defense", None), "results", None):
+        combined_results = list(res.defense.results)
+        teams_for_save: List[List[int]] = [list(defense_ids)]
+        team_headers: Dict[int, str] = {0: tr("label.arena_defense")}
+        for idx, off in enumerate(res.offenses, start=1):
+            combined_results.extend(off.optimization.results)
+            teams_for_save.append(list(off.team_unit_ids or []))
+            team_headers[int(idx)] = tr("label.arena_offense", n=int(off.team_index) + 1)
 
-    window._show_optimize_results(
-        tr("arena_rush.mode"),
-        final_msg,
-        combined_results,
-        mode="arena_rush",
-        teams=teams_for_save,
-        team_header_by_index=team_headers,
-        group_size=4,
-    )
+        window._show_optimize_results(
+            tr("arena_rush.mode"),
+            final_msg,
+            combined_results,
+            mode="arena_rush",
+            teams=teams_for_save,
+            team_header_by_index=team_headers,
+            group_size=4,
+        )

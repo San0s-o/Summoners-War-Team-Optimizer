@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PySide6.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath
 from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout
 
@@ -56,7 +56,7 @@ class Toast(QWidget):
 
         msg = QLabel(message)
         msg.setWordWrap(True)
-        msg.setMaximumWidth(dp(280))
+        msg.setMaximumWidth(dp(300))
         font_family = c["ui_font"] if is_cp else ""
         msg.setStyleSheet(
             f"color: {c['text']}; font-size: 9pt;"
@@ -65,7 +65,8 @@ class Toast(QWidget):
         )
         layout.addWidget(msg, 1)
 
-        self.setFixedWidth(dp(340))
+        self.setMinimumWidth(dp(120))
+        self.setMaximumWidth(dp(380))
         self.adjustSize()
 
         # Fade-in
@@ -132,10 +133,11 @@ def _restack(parent: QWidget | None) -> None:
     if parent is None:
         return
     margin = dp(16)
-    y = parent.height() - margin
+    origin = parent.mapToGlobal(QPoint(0, 0))
+    y = origin.y() + parent.height() - margin
     for t in reversed(_active):
         y -= t.height() + dp(8)
-        t.move(parent.width() - t.width() - margin, y)
+        t.move(origin.x() + parent.width() - t.width() - margin, y)
 
 
 def show_toast(
@@ -151,8 +153,9 @@ def show_toast(
     _active.append(toast)
 
     margin = dp(16)
-    y = parent.height() - margin - toast.height()
+    origin = parent.mapToGlobal(QPoint(0, 0))
+    y = origin.y() + parent.height() - margin - toast.height()
     for existing in _active[:-1]:
         y -= existing.height() + dp(8)
-    x = parent.width() - toast.width() - margin
+    x = origin.x() + parent.width() - toast.width() - margin
     toast.show_positioned(x, y)

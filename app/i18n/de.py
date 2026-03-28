@@ -336,7 +336,7 @@ STRINGS: dict[str, str] = {
     "dlg.max_15_rta": "Maximal 25 Monster erlaubt.",
     "dlg.arena_builds": "Arena Rush Builds",
     "dlg.delete_confirm": "'{name}' wirklich löschen?",
-    "dlg.builds_saved_title": "Builds gespeichert",
+    "dlg.builds_saved_title": "Gespeichert",
     "dlg.builds_saved": "Gespeichert in {path}",
     "dlg.select_left": "Bitte links ein Monster auswählen.",
     "dlg.no_result": "Kein Ergebnis gefunden.",
@@ -427,6 +427,70 @@ STRINGS: dict[str, str] = {
     "update.wizard.downloading": "Wird heruntergeladen...",
     "update.wizard.installing": "Wird installiert...",
 
+    # -- Consent dialog ------------------------------------------
+    "consent.title": "Daten & Datenschutz",
+    "consent.body": (
+        "<b>Pflichtdaten</b> – werden zur Bereitstellung und Absicherung der Lizenz verarbeitet:<br>"
+        "• Lizenzschlüssel (gehasht) + Gerätefingerabdruck (gehasht) → Lizenzprüfung und Gerätebindung<br>"
+        "• Ingame-Name &amp; Wizard-ID aus deiner Account-Datei → Zuordnung bei Supportanfragen<br>"
+        "• Aktivierungszeitpunkt &amp; letzter Start → Lizenzstatus und Missbrauchserkennung<br>"
+        "<i>Speicherort: lokal auf deinem Gerät &amp; Supabase (AWS eu-west-1, Irland). "
+        "Speicherdauer: Solange die Lizenz aktiv ist. Löschung auf Anfrage möglich.</i><br><br>"
+        "<b>Optionale Statistikdaten</b> – nur mit deiner Zustimmung:<br>"
+        "• App-Version &amp; UI-Sprache → technische Nutzungsstatistik, keine Identifikation<br>"
+        "<i>Speicherort: Supabase (AWS eu-west-1, Irland). Löschung jederzeit über Einstellungen → Statistikdaten vom Server löschen.</i><br><br>"
+        "Wenn du nicht zustimmst, funktioniert die App weiterhin normal. "
+        "Es werden dann nur die erforderlichen Daten verarbeitet. "
+        "Deine Auswahl kannst du jederzeit in den Einstellungen ändern."
+    ),
+    "consent.accept": "Optionale Statistikdaten erlauben",
+    "consent.decline": "Nur erforderliche Daten verwenden",
+    "consent.privacy_policy": "Datenschutzerklärung",
+    "settings.consent_stats_label": "Optionale Statistikdaten speichern (App-Version, Sprache)",
+    "settings.consent_stats_hint": "App-Version und UI-Sprache werden mit deiner Lizenz verknüpft gespeichert.",
+    "settings.consent_saved_on": "Statistikdaten werden ab jetzt gespeichert.",
+    "settings.consent_saved_off": "Statistikdaten werden nicht mehr gespeichert.",
+    "settings.consent_show_dialog": "Datenschutzhinweis anzeigen",
+    "settings.consent_clear_stats": "Statistikdaten vom Server löschen",
+    "settings.consent_clear_stats_ok": "Statistikdaten wurden vom Server gelöscht.",
+    "settings.consent_clear_stats_fail": "Löschen fehlgeschlagen. Bitte erneut versuchen.",
+    "settings.export_my_data": "Meine gespeicherten Daten herunterladen",
+    "settings.export_my_data_ok": "Datei gespeichert.",
+    "settings.export_my_data_fail": "Export fehlgeschlagen.",
+    "settings.export_yes": "Ja",
+    "settings.export_no": "Nein",
+    "settings.export_title": "Meine gespeicherten Daten",
+    "settings.export_generated": "Erstellt am",
+    "settings.export_app_id": "App",
+    "settings.export_section_license": "Lizenz",
+    "settings.export_license_type": "Lizenztyp",
+    "settings.export_license_created": "Lizenz erstellt am",
+    "settings.export_license_expires": "Lizenz läuft ab am",
+    "settings.export_section_identity": "Identität",
+    "settings.export_ingame_name": "Ingame-Name",
+    "settings.export_wizard_id": "Wizard-ID",
+    "settings.export_machine_fp": "Gerätefingerabdruck",
+    "settings.export_section_timestamps": "Zeitstempel",
+    "settings.export_activated_at": "Aktiviert am",
+    "settings.export_last_seen": "Letzter Start",
+    "settings.export_section_stats": "Optionale Statistikdaten",
+    "settings.export_app_version": "App-Version",
+    "settings.export_language": "UI-Sprache",
+    "settings.export_section_consent": "Datenschutz-Zustimmung",
+    "settings.export_consent_given": "Zustimmung erteilt",
+    "settings.export_consent_at": "Zustimmung am",
+    "settings.export_consent_version": "Zustimmungs-Version",
+    "settings.export_section_cloud_lr": "Optimizer-Läufe (Cloud Learning)",
+    "settings.export_cloud_lr_total": "Gesamt",
+    "settings.export_cloud_lr_by_kind": "Je Optimizer",
+    "settings.export_cloud_lr_range": "Zeitraum",
+    "settings.export_section_cloud_build": "Build-Präferenzen (Cloud)",
+    "settings.export_cloud_build_total": "Gesamt",
+    "settings.export_cloud_build_by_mode": "Je Modus",
+    "settings.export_cloud_build_units": "Distinkte Einheiten",
+    "settings.export_cloud_build_range": "Zeitraum",
+    "settings.export_cloud_unavailable": "Keine Cloud-Learning-Daten verfügbar.",
+
     # -- License dialog ------------------------------------------
     "license.title": "Lizenz Aktivierung",
     "license.enter_key": "Bitte gib deinen Serial Key ein.",
@@ -440,88 +504,102 @@ STRINGS: dict[str, str] = {
     # -- Help dialog ---------------------------------------------
     "help.title": "Anleitung",
     "help.content": (
-        "<h2>SW Team Optimizer – Kurzanleitung</h2>"
+        "<h2 style='color:#e8c252;'>SW Team Optimizer – Kurzanleitung</h2>"
 
-        "<h3>1. JSON importieren</h3>"
+        "<table width='100%' cellspacing='0' cellpadding='0' "
+        "style='border-collapse:collapse; margin:6px 0 14px 0;'>"
+        "<tr><td colspan='3' bgcolor='#1e3550' "
+        "style='padding:5px 10px; color:#7ab8f5; font-weight:bold;'>"
+        "Modus-Übersicht</td></tr>"
+        "<tr bgcolor='#242424'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>Siege</td>"
+        "<td style='padding:4px 10px;'>bis zu 10 Defs · je 3 Monster</td>"
+        "<td style='padding:4px 10px; color:#888;'>Aktuell · Builder · Gespeichert</td>"
+        "</tr>"
+        "<tr bgcolor='#1c1c1c'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>WGB</td>"
+        "<td style='padding:4px 10px;'>5 Defs · je 3 Monster</td>"
+        "<td style='padding:4px 10px; color:#888;'>Builder · Gespeichert</td>"
+        "</tr>"
+        "<tr bgcolor='#242424'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>RTA</td>"
+        "<td style='padding:4px 10px;'>bis zu 15 Monster</td>"
+        "<td style='padding:4px 10px; color:#888;'>Aktuell · Builder · Gespeichert</td>"
+        "</tr>"
+        "<tr bgcolor='#1c1c1c'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>Arena Rush</td>"
+        "<td style='padding:4px 10px;'>1 Def (4) + bis zu 15 Off-Teams (je 4)</td>"
+        "<td style='padding:4px 10px; color:#888;'>Builder · Gespeichert</td>"
+        "</tr>"
+        "</table>"
+
+        "<h3 style='color:#4a90e2;'>1 · JSON importieren</h3>"
         "<p>Öffne den <b>Einstellungen</b>-Tab und klicke auf <b>JSON importieren</b>. "
         "Wähle deinen Summoners War JSON-Export (z.B. via SWEX). "
-        "Nach dem Import zeigt der <b>Übersicht</b>-Tab deine Account-Statistiken, "
-        "Runen-Effizienz-Diagramme und Artefakt-Übersicht.</p>"
+        "Nach dem Import: <b>Übersicht</b> zeigt Account-Statistiken und "
+        "Runen-Effizienz-Diagramme; <b>Monster-Kollektion</b> ermöglicht das "
+        "Durchsuchen aller Einheiten.</p>"
 
-        "<h3>2. Aktuelle Aufstellungen ansehen</h3>"
-        "<p><b>Siege → Aktuell</b> – Zeigt deine Ingame-Siege-Verteidigungen "
-        "als Karten mit allen Runen-Details.<br>"
-        "<b>RTA → Aktuell</b> – Zeigt deine aktuell ausgerüsteten RTA-Monster "
-        "mit Speed-Lead-Umschalter für Turn-Order-Vergleiche.</p>"
+        "<h3 style='color:#4a90e2;'>2 · Aktuelle Aufstellungen ansehen</h3>"
+        "<p><b>Siege → Aktuell</b> – Ingame-Siege-Verteidigungen als Karten "
+        "mit Runen-Details.<br>"
+        "<b>RTA → Aktuell</b> – Aktuell ausgerüstete RTA-Monster mit "
+        "Speed-Lead-Umschalter für Turn-Order-Vergleiche.</p>"
 
-        "<h3>3. Teams im Builder zusammenstellen</h3>"
-        "<p>Wechsle zum <b>Builder</b>-Unter-Tab des gewünschten Modus:</p>"
+        "<h3 style='color:#4a90e2;'>3 · Teams im Builder zusammenstellen</h3>"
+        "<p>Wechsle in den <b>Builder</b>-Unter-Tab des gewünschten Modus. "
+        "<b>Aktuelle … übernehmen</b> lädt Ingame-Daten direkt ein "
+        "(verfügbar für Siege und Arena Rush). "
+        "RTA: Monster per <b>Hinzufügen</b>-Button, Reihenfolge per Drag &amp; Drop. "
+        "Bei Arena Rush können Off-Teams per Checkbox <b>Aktiv</b> einzeln "
+        "aktiviert oder deaktiviert werden.</p>"
+
+        "<h3 style='color:#4a90e2;'>4 · Builds definieren</h3>"
+        "<p>Klicke auf <b>Builds (Sets+Mainstats)…</b> um pro Monster festzulegen:</p>"
         "<ul>"
-        "<li><b>Siege</b> – Bis zu 10 Verteidigungen × 3 Monster. "
-        "Slot 1 bestimmt den Leader-Skill. "
-        "<b>Aktuelle Siege-Verteidigungen übernehmen</b> lädt deine Ingame-Defs.</li>"
-        "<li><b>WGB</b> – 5 Verteidigungen × 3 Monster.</li>"
-        "<li><b>RTA</b> – Bis zu 15 Monster per Hinzufügen-Button, "
-        "Reihenfolge per Drag &amp; Drop.</li>"
-        "<li><b>Arena Rush</b> – 1 Arena-Defense (4 Monster) + bis zu 15 "
-        "Offense-Teams (je 4 Monster, Checkbox <b>Aktiv</b> pro Team). "
-        "<b>Aktuelle Arena-Def übernehmen</b> und <b>Arena-Offense Decks übernehmen</b> "
-        "laden deine Ingame-Daten.</li>"
-        "</ul>"
-
-        "<h3>4. Builds definieren</h3>"
-        "<p>Klicke auf <b>Builds (Sets+Mainstats)...</b> um pro Monster festzulegen:</p>"
-        "<ul>"
-        "<li><b>Sets</b> – Set 1 und Set 2 unterstützen Mehrfachauswahl. "
-        "Nur gleichgroße Sets pro Slot (2er oder 4er). "
-        "Set 3 ist nur aktiv wenn Set 1 und Set 2 beide 2er-Sets sind.</li>"
-        "<li><b>Mainstats</b> – Slot 2, 4, 6; Mehrfachauswahl möglich (leer = beliebig).</li>"
-        "<li><b>Artefakte</b> – Attribut- und Typ-Artefakt: Fokus und bis zu "
-        "2 Substats wählbar (leer = beliebig).</li>"
-        "<li><b>Min-Stats</b> – Mindestwerte (z.B. Min SPD 200).</li>"
+        "<li><b>Sets</b> – Mehrfachauswahl für Set 1 &amp; 2; nur gleichgroße Sets "
+        "(2er oder 4er) pro Slot. Set 3 ist nur aktiv wenn Set 1 &amp; 2 "
+        "beide 2er-Sets sind.</li>"
+        "<li><b>Mainstats</b> – Slot 2, 4, 6; Mehrfachauswahl (leer = beliebig).</li>"
+        "<li><b>Artefakte</b> – Attribut- &amp; Typ-Artefakt: Fokus + bis zu 2 Substats "
+        "(leer = beliebig).</li>"
+        "<li><b>Min-Stats</b> – Mindestwerte, z.B. Min SPD 200.</li>"
         "<li><b>Priorität</b> – Niedrigere Zahl = erhält zuerst die besten Runen.</li>"
-        "<li><b>Turn-Order</b> – Reihenfolge per Drag &amp; Drop; optionaler "
-        "SPD-Tick erzwingt den exakten Breakpoint-Bereich (z.B. Tick 6 = SPD 239–285).</li>"
+        "<li><b>Turn-Order</b> – Reihenfolge per Drag &amp; Drop; SPD-Tick erzwingt "
+        "den exakten Breakpoint-Bereich (z.B. Tick 6 = SPD 239–285).</li>"
         "</ul>"
 
-        "<h3>5. Optimieren</h3>"
-        "<p>Klicke auf <b>Optimieren</b>. Verfügbare Profile:</p>"
+        "<h3 style='color:#4a90e2;'>5 · Optimieren</h3>"
+        "<p>Klicke auf <b>Optimieren</b>. Zwei Profile stehen zur Verfügung:</p>"
         "<ul>"
-        "<li><b>Fast</b> – Schnelle Suche mit geringem Suchraum.</li>"
-        "<li><b>Balanced</b> – Breitere Suche mit Verfeinerung; "
-        "1–10 Durchläufe, stoppt früh wenn keine Verbesserung mehr möglich ist.</li>"
-        "<li><b>Max Qualität</b> – Globale Optimierung über alle Monster gleichzeitig.</li>"
-        "<li><b>KI (GPU/CPU)</b> – Hybrid-Profil mit GPU/CPU-Suche; "
-        "standardmäßig vorausgewählt.</li>"
+        "<li><b>Smart</b> – Hybrides GPU/CPU-KI-Profil; standardmäßig vorausgewählt. "
+        "Empfohlen für alle Modi.</li>"
+        "<li><b>Maximum</b> – Globale Optimierung über alle Monster gleichzeitig; "
+        "sucht die beste Runenverteilung nach Effizienz.</li>"
         "</ul>"
-        "<p>Bei <b>Fast</b> und <b>Balanced</b> ist die Drag &amp; Drop "
-        "Reihenfolge in der Monsterliste wichtig – Monster weiter oben "
-        "wählen zuerst aus dem gemeinsamen Runen-Pool.<br>"
-        "Für <b>Arena Rush</b> stehen nur <b>KI (GPU/CPU)</b> und "
-        "<b>Max Qualität</b> zur Verfügung (kein Ultra-Profil mehr).</p>"
+        "<p>Der Fortschritt wird im Dialog angezeigt.</p>"
 
-        "<h3>6. Ergebnisse speichern</h3>"
-        "<p>Optimierungen werden nach dem Speichern im jeweiligen "
-        "<b>Gespeichert</b>-Unter-Tab angezeigt und können dort "
-        "geladen oder gelöscht werden.</p>"
+        "<h3 style='color:#4a90e2;'>6 · Ergebnisse speichern &amp; laden</h3>"
+        "<p>Optimierungen erscheinen nach dem Speichern im <b>Gespeichert</b>-Unter-Tab "
+        "und können dort geladen oder gelöscht werden.</p>"
 
-        "<h3>7. Learning lokal oder online (Full)</h3>"
-        "<p>Im <b>Einstellungen</b>-Tab können Full-User optional "
-        "<b>Cloud-Learning</b> aktivieren. Aktiviert = anonymisierte "
-        "Lernmetriken werden online geteilt und globale Priors geladen. "
-        "Deaktiviert = Learning bleibt vollständig lokal. "
-        "Trial-Lizenzen bleiben immer lokal.</p>"
+        "<h3 style='color:#4a90e2;'>7 · Runen &amp; Artefakte</h3>"
+        "<p>Durchsuchbare Tabellen mit Effizienzwerten für alle Runen und Artefakte. "
+        "Im <b>Runen</b>-Tab zusätzlich: <b>Gem-Vorschläge</b> – welcher Substat "
+        "sich pro Rune am meisten lohnt zu tauschen.</p>"
 
-        "<h3>Tipps</h3>"
+        "<h3 style='color:#4a90e2;'>8 · Cloud-Learning (Full)</h3>"
+        "<p>Im <b>Einstellungen</b>-Tab können Full-User <b>Cloud-Learning</b> "
+        "aktivieren: anonymisierte Lernmetriken werden online geteilt und globale "
+        "Priors geladen. Deaktiviert = vollständig lokal. Trial immer lokal.</p>"
+
+        "<h3 style='color:#e8c252;'>Tipps</h3>"
         "<ul>"
-        "<li>Im Runen-Diagramm mit <b>Strg+Scrollen</b> die Anzahl der "
-        "angezeigten Top-Runen anpassen.</li>"
-        "<li>Maus über einen Datenpunkt im Diagramm → Runen-Details "
-        "inkl. Subs und Grinds.</li>"
+        "<li>Im Runen-Diagramm mit <b>Strg+Scrollen</b> Anzahl der Top-Runen anpassen.</li>"
+        "<li>Maus über Datenpunkt → Runen-Details inkl. Subs und Grinds.</li>"
         "<li>Substats die per <span style='color:#1abc9c'><b>Gem</b></span> "
         "getauscht wurden, sind farblich hervorgehoben.</li>"
-        "<li>Tabs lassen sich per Drag &amp; Drop in der Tab-Leiste "
-        "umsortieren.</li>"
+        "<li>Tabs lassen sich per Drag &amp; Drop in der Tab-Leiste umsortieren.</li>"
         "</ul>"
     ),
 
@@ -545,6 +623,10 @@ STRINGS: dict[str, str] = {
     "opt.no_units": "Keine Units.",
     "opt.ok": "OK",
     "opt.cancelled": "Optimierung abgebrochen.",
+    "opt.progress.step_prep": "Vorbereitung",
+    "opt.progress.step_run": "Optimierung",
+    "opt.progress.step_defense": "Verteidigung",
+    "opt.progress.step_offense": "Angriffsteams",
     "opt.partial_fail": "Fertig, aber mindestens ein Monster konnte nicht gebaut werden.",
     "opt.stable_solution": "stabile Lösung ohne weitere Verbesserung",
     "opt.no_improvement": "keine Verbesserung in aufeinanderfolgenden Passes",

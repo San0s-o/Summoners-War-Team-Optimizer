@@ -6,8 +6,9 @@ from PySide6.QtCore import QEventLoop, QThreadPool
 from PySide6.QtWidgets import QDialog, QMainWindow
 
 from app.i18n import tr
-from app.services.license_service import LicenseValidation, load_license_keys, save_license_key, validate_license_key
+from app.services.license_service import LicenseValidation, load_license_keys, needs_consent_prompt, save_license_key, validate_license_key
 from app.ui.async_worker import _TaskWorker
+from app.ui.dialogs.consent_dialog import ConsentDialog
 from app.ui.dialogs.license_dialog import LicenseDialog
 
 
@@ -57,7 +58,13 @@ def _validate_license_key_threaded_sync(key: str) -> LicenseValidation:
     return result_box["result"]
 
 
+def _ensure_consent_shown() -> None:
+    if needs_consent_prompt():
+        ConsentDialog().exec()
+
+
 def _ensure_license_accepted() -> LicenseValidation | None:
+    _ensure_consent_shown()
     known_keys = load_license_keys()
     existing = known_keys[0] if known_keys else None
     cached_candidate: tuple[str, LicenseValidation] | None = None

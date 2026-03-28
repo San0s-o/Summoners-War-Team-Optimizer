@@ -231,7 +231,7 @@ def on_validate_siege(window) -> None:
         QMessageBox.critical(window, tr("val.title_siege"), msg)
         return
     window.lbl_siege_validate.setText(msg)
-    QMessageBox.information(window, tr("val.title_siege_ok"), msg)
+    show_toast(window, msg, "success")
 
 
 def on_edit_presets_siege(window) -> None:
@@ -257,7 +257,7 @@ def on_edit_presets_siege(window) -> None:
         _store_compare_snapshot_from_build_dialog(window, "siege", dlg)
         window.presets.save(window.presets_path)
         save_team_selections(window)
-        QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
+        show_toast(window, tr("dlg.builds_saved_title"), "success")
 
 
 def on_optimize_siege(window) -> None:
@@ -272,8 +272,6 @@ def on_optimize_siege(window) -> None:
             pass_count = 1
         workers = window._effective_workers(quality_profile, window.combo_workers_siege)
         running_text = tr("result.opt_running", mode="Siege")
-        window.lbl_siege_validate.setText(running_text)
-        window.statusBar().showMessage(running_text)
         selections = window._collect_siege_selections()
         ok, msg, all_units = window._validate_team_structure("Siege", selections, must_have_team_size=3)
         if not ok:
@@ -364,17 +362,18 @@ def on_optimize_siege(window) -> None:
         window.lbl_siege_validate.setText(final_msg)
         window.statusBar().showMessage(final_msg, 7000)
         show_toast(window, final_msg, "success" if _ok else "warning")
-        unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
-        siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
-        window._show_optimize_results(
-            tr("result.title_siege"),
-            final_msg,
-            res.results,
-            unit_team_index=team_idx_by_uid,
-            unit_display_order=unit_display_order,
-            mode="siege",
-            teams=siege_teams,
-        )
+        if res is not None and getattr(res, "results", None):
+            unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
+            siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
+            window._show_optimize_results(
+                tr("result.title_siege"),
+                final_msg,
+                res.results,
+                unit_team_index=team_idx_by_uid,
+                unit_display_order=unit_display_order,
+                mode="siege",
+                teams=siege_teams,
+            )
     finally:
         window._siege_optimization_running = False
         window.btn_optimize_siege.setEnabled(bool(window.account))
@@ -461,7 +460,7 @@ def on_validate_wgb(window) -> None:
         QMessageBox.critical(window, tr("val.title_wgb"), msg2)
         return
     window.lbl_wgb_validate.setText(msg)
-    QMessageBox.information(window, tr("val.title_wgb_ok"), msg)
+    show_toast(window, msg, "success")
     window._render_wgb_preview(selections)
 
 
@@ -493,7 +492,7 @@ def on_edit_presets_wgb(window) -> None:
         _store_compare_snapshot_from_build_dialog(window, "wgb", dlg)
         window.presets.save(window.presets_path)
         save_team_selections(window)
-        QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
+        show_toast(window, tr("dlg.builds_saved_title"), "success")
 
 
 def on_optimize_wgb(window) -> None:
@@ -505,8 +504,6 @@ def on_optimize_wgb(window) -> None:
         pass_count = 1
     workers = window._effective_workers(quality_profile, window.combo_workers_wgb)
     running_text = tr("result.opt_running", mode="WGB")
-    window.lbl_wgb_validate.setText(running_text)
-    window.statusBar().showMessage(running_text)
     selections = window._collect_wgb_selections()
     ok, msg, all_units = window._validate_team_structure("WGB", selections, must_have_team_size=3)
     if not ok:
@@ -581,17 +578,18 @@ def on_optimize_wgb(window) -> None:
     window.lbl_wgb_validate.setText(final_msg)
     window.statusBar().showMessage(final_msg, 7000)
     show_toast(window, final_msg, "success" if _ok else "warning")
-    unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
-    wgb_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
-    window._show_optimize_results(
-        tr("result.title_wgb"),
-        final_msg,
-        res.results,
-        unit_team_index=team_idx_by_uid,
-        unit_display_order=unit_display_order,
-        mode="wgb",
-        teams=wgb_teams,
-    )
+    if res is not None and getattr(res, "results", None):
+        unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
+        wgb_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
+        window._show_optimize_results(
+            tr("result.title_wgb"),
+            final_msg,
+            res.results,
+            unit_team_index=team_idx_by_uid,
+            unit_display_order=unit_display_order,
+            mode="wgb",
+            teams=wgb_teams,
+        )
 
 
 def render_wgb_preview(window, selections: List[TeamSelection] | None = None) -> None:
@@ -674,7 +672,7 @@ def on_validate_rta(window) -> None:
         seen.add(uid)
     msg = tr("rta.ok", count=len(ids))
     window.lbl_rta_validate.setText(msg)
-    QMessageBox.information(window, tr("val.title_rta_ok"), msg)
+    show_toast(window, msg, "success")
 
 
 def on_edit_presets_rta(window) -> None:
@@ -702,7 +700,7 @@ def on_edit_presets_rta(window) -> None:
     if dlg.exec() == QDialog.Accepted:
         _store_compare_snapshot_from_build_dialog(window, "rta", dlg)
         window.presets.save(window.presets_path)
-        QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
+        show_toast(window, tr("dlg.builds_saved_title"), "success")
 
 
 def on_optimize_rta(window) -> None:
@@ -714,8 +712,6 @@ def on_optimize_rta(window) -> None:
         pass_count = 1
     workers = window._effective_workers(quality_profile, window.combo_workers_rta)
     running_text = tr("result.opt_running", mode="RTA")
-    window.lbl_rta_validate.setText(running_text)
-    window.statusBar().showMessage(running_text)
     ids = window._collect_rta_unit_ids()
     if not ids:
         QMessageBox.critical(window, "RTA", tr("dlg.select_monsters_first"))
@@ -776,16 +772,17 @@ def on_optimize_rta(window) -> None:
     window.lbl_rta_validate.setText(final_msg)
     window.statusBar().showMessage(final_msg, 7000)
     show_toast(window, final_msg, "success" if _ok else "warning")
-    unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(ids)}
-    window._show_optimize_results(
-        tr("result.title_rta"),
-        final_msg,
-        res.results,
-        unit_team_index=team_idx_by_uid,
-        unit_display_order=unit_display_order,
-        mode="rta",
-        teams=[ids],
-    )
+    if res is not None and getattr(res, "results", None):
+        unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(ids)}
+        window._show_optimize_results(
+            tr("result.title_rta"),
+            final_msg,
+            res.results,
+            unit_team_index=team_idx_by_uid,
+            unit_display_order=unit_display_order,
+            mode="rta",
+            teams=[ids],
+        )
 
 
 def collect_arena_def_selection(window) -> List[int]:

@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict
 from PySide6.QtCore import Qt, QTimer, QThreadPool, QEventLoop, Signal
 from PySide6.QtWidgets import (
     QApplication, QLabel, QProgressBar, QDialog, QPushButton,
-    QVBoxLayout, QHBoxLayout,
+    QVBoxLayout, QHBoxLayout, QFrame, QSizePolicy, QWidget,
 )
 
 from app.i18n import tr
@@ -31,11 +31,11 @@ def build_pass_progress_callback(window, label: QLabel, prefix: str) -> Callable
 
 
 class _ModernProgressDialog(QDialog):
-    """Modern drop-in replacement for QProgressDialog."""
+    """Progress dialog styled after UpdateWizardDialog."""
 
     canceled = Signal()
 
-    def __init__(self, text: str, title: str, parent=None):
+    def __init__(self, text: str, title: str, parent=None, steps: list | None = None):
         super().__init__(parent)
         from app.ui import theme as _theme
         c = _theme.C
@@ -45,22 +45,36 @@ class _ModernProgressDialog(QDialog):
         self.setWindowModality(Qt.ApplicationModal)
         self.setMinimumWidth(dp(460))
         self._cancelled = False
+        self._current_step = 0
+        self._custom_steps = steps  # None = default 2-step mode with auto-advance
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(dp(32), dp(30), dp(32), dp(24))
-        root.setSpacing(0)
+        root.setContentsMargins(dp(20), dp(16), dp(20), dp(16))
+        root.setSpacing(dp(10))
 
-        # ── status label ────────────────────────────────────────────────
+        # ── step indicator ───────────────────────────────────────────────
+        root.addWidget(self._make_step_indicator())
+
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.HLine)
+        sep1.setStyleSheet("color: #555;")
+        root.addWidget(sep1)
+
+        # ── content area ─────────────────────────────────────────────────
+        content = QWidget()
+        cl = QVBoxLayout(content)
+        cl.setContentsMargins(0, dp(8), 0, dp(8))
+        cl.setSpacing(dp(14))
+        cl.setAlignment(Qt.AlignCenter)
+
         self._label = QLabel(text, self)
         self._label.setAlignment(Qt.AlignCenter)
         self._label.setWordWrap(True)
         self._label.setStyleSheet(
             f"color: {c['text']}; font-size: {dp(13)}px; background: transparent;"
         )
-        root.addWidget(self._label)
-        root.addSpacing(dp(22))
+        cl.addWidget(self._label)
 
-        # ── progress bar ─────────────────────────────────────────────────
         self._bar = QProgressBar(self)
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
@@ -79,8 +93,14 @@ class _ModernProgressDialog(QDialog):
             }}
             """
         )
-        root.addWidget(self._bar)
-        root.addSpacing(dp(24))
+        cl.addWidget(self._bar)
+
+        root.addWidget(content, 1)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setStyleSheet("color: #555;")
+        root.addWidget(sep2)
 
         # ── cancel button ────────────────────────────────────────────────
         btn_row = QHBoxLayout()
@@ -118,6 +138,57 @@ class _ModernProgressDialog(QDialog):
         self.setStyleSheet(
             f"QDialog {{ background-color: {c['bg_card']}; border: 1px solid {c['border']}; }}"
         )
+        self._update_step_styles(0)
+
+    def _make_step_indicator(self) -> QWidget:
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, dp(4), 0, dp(4))
+        layout.setSpacing(dp(6))
+
+        self._step_bubbles: list[QLabel] = []
+        self._step_labels: list[QLabel] = []
+        steps = self._custom_steps if self._custom_steps is not None else [tr("opt.progress.step_prep"), tr("opt.progress.step_run")]
+        for i, name in enumerate(steps):
+            bubble = QLabel(str(i + 1))
+            bubble.setFixedSize(dp(24), dp(24))
+            bubble.setAlignment(Qt.AlignCenter)
+            self._step_bubbles.append(bubble)
+
+            lbl = QLabel(name)
+            self._step_labels.append(lbl)
+
+            layout.addWidget(bubble)
+            layout.addWidget(lbl)
+
+            if i < len(steps) - 1:
+                line = QFrame()
+                line.setFrameShape(QFrame.HLine)
+                line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                layout.addWidget(line, 1)
+
+        return widget
+
+    def _update_step_styles(self, current: int) -> None:
+        for i, (bubble, lbl) in enumerate(zip(self._step_bubbles, self._step_labels)):
+            if i < current:
+                bubble.setStyleSheet(
+                    "background: #3a7a3a; color: #fff; border-radius: 12px; font-weight: bold;"
+                )
+                bubble.setText("✓")
+                lbl.setStyleSheet("color: #888;")
+            elif i == current:
+                bubble.setStyleSheet(
+                    "background: #2979ff; color: #fff; border-radius: 12px; font-weight: bold;"
+                )
+                bubble.setText(str(i + 1))
+                lbl.setStyleSheet("color: #fff; font-weight: bold;")
+            else:
+                bubble.setStyleSheet(
+                    "background: #444; color: #888; border-radius: 12px;"
+                )
+                bubble.setText(str(i + 1))
+                lbl.setStyleSheet("color: #888;")
 
     def _on_cancel(self) -> None:
         self._cancelled = True
@@ -126,8 +197,18 @@ class _ModernProgressDialog(QDialog):
     def wasCanceled(self) -> bool:
         return self._cancelled
 
+    def advance_step(self) -> None:
+        new_step = min(self._current_step + 1, len(self._step_bubbles) - 1)
+        if new_step != self._current_step:
+            self._current_step = new_step
+            self._update_step_styles(new_step)
+
     def setValue(self, v: int) -> None:
         self._bar.setValue(v)
+        # Auto-advance from "Vorbereitung" to "Optimierung" only in default 2-step mode
+        if self._custom_steps is None and v > 0 and self._current_step == 0:
+            self._current_step = 1
+            self._update_step_styles(1)
 
     def setLabelText(self, text: str) -> None:
         self._label.setText(text)
@@ -147,9 +228,10 @@ def run_with_busy_progress(
     window,
     text: str,
     work_fn: Callable[[Callable[[], bool], Callable[[Any], None], Callable[[int, int], None]], Any],
+    steps: list | None = None,
 ) -> Any:
     show_extra = bool(getattr(window, "_show_extra_info_enabled", lambda: False)())
-    dlg = _ModernProgressDialog(text, tr("btn.optimize"), parent=window)
+    dlg = _ModernProgressDialog(text, tr("btn.optimize"), parent=window, steps=steps)
     dlg.setRange(0, 100)
     dlg.setValue(0)
     dlg.show()
@@ -166,6 +248,7 @@ def run_with_busy_progress(
     }
     done_event = threading.Event()
     last_progress_current = 0
+    pending_advances = [0]
 
     def _is_cancelled() -> bool:
         return bool(cancel_event.is_set())
@@ -174,14 +257,12 @@ def run_with_busy_progress(
         with solver_lock:
             active_solvers.append(solver_obj)
 
-    def _report_progress(current: int, total: int) -> None:
+    def _report_progress(current: int, total: int, _phase: str = "") -> None:
         with progress_lock:
-            prev_current = int(progress_state.get("current", 0) or 0)
-            prev_total = int(progress_state.get("total", 0) or 0)
-            new_current = max(int(prev_current), max(0, int(current or 0)))
-            new_total = max(int(prev_total), max(0, int(total or 0)))
-            progress_state["current"] = float(new_current)
-            progress_state["total"] = float(new_total)
+            progress_state["current"] = float(max(0, int(current or 0)))
+            progress_state["total"] = float(max(0, int(total or 0)))
+            if _phase:
+                pending_advances[0] += 1
 
     def _refresh_progress() -> None:
         nonlocal last_progress_current
@@ -190,6 +271,10 @@ def run_with_busy_progress(
         with progress_lock:
             current = int(progress_state.get("current", 0))
             total = int(progress_state.get("total", 0))
+            advances = pending_advances[0]
+            pending_advances[0] = 0
+        for _ in range(advances):
+            dlg.advance_step()
         if total <= 0:
             return
         pct = max(0, min(100, int(round((float(current) / float(total)) * 100.0))))

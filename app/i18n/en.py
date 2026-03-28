@@ -336,7 +336,7 @@ STRINGS: dict[str, str] = {
     "dlg.max_15_rta": "Maximum 25 monsters allowed.",
     "dlg.arena_builds": "Arena Rush Builds",
     "dlg.delete_confirm": "Really delete '{name}'?",
-    "dlg.builds_saved_title": "Builds saved",
+    "dlg.builds_saved_title": "Saved",
     "dlg.builds_saved": "Saved to {path}",
     "dlg.select_left": "Please select a monster on the left.",
     "dlg.no_result": "No result found.",
@@ -421,6 +421,70 @@ STRINGS: dict[str, str] = {
     "update.wizard.downloading": "Downloading...",
     "update.wizard.installing": "Installing...",
 
+    # -- Consent dialog ------------------------------------------
+    "consent.title": "Data & Privacy",
+    "consent.body": (
+        "<b>Required data</b> – processed to provide and secure your license:<br>"
+        "• License key (hashed) + device fingerprint (hashed) → license verification and device binding<br>"
+        "• In-game name &amp; Wizard ID from your account file → identification for support requests<br>"
+        "• Activation time &amp; last start → license status and abuse detection<br>"
+        "<i>Storage: locally on your device &amp; Supabase (AWS eu-west-1, Ireland). "
+        "Retention: as long as the license is active. Deletion on request.</i><br><br>"
+        "<b>Optional statistics</b> – only with your consent:<br>"
+        "• App version &amp; UI language → technical usage statistics, no identification<br>"
+        "<i>Storage: Supabase (AWS eu-west-1, Ireland). Deletion at any time via Settings → Delete statistics data from server.</i><br><br>"
+        "If you do not consent, the app continues to work normally. "
+        "Only the required data will be processed. "
+        "You can change your choice at any time in the settings."
+    ),
+    "consent.accept": "Allow optional statistics",
+    "consent.decline": "Use required data only",
+    "consent.privacy_policy": "Privacy Policy",
+    "settings.consent_stats_label": "Store optional statistics (app version, language)",
+    "settings.consent_stats_hint": "App version and UI language will be stored linked to your license.",
+    "settings.consent_saved_on": "Statistics will be stored from now on.",
+    "settings.consent_saved_off": "Statistics will no longer be stored.",
+    "settings.consent_show_dialog": "Show privacy notice",
+    "settings.consent_clear_stats": "Delete statistics data from server",
+    "settings.consent_clear_stats_ok": "Statistics data has been deleted from the server.",
+    "settings.consent_clear_stats_fail": "Deletion failed. Please try again.",
+    "settings.export_my_data": "Download my stored data",
+    "settings.export_my_data_ok": "File saved.",
+    "settings.export_my_data_fail": "Export failed.",
+    "settings.export_yes": "Yes",
+    "settings.export_no": "No",
+    "settings.export_title": "My stored data",
+    "settings.export_generated": "Generated on",
+    "settings.export_app_id": "App",
+    "settings.export_section_license": "License",
+    "settings.export_license_type": "License type",
+    "settings.export_license_created": "License created on",
+    "settings.export_license_expires": "License expires on",
+    "settings.export_section_identity": "Identity",
+    "settings.export_ingame_name": "In-game name",
+    "settings.export_wizard_id": "Wizard ID",
+    "settings.export_machine_fp": "Device fingerprint",
+    "settings.export_section_timestamps": "Timestamps",
+    "settings.export_activated_at": "Activated on",
+    "settings.export_last_seen": "Last started",
+    "settings.export_section_stats": "Optional statistics",
+    "settings.export_app_version": "App version",
+    "settings.export_language": "UI language",
+    "settings.export_section_consent": "Privacy consent",
+    "settings.export_consent_given": "Consent given",
+    "settings.export_consent_at": "Consent given on",
+    "settings.export_consent_version": "Consent version",
+    "settings.export_section_cloud_lr": "Optimizer Runs (Cloud Learning)",
+    "settings.export_cloud_lr_total": "Total",
+    "settings.export_cloud_lr_by_kind": "By optimizer",
+    "settings.export_cloud_lr_range": "Date range",
+    "settings.export_section_cloud_build": "Build Preferences (Cloud)",
+    "settings.export_cloud_build_total": "Total",
+    "settings.export_cloud_build_by_mode": "By mode",
+    "settings.export_cloud_build_units": "Distinct units",
+    "settings.export_cloud_build_range": "Date range",
+    "settings.export_cloud_unavailable": "No cloud learning data available.",
+
     # -- License dialog ------------------------------------------
     "license.title": "License Activation",
     "license.enter_key": "Please enter your serial key.",
@@ -434,85 +498,101 @@ STRINGS: dict[str, str] = {
     # -- Help dialog ---------------------------------------------
     "help.title": "Guide",
     "help.content": (
-        "<h2>SW Team Optimizer - Quick Guide</h2>"
+        "<h2 style='color:#e8c252;'>SW Team Optimizer – Quick Guide</h2>"
 
-        "<h3>1. Import JSON</h3>"
-        "<p>Click <b>Import JSON</b> and select your "
-        "Summoners War JSON export. After importing you will see "
-        "your account statistics, rune efficiency charts, and "
-        "set distribution on the <b>Overview</b> tab.</p>"
+        "<table width='100%' cellspacing='0' cellpadding='0' "
+        "style='border-collapse:collapse; margin:6px 0 14px 0;'>"
+        "<tr><td colspan='3' bgcolor='#1e3550' "
+        "style='padding:5px 10px; color:#7ab8f5; font-weight:bold;'>"
+        "Mode Overview</td></tr>"
+        "<tr bgcolor='#242424'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>Siege</td>"
+        "<td style='padding:4px 10px;'>up to 10 defs · 3 monsters each</td>"
+        "<td style='padding:4px 10px; color:#888;'>Current · Builder · Saved</td>"
+        "</tr>"
+        "<tr bgcolor='#1c1c1c'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>WGB</td>"
+        "<td style='padding:4px 10px;'>5 defs · 3 monsters each</td>"
+        "<td style='padding:4px 10px; color:#888;'>Builder · Saved</td>"
+        "</tr>"
+        "<tr bgcolor='#242424'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>RTA</td>"
+        "<td style='padding:4px 10px;'>up to 15 monsters</td>"
+        "<td style='padding:4px 10px; color:#888;'>Current · Builder · Saved</td>"
+        "</tr>"
+        "<tr bgcolor='#1c1c1c'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>Arena Rush</td>"
+        "<td style='padding:4px 10px;'>1 def (4) + up to 15 offense teams (4 each)</td>"
+        "<td style='padding:4px 10px; color:#888;'>Builder · Saved</td>"
+        "</tr>"
+        "</table>"
 
-        "<h3>2. View current setups</h3>"
-        "<p><b>Siege Defenses (current)</b> - Shows your in-game "
-        "siege defenses as cards with rune details.<br>"
-        "<b>RTA (current)</b> - Shows your currently equipped RTA monsters.</p>"
+        "<h3 style='color:#4a90e2;'>1 · Import JSON</h3>"
+        "<p>Open the <b>Settings</b> tab and click <b>Import JSON</b>. "
+        "Select your Summoners War JSON export (e.g. via SWEX). "
+        "After importing: <b>Overview</b> shows account statistics and rune "
+        "efficiency charts; <b>Monster Collection</b> lets you browse all units.</p>"
 
-        "<h3>3. Build teams</h3>"
-        "<p>In the <b>Builder</b> tabs (Siege / GWB / RTA / Arena Rush) you can "
-        "create custom team compositions:</p>"
+        "<h3 style='color:#4a90e2;'>2 · View current setups</h3>"
+        "<p><b>Siege → Current</b> – In-game siege defenses as cards with rune details.<br>"
+        "<b>RTA → Current</b> – Currently equipped RTA monsters with a speed-lead "
+        "toggle for turn-order comparisons.</p>"
+
+        "<h3 style='color:#4a90e2;'>3 · Build teams</h3>"
+        "<p>Switch to the <b>Builder</b> sub-tab of the desired mode. "
+        "<b>Load current …</b> imports your in-game data directly "
+        "(available for Siege and Arena Rush). "
+        "RTA: add monsters via the <b>Add</b> button, reorder by Drag &amp; Drop. "
+        "In Arena Rush each offense team has an <b>Active</b> checkbox to "
+        "include or exclude it from optimization.</p>"
+
+        "<h3 style='color:#4a90e2;'>4 · Define builds</h3>"
+        "<p>Click <b>Builds (Sets+Mainstats)…</b> to configure per monster:</p>"
         "<ul>"
-        "<li><b>Select monsters</b> - Via the dropdowns per defense (Siege/GWB) "
-        "or the Add button (RTA).</li>"
-        "<li><b>Load current</b> - Imports your in-game teams.</li>"
-        "<li><b>Arena Rush</b> - One Arena defense (4 monsters) plus up to 15 "
-        "offense teams (4 monsters each, <b>Active</b> checkbox per team).</li>"
-        "<li><b>Validate</b> - Checks for rune pool conflicts and shows warnings.</li>"
+        "<li><b>Sets</b> – Multi-select for Set 1 &amp; 2; only same-size sets "
+        "(2-piece or 4-piece) per slot. Set 3 is only active when Set 1 &amp; 2 "
+        "are both 2-piece sets.</li>"
+        "<li><b>Main stats</b> – Slots 2, 4, 6; multi-select (empty = any).</li>"
+        "<li><b>Artifacts</b> – Attribute &amp; type artifact: focus + up to 2 substats "
+        "(empty = any).</li>"
+        "<li><b>Min stats</b> – Minimum values, e.g. min SPD 200.</li>"
+        "<li><b>Priority</b> – Lower number = receives the best runes first.</li>"
+        "<li><b>Turn order</b> – Reorder via Drag &amp; Drop; an SPD tick enforces "
+        "the exact breakpoint range (e.g. Tick 6 = SPD 239–285).</li>"
         "</ul>"
 
-        "<h3>4. Define builds</h3>"
-        "<p>Click <b>Builds (Sets+Mainstats)...</b> to set the desired "
-        "rune sets and slot 2/4/6 main stats per monster. "
-        "Multi-select is available for main stats (no selection = Any). "
-        "Additionally, you can select up to two substats per artifact type "
-        "(Attribute/Type; empty = Any). "
-        "Set logic: Set 1 and Set 2 support multi-select. "
-        "Only same-size sets are allowed per set slot (2-piece or 4-piece). "
-        "Set 3 is only active when Set 1 and Set 2 are both 2-piece sets. "
-        "You can also define minimum values (e.g. min SPD) here.</p>"
-
-        "<h3>5. Optimize</h3>"
-        "<p>Click <b>Optimize (Runes)</b> to start the automatic "
-        "rune/artifact distribution. The optimizer distributes your runes "
-        "and selects matching artifacts based on build constraints. "
-        "When artifact substats are selected, matching artifacts with higher "
-        "values are preferred. "
-        "Turn order within teams is always enforced. "
-        "In the Turn Order block you can set an SPD tick per monster. "
-        "The optimizer then enforces that exact tick range "
-        "(e.g. Tick 6 = SPD 239 to 285). "
-        "With profile <b>Fast</b> it runs a quick greedy pass. "
-        "<b>Balanced</b> uses greedy plus refinement from pass 2 onward. "
-        "<b>KI (GPU/CPU)</b> is the hybrid GPU/CPU profile and is selected by default. "
-        "For <b>Fast</b>/<b>Balanced</b>, optimization order "
-        "(Drag & Drop in the monster list) is especially important, because "
-        "earlier monsters pick first from the shared pool. "
-        "<b>Max Qualität</b> uses a global optimization over all selected monsters "
-        "at once (efficiency-focused). "
-        "Use <b>Passes</b> for 1-10 multi-pass runs in Fast/Balanced; "
-        "if no further improvement is possible, the optimizer stops early. "
-        "In Max Qualität, passes are not used as multi-pass. "
-        "For <b>Arena Rush</b>, only <b>KI (GPU/CPU)</b> and <b>Max Qualität</b> are available. "
-        "The app shows a progress dialog while optimization is running.</p>"
-
-        "<h3>6. Save results</h3>"
-        "<p>Optimizations are saved automatically and can be "
-        "reviewed or deleted at any time in the "
-        "<b>Optimizations (saved)</b> tabs.</p>"
-
-        "<h3>7. Local or cloud learning (Full)</h3>"
-        "<p>In <b>Settings</b>, full-license users can choose whether to enable "
-        "<b>cloud learning</b>. Enabled = anonymized learning metrics can be uploaded "
-        "and global priors can be fetched. Disabled = learning stays fully local. "
-        "Trial licenses always remain local.</p>"
-
-        "<h3>Tips</h3>"
+        "<h3 style='color:#4a90e2;'>5 · Optimize</h3>"
+        "<p>Click <b>Optimize</b>. Two profiles are available:</p>"
         "<ul>"
-        "<li>In the rune chart you can use <b>Ctrl+Scroll</b> to change the "
-        "number of displayed top runes.</li>"
-        "<li>Hover over a data point in the chart to see "
-        "rune details including subs and grinds.</li>"
-        "<li>Subs that were swapped with a <span style='color:#1abc9c'><b>Gem</b></span> "
+        "<li><b>Smart</b> – Hybrid GPU/CPU AI profile; selected by default. "
+        "Recommended for all modes.</li>"
+        "<li><b>Maximum</b> – Global optimization across all monsters at once; "
+        "finds the best rune distribution by efficiency.</li>"
+        "</ul>"
+        "<p>Progress is shown in a dialog.</p>"
+
+        "<h3 style='color:#4a90e2;'>6 · Save &amp; load results</h3>"
+        "<p>Saved optimizations appear in the <b>Saved</b> sub-tab and can be "
+        "loaded or deleted there at any time.</p>"
+
+        "<h3 style='color:#4a90e2;'>7 · Runes &amp; Artifacts</h3>"
+        "<p>Searchable tables with efficiency values for all runes and artifacts. "
+        "In the <b>Runes</b> sub-tab: <b>Gem suggestions</b> show which substat "
+        "is worth swapping per rune.</p>"
+
+        "<h3 style='color:#4a90e2;'>8 · Cloud Learning (Full)</h3>"
+        "<p>In <b>Settings</b>, full-license users can enable <b>Cloud Learning</b>: "
+        "anonymized learning metrics are uploaded and global priors are fetched. "
+        "Disabled = fully local. Trial licenses always remain local.</p>"
+
+        "<h3 style='color:#e8c252;'>Tips</h3>"
+        "<ul>"
+        "<li>In the rune chart use <b>Ctrl+Scroll</b> to adjust the number of "
+        "displayed top runes.</li>"
+        "<li>Hover over a data point → rune details including subs and grinds.</li>"
+        "<li>Substats swapped with a <span style='color:#1abc9c'><b>Gem</b></span> "
         "are highlighted in color.</li>"
+        "<li>Tabs can be reordered via Drag &amp; Drop in the tab bar.</li>"
         "</ul>"
     ),
 
@@ -536,6 +616,10 @@ STRINGS: dict[str, str] = {
     "opt.no_units": "No units.",
     "opt.ok": "OK",
     "opt.cancelled": "Optimization cancelled.",
+    "opt.progress.step_prep": "Preparation",
+    "opt.progress.step_run": "Optimization",
+    "opt.progress.step_defense": "Defense",
+    "opt.progress.step_offense": "Offense Teams",
     "opt.partial_fail": "Done, but at least one monster could not be built.",
     "opt.stable_solution": "stable solution without further improvement",
     "opt.no_improvement": "no improvement in consecutive passes",

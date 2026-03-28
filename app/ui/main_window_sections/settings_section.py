@@ -392,6 +392,39 @@ def init_settings_ui(window) -> None:
     # --- Section 4: Data Management -----------------------------
     window.grp_settings_data = QGroupBox(tr("settings.group_data"))
     data_layout = QVBoxLayout(window.grp_settings_data)
+    data_layout.setSpacing(dp(6))
+
+    from app.services.license_service import load_consent
+    _consent_data = load_consent()
+    window.chk_settings_consent_stats = QCheckBox(tr("settings.consent_stats_label"))
+    window.chk_settings_consent_stats.setChecked(bool(_consent_data.get("consent_given", False)))
+    window.chk_settings_consent_stats.toggled.connect(
+        lambda checked: on_settings_consent_stats_toggled(window, bool(checked))
+    )
+    data_layout.addWidget(window.chk_settings_consent_stats)
+
+    window.lbl_settings_consent_stats_hint = QLabel(tr("settings.consent_stats_hint"))
+    window.lbl_settings_consent_stats_hint.setWordWrap(True)
+    window.lbl_settings_consent_stats_hint.setContentsMargins(dp(20), 0, 0, dp(4))
+    data_layout.addWidget(window.lbl_settings_consent_stats_hint)
+
+    window.btn_settings_show_consent = QPushButton(tr("settings.consent_show_dialog"))
+    window.btn_settings_show_consent.clicked.connect(
+        lambda: on_settings_show_consent_dialog(window)
+    )
+    data_layout.addWidget(window.btn_settings_show_consent)
+
+    window.btn_settings_clear_stats = QPushButton(tr("settings.consent_clear_stats"))
+    window.btn_settings_clear_stats.clicked.connect(
+        lambda: on_settings_clear_stats(window)
+    )
+    data_layout.addWidget(window.btn_settings_clear_stats)
+
+    window.btn_settings_export_my_data = QPushButton(tr("settings.export_my_data"))
+    window.btn_settings_export_my_data.clicked.connect(
+        lambda: on_settings_export_my_data(window)
+    )
+    data_layout.addWidget(window.btn_settings_export_my_data)
 
     window.btn_settings_reset_presets = QPushButton(tr("settings.btn_reset_presets"))
     window.btn_settings_reset_presets.clicked.connect(window._on_settings_reset_presets)
@@ -718,6 +751,173 @@ def on_settings_community_trends_toggled(window, enabled: bool) -> None:
         show_toast(window, tr("settings.community_trends_saved_off"), "info")
 
 
+def on_settings_consent_stats_toggled(window, enabled: bool) -> None:
+    from app.services.license_service import save_consent
+    save_consent(enabled)
+    if enabled:
+        window.statusBar().showMessage(tr("settings.consent_saved_on"), 4000)
+        show_toast(window, tr("settings.consent_saved_on"), "success")
+    else:
+        window.statusBar().showMessage(tr("settings.consent_saved_off"), 4000)
+        show_toast(window, tr("settings.consent_saved_off"), "info")
+
+
+def on_settings_export_my_data(window) -> None:
+    import time
+    from pathlib import Path
+    from PySide6.QtWidgets import QFileDialog
+    from app.services.license_service import export_my_data, export_cloud_data
+
+    result = export_my_data()
+    if not bool(result.get("ok")):
+        msg = str(result.get("message") or tr("settings.export_my_data_fail")).strip()
+        show_toast(window, msg, "error")
+        window.statusBar().showMessage(msg, 5000)
+        return
+
+    cloud = export_cloud_data()
+
+    def _fmt(value: object, fallback: str = "–") -> str:
+        if value is None or value == "":
+            return fallback
+        if isinstance(value, bool):
+            return tr("settings.export_yes") if value else tr("settings.export_no")
+        return str(value)
+
+    def _fmt_ts(value: object) -> str:
+        if value is None or value == "":
+            return "–"
+        try:
+            from datetime import datetime, timezone
+            if isinstance(value, (int, float)):
+                return datetime.fromtimestamp(int(value), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            return str(value).replace("T", " ").replace("Z", " UTC")
+        except Exception:
+            return str(value)
+
+    def _fmt_dict(d: object) -> str:
+        if not isinstance(d, dict) or not d:
+            return "–"
+        return ", ".join(f"{k}: {v}" for k, v in sorted(d.items()))
+
+    def _fmt_range(first: object, last: object) -> str:
+        f = _fmt_ts(first)
+        l = _fmt_ts(last)
+        if f == "–" and l == "–":
+            return "–"
+        if f == l:
+            return f
+        return f"{f} → {l}"
+
+    now = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    sep = "=" * 64
+
+    # Cloud learning section
+    if bool(cloud.get("ok")):
+        lr_total = cloud.get("learning_runs_total", 0)
+        lr_by_kind = cloud.get("learning_runs_by_kind") or {}
+        be_total = cloud.get("build_events_total", 0)
+        be_by_mode = cloud.get("build_events_by_mode") or {}
+        be_units = cloud.get("build_events_distinct_units", 0)
+        cloud_lines = [
+            f"── {tr('settings.export_section_cloud_lr')} ──────────────────────────",
+            f"{tr('settings.export_cloud_lr_total'):<32} {lr_total}",
+            f"{tr('settings.export_cloud_lr_by_kind'):<32} {_fmt_dict(lr_by_kind)}",
+            f"{tr('settings.export_cloud_lr_range'):<32} {_fmt_range(cloud.get('learning_runs_first'), cloud.get('learning_runs_last'))}",
+            "",
+            f"── {tr('settings.export_section_cloud_build')} ──────────────────────────",
+            f"{tr('settings.export_cloud_build_total'):<32} {be_total}",
+            f"{tr('settings.export_cloud_build_by_mode'):<32} {_fmt_dict(be_by_mode)}",
+            f"{tr('settings.export_cloud_build_units'):<32} {be_units}",
+            f"{tr('settings.export_cloud_build_range'):<32} {_fmt_range(cloud.get('build_events_first'), cloud.get('build_events_last'))}",
+            "",
+        ]
+    else:
+        cloud_lines = [
+            f"── {tr('settings.export_section_cloud_lr')} ──────────────────────────",
+            tr("settings.export_cloud_unavailable"),
+            "",
+        ]
+
+    lines = [
+        sep,
+        f"SW Team Optimizer – {tr('settings.export_title')}",
+        sep,
+        f"{tr('settings.export_generated')}: {now}",
+        f"{tr('settings.export_app_id')}: {_fmt(result.get('app_id'))}",
+        "",
+        f"── {tr('settings.export_section_license')} ──────────────────────────",
+        f"{tr('settings.export_license_type'):<32} {_fmt(result.get('license_type'))}",
+        f"{tr('settings.export_license_created'):<32} {_fmt_ts(result.get('license_created_at'))}",
+        f"{tr('settings.export_license_expires'):<32} {_fmt_ts(result.get('license_expires_at'))}",
+        "",
+        f"── {tr('settings.export_section_identity')} ──────────────────────────",
+        f"{tr('settings.export_ingame_name'):<32} {_fmt(result.get('ingame_name'))}",
+        f"{tr('settings.export_wizard_id'):<32} {_fmt(result.get('wizard_id'))}",
+        f"{tr('settings.export_machine_fp'):<32} {_fmt(result.get('machine_fingerprint'))} (SHA-256)",
+        "",
+        f"── {tr('settings.export_section_timestamps')} ──────────────────────────",
+        f"{tr('settings.export_activated_at'):<32} {_fmt_ts(result.get('activated_at'))}",
+        f"{tr('settings.export_last_seen'):<32} {_fmt_ts(result.get('last_seen'))}",
+        "",
+        f"── {tr('settings.export_section_stats')} ──────────────────────────",
+        f"{tr('settings.export_app_version'):<32} {_fmt(result.get('app_version'))}",
+        f"{tr('settings.export_language'):<32} {_fmt(result.get('language'))}",
+        "",
+        f"── {tr('settings.export_section_consent')} ──────────────────────────",
+        f"{tr('settings.export_consent_given'):<32} {_fmt(result.get('consent_given'))}",
+        f"{tr('settings.export_consent_at'):<32} {_fmt_ts(result.get('consent_at'))}",
+        f"{tr('settings.export_consent_version'):<32} {_fmt(result.get('consent_version'))}",
+        "",
+        *cloud_lines,
+        sep,
+    ]
+    content = "\n".join(lines)
+
+    default_name = f"SWTO_meine_daten_{time.strftime('%Y%m%d')}.txt"
+    path, _ = QFileDialog.getSaveFileName(
+        window,
+        tr("settings.export_my_data"),
+        str(Path.home() / default_name),
+        "Text (*.txt)",
+    )
+    if not path:
+        return
+
+    try:
+        Path(path).write_text(content, encoding="utf-8")
+        show_toast(window, tr("settings.export_my_data_ok"), "success")
+        window.statusBar().showMessage(tr("settings.export_my_data_ok"), 4000)
+    except Exception as exc:
+        msg = tr("settings.export_my_data_fail") + f" ({exc})"
+        show_toast(window, msg, "error")
+        window.statusBar().showMessage(msg, 5000)
+
+
+def on_settings_clear_stats(window) -> None:
+    from app.services.license_service import delete_stats_data
+    result = delete_stats_data()
+    if bool(result.get("ok")):
+        show_toast(window, tr("settings.consent_clear_stats_ok"), "success")
+        window.statusBar().showMessage(tr("settings.consent_clear_stats_ok"), 4000)
+    else:
+        msg = str(result.get("message") or tr("settings.consent_clear_stats_fail")).strip()
+        show_toast(window, msg, "error")
+        window.statusBar().showMessage(msg, 5000)
+
+
+def on_settings_show_consent_dialog(window) -> None:
+    from app.services.license_service import load_consent
+    from app.ui.dialogs.consent_dialog import ConsentDialog
+    dlg = ConsentDialog(parent=window)
+    dlg.exec()
+    # Sync checkbox to whatever the user chose in the dialog
+    consent = load_consent()
+    window.chk_settings_consent_stats.blockSignals(True)
+    window.chk_settings_consent_stats.setChecked(bool(consent.get("consent_given", False)))
+    window.chk_settings_consent_stats.blockSignals(False)
+
+
 def on_settings_community_set_limit_changed(window) -> None:
     from app.services.license_service import has_full_access_cached
 
@@ -887,7 +1087,7 @@ def on_settings_delete_cloud_data(window) -> None:
                 msg,
                 8000,
             )
-            QMessageBox.information(window, tr("settings.confirm_title"), msg)
+            show_toast(window, msg, "success")
             return
         msg = tr("settings.cloud_delete_failed_reason", reason=str(result_obj.message or ""))
         window.statusBar().showMessage(
@@ -1081,6 +1281,11 @@ def retranslate_settings(window) -> None:
     window.chk_settings_extra_info.setText(tr("settings.extra_info_optin"))
 
     window.grp_settings_data.setTitle(tr("settings.group_data"))
+    window.chk_settings_consent_stats.setText(tr("settings.consent_stats_label"))
+    window.lbl_settings_consent_stats_hint.setText(tr("settings.consent_stats_hint"))
+    window.btn_settings_show_consent.setText(tr("settings.consent_show_dialog"))
+    window.btn_settings_clear_stats.setText(tr("settings.consent_clear_stats"))
+    window.btn_settings_export_my_data.setText(tr("settings.export_my_data"))
     window.btn_settings_reset_presets.setText(tr("settings.btn_reset_presets"))
     window.btn_settings_clear_optimizations.setText(tr("settings.btn_clear_optimizations"))
     window.btn_settings_clear_teams.setText(tr("settings.btn_clear_teams"))

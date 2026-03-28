@@ -287,8 +287,6 @@ def optimize_team(window) -> None:
         pass_count = 1
     workers = window._effective_workers(quality_profile, window.combo_workers_team)
     running_text = tr("result.team_opt_running", name=team.name)
-    window.lbl_team_opt_status.setText(running_text)
-    window.statusBar().showMessage(running_text)
     ordered_unit_ids = window._units_by_turn_order("siege", team.unit_ids)
     team_idx_by_uid: Dict[int, int] = {int(uid): 0 for uid in team.unit_ids}
     leader_spd_bonus_by_uid = window._leader_spd_bonus_map([team.unit_ids])
@@ -345,13 +343,14 @@ def optimize_team(window) -> None:
     final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
     window.lbl_team_opt_status.setText(final_msg)
     window.statusBar().showMessage(final_msg, 7000)
-    window._show_optimize_results(
-        tr("result.title_team", name=team.name),
-        final_msg,
-        res.results,
-        mode="siege",
-        teams=[team.unit_ids],
-    )
+    if res is not None and getattr(res, "results", None):
+        window._show_optimize_results(
+            tr("result.title_team", name=team.name),
+            final_msg,
+            res.results,
+            mode="siege",
+            teams=[team.unit_ids],
+        )
 
 
 def ensure_siege_team_defaults(window) -> None:
