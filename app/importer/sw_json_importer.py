@@ -7,6 +7,26 @@ from typing import Any, Dict, List
 from app.domain.models import AccountData, Unit, Rune, Artifact
 
 
+def _coerce_root_payload(raw: Any) -> Dict[str, Any]:
+    """Return a dict-like account payload or raise a clear validation error."""
+    data = raw
+    # Accept double-encoded JSON payloads from some export/share flows.
+    for _ in range(2):
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, str):
+            txt = data.strip()
+            if not txt:
+                break
+            try:
+                data = json.loads(txt)
+                continue
+            except Exception:
+                break
+        break
+    raise ValueError("Ungueltiges Importformat: Erwartet wurde ein JSON-Objekt.")
+
+
 def _safe_int(x: Any, default: int = 0) -> int:
     try:
         return int(x)
@@ -156,14 +176,14 @@ def load_account_json(path: str | Path) -> AccountData:
     """
     p = Path(path)
     data = json.loads(p.read_text(encoding="utf-8", errors="replace"))
-    return _normalize_account_data(data)
+    return _normalize_account_data(_coerce_root_payload(data))
 
 
-def load_account_from_data(raw_data: Dict[str, Any]) -> AccountData:
+def load_account_from_data(raw_data: Dict[str, Any] | str) -> AccountData:
     """
     Normalisiert bereits eingelesene JSON-Daten (z.B. Snapshots).
     """
-    return _normalize_account_data(raw_data)
+    return _normalize_account_data(_coerce_root_payload(raw_data))
 
 
 def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
@@ -178,7 +198,11 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
         data.get("unit_storage_normal_list", []) or [],
     ]
     for units in unit_sources:
+        if not isinstance(units, list):
+            continue
         for u in units:
+            if not isinstance(u, dict):
+                continue
             unit_id = _safe_int(u.get("unit_id"))
             unit_master_id = _safe_int(u.get("unit_master_id"))
             if unit_id == 0 or unit_master_id == 0:
@@ -202,6 +226,8 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
             acc.units_by_id[unit_id] = unit
 
             for r in (u.get("runes") or []):
+                if not isinstance(r, dict):
+                    continue
                 rune_id = _safe_int(r.get("rune_id"))
                 if rune_id == 0:
                     continue
@@ -225,6 +251,8 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                     continue
 
             for a in (u.get("artifacts") or []):
+                if not isinstance(a, dict):
+                    continue
                 try:
                     art = _parse_artifact(a)
                     if art and art.slot in (1, 2):
@@ -233,6 +261,8 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                     continue
 
     for r in (data.get("runes") or []):
+        if not isinstance(r, dict):
+            continue
         rune_id = _safe_int(r.get("rune_id"))
         if rune_id == 0:
             continue
@@ -272,6 +302,8 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
     # preserve unit-level data and only enrich/override occupied mapping later.
     full_arts_by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in acc.artifacts}
     for a in (data.get("artifacts") or []):
+        if not isinstance(a, dict):
+            continue
         try:
             art = _parse_artifact(a)
             if not art:
@@ -306,7 +338,11 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
         equip_lists.append(data.get("artifact_equip_list") or [])
 
     for eq_list in equip_lists:
+        if not isinstance(eq_list, list):
+            continue
         for e in eq_list:
+            if not isinstance(e, dict):
+                continue
             art_id = _safe_int(e.get("artifact_id"))
             if art_id == 0:
                 continue
@@ -415,12 +451,18 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
     # ── mode-specific rune equipment ──────────────────────────
     # Guild/Siege: equip_info_list[*].rune_equip_list + artifact_equip_list
     for equip_info in (data.get("equip_info_list") or []):
+        if not isinstance(equip_info, dict):
+            continue
         for entry in (equip_info.get("rune_equip_list") or []):
+            if not isinstance(entry, dict):
+                continue
             rid = _safe_int(entry.get("rune_id"))
             uid = _safe_int(entry.get("occupied_id"))
             if rid and uid:
                 acc.guild_rune_equip.setdefault(uid, []).append(rid)
         for entry in (equip_info.get("artifact_equip_list") or []):
+            if not isinstance(entry, dict):
+                continue
             art_id = _safe_int(entry.get("artifact_id"))
             uid = _safe_int(entry.get("occupied_id"))
             if not (art_id and uid):
@@ -443,6 +485,8 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
 
     # RTA: world_arena_rune_equip_list
     for entry in (data.get("world_arena_rune_equip_list") or []):
+        if not isinstance(entry, dict):
+            continue
         rid = _safe_int(entry.get("rune_id"))
         uid = _safe_int(entry.get("occupied_id"))
         if rid and uid:
@@ -450,6 +494,8 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
 
     # RTA: world_arena_artifact_equip_list
     for entry in (data.get("world_arena_artifact_equip_list") or []):
+        if not isinstance(entry, dict):
+            continue
         art_id = _safe_int(entry.get("artifact_id"))
         uid = _safe_int(entry.get("occupied_id"))
         if art_id and uid:
