@@ -1,12 +1,9 @@
 ================================================================
-SW Team Optimizer – Datenschutzerklärung / Privacy Policy
+SW Team Optimizer – Datenschutzerklärung
 ================================================================
-Version 1.0 | Stand / Date: 2026-03-28
+Version 1.0 | Stand: 2026-03-28
 ================================================================
 
-
-DEUTSCH
-=======
 
 1. VERANTWORTLICHER
 --------------------
@@ -70,7 +67,7 @@ Diese Daten werden nur verarbeitet, wenn du ausdrücklich zugestimmt hast:
 Diese Daten werden nicht zur persönlichen Identifikation verwendet.
 
 Die Einwilligung kann jederzeit in den Einstellungen der App widerrufen werden.
-Bereits erhobene optionale Daten können über Einstellungen → „Daten löschen“
+Bereits erhobene optionale Daten können über Einstellungen → „Daten löschen"
 vom Server entfernt werden.
 
 
@@ -100,7 +97,7 @@ Speicherdauer:
 
 - Optionale Statistikdaten:
   Werden bis zum Widerruf der Einwilligung gespeichert und sind auf Anfrage
-  oder über die Funktion „Daten löschen“ jederzeit entfernbar.
+  oder über die Funktion „Daten löschen" jederzeit entfernbar.
 
 Zur Geltendmachung deines Löschrechts kannst du den Verantwortlichen über
 Discord oder GitHub-Issues kontaktieren.
@@ -145,150 +142,6 @@ in den Einstellungen der App geändert oder widerrufen werden.
 
 Ein Widerruf berührt nicht die Rechtmäßigkeit der bis zum Widerruf erfolgten
 Verarbeitung.
-
-
-================================================================
-
-
-ENGLISH
-=======
-
-1. CONTROLLER
---------------
-San0s (Discord: san0s)
-
-Contact:
-- Discord: san0s
-- GitHub Issues:
-  https://github.com/San0s-o/Summoners-War-Team-Optimizer/issues
-
-Note: This privacy policy applies solely to the app itself. When visiting the
-GitHub repository or downloading the software via GitHub, GitHub processes
-personal data under its own responsibility.
-Please refer to GitHub's privacy policy for further information.
-
-
-2. WHAT DATA IS PROCESSED?
-----------------------------
-
-2.1 Required data
-
-a) Legal basis: performance of a contract (Art. 6(1)(b) GDPR)
-This data is processed to provide the app and to perform the license agreement:
-
-  - License key, stored as a SHA-256 hash
-    → for license verification and software activation
-
-  - In-game name and Wizard ID
-    → this data is read from the account file imported locally by the user
-      and is used solely to assign support requests
-
-  - Activation timestamp
-    → to document the start of the license period, especially for trial licenses
-
-b) Legal basis: legitimate interests (Art. 6(1)(f) GDPR)
-The legitimate interest consists in protecting against license abuse and
-ensuring the agreed single-device use of the software.
-
-  - Device fingerprint, stored as a SHA-256 hash
-    (derived from MAC address, computer name, operating system and architecture)
-    → for device binding of the license and prevention of unauthorized
-      multi-device use
-
-    The device fingerprint is stored in hashed form only.
-    Direct retrieval of the underlying plain-text values is not intended.
-
-  - Timestamp of the last program start
-    → for detection of abusive use and verification of license status
-
-2.2 Optional statistics
-Legal basis: consent (Art. 6(1)(a) GDPR)
-
-This data is only processed if you have given explicit consent:
-
-  - App version
-    → technical version statistics
-
-  - UI language
-    → usage statistics by language region
-
-This data is not used for personal identification.
-
-Consent can be withdrawn at any time in the app settings.
-Already collected optional data can be removed from the server via
-Settings → "Delete data".
-
-
-3. STORAGE LOCATION AND RETENTION
------------------------------------
-
-Storage location:
-- Locally on your device:
-  license file and settings in the user directory
-  (%APPDATA%\SWTO\)
-
-- Server-side:
-  Supabase, hosted via Amazon Web Services (AWS),
-  region eu-west-1 (Ireland, EU)
-
-Retention period:
-- Trial license data:
-  Automatically deleted 14 days after the end of the trial period,
-  provided that no new valid license key has been registered for the same
-  device. Deletion includes the license record, activation data and session
-  tokens.
-
-- Full license data:
-  Retained as long as the corresponding license record is being administered,
-  and deleted when the license record is removed or after a valid erasure
-  request has been processed.
-
-- Optional statistics:
-  Retained until consent is withdrawn and removable at any time upon request
-  or through the “Delete data” function.
-
-To exercise your right to erasure, you may contact the controller via Discord
-or GitHub Issues.
-
-
-4. DATA SHARING
-----------------
-Your data is not shared with third parties for advertising or for any purposes
-not required for operating the app.
-
-Supabase processes data solely as a technical service provider under a data
-processing agreement pursuant to Art. 28 GDPR.
-
-
-5. YOUR RIGHTS
----------------
-As a data subject, you have the following rights under applicable law:
-
-  - Right of access (Art. 15 GDPR)
-  - Right to rectification (Art. 16 GDPR)
-  - Right to erasure (Art. 17 GDPR)
-  - Right to restriction of processing (Art. 18 GDPR)
-  - Right to data portability (Art. 20 GDPR)
-  - Right to object to processing based on Art. 6(1)(f) GDPR
-    (Art. 21 GDPR)
-  - Right to withdraw consent with effect for the future
-    (Art. 7(3) GDPR)
-
-To exercise your rights, you may contact the controller via Discord
-or GitHub Issues.
-
-You also have the right to lodge a complaint with a supervisory authority,
-in particular in the EU Member State of your habitual residence, place of work,
-or the place of the alleged infringement.
-
-
-6. CONSENT AND WITHDRAWAL
----------------------------
-Consent to the processing of optional statistics can be changed or withdrawn
-at any time in the app settings.
-
-Withdrawal does not affect the lawfulness of processing carried out before
-the withdrawal.
 
 
 ================================================================

@@ -52,6 +52,11 @@ def _open_discord_dm(window) -> None:
         show_toast(window, tr("settings.discord_open_failed", handle=_ABOUT_DISCORD), "error")
 
 
+def _on_open_privacy_policy() -> None:
+    from app.ui.dialogs.consent_dialog import open_privacy_policy
+    open_privacy_policy()
+
+
 def _settings_path(window) -> Path:
     return Path(window.config_dir) / "app_settings.json"
 
@@ -532,6 +537,11 @@ def init_settings_ui(window) -> None:
     window.lbl_settings_about_data_dir = QLabel("")
     window.lbl_settings_about_data_dir.setTextInteractionFlags(Qt.TextSelectableByMouse)
     about_layout.addWidget(window.lbl_settings_about_data_dir)
+
+    window.btn_settings_about_privacy_policy = QPushButton(tr("settings.about_privacy_policy"))
+    window.btn_settings_about_privacy_policy.clicked.connect(_on_open_privacy_policy)
+    about_layout.addWidget(window.btn_settings_about_privacy_policy)
+
     main_layout.addWidget(window.grp_settings_about)
 
     main_layout.addStretch(1)

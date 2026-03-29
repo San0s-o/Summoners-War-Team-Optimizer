@@ -103,6 +103,25 @@ def run_app(main_window_cls: Type):
     import app.i18n as i18n
     config_dir = user_data_dir() if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2] / "config"
     i18n.init(config_dir)
+
+    # On first launch (no saved language preference) let the user pick a language
+    # before anything else is shown.
+    _lang_file = config_dir / "app_settings.json"
+    _lang_already_set = False
+    if _lang_file.exists():
+        try:
+            import json as _json
+            _lang_already_set = "language" in _json.loads(
+                _lang_file.read_text(encoding="utf-8")
+            )
+        except Exception:
+            pass
+    if not _lang_already_set:
+        from app.ui.dialogs.language_dialog import LanguagePickerDialog
+        _picker = LanguagePickerDialog()
+        _picker.exec()
+        i18n.set_language(_picker.selected_language)
+
     license_info = _ensure_license_accepted()
     if not license_info:
         sys.exit(1)

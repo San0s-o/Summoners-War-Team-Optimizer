@@ -760,6 +760,7 @@ STRINGS: dict[str, str] = {
     "settings.group_data": "Datenverwaltung",
     "settings.group_updates": "Updates",
     "settings.group_about": "Über",
+    "settings.about_privacy_policy": "Datenschutzerklärung",
 
     "settings.btn_import": "JSON importieren...",
     "settings.btn_clear_snapshot": "Snapshot löschen",

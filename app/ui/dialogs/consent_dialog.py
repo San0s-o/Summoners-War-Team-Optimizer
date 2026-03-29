@@ -18,23 +18,37 @@ from app.i18n import tr
 from app.services.license_service import save_consent
 from app.ui.dpi import dp
 
-_PRIVACY_FILENAME = "Datenschutz.txt"
-
 
 def _privacy_policy_path() -> Path | None:
+    from app.i18n import get_language
+    lang = get_language()
+
     if getattr(sys, "frozen", False):
-        base = Path(sys.executable).resolve().parent
+        # In the EXE the files live inside _internal (sys._MEIPASS)
+        base = Path(sys._MEIPASS)
     else:
         base = Path(__file__).resolve().parents[3]  # project root
-    candidate = base / _PRIVACY_FILENAME
-    return candidate if candidate.exists() else None
+
+    # Try the language-specific file first, then fall back to German
+    for filename in (f"Datenschutz_{lang}.txt", "Datenschutz_de.txt"):
+        candidate = base / filename
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def open_privacy_policy() -> None:
+    """Open the privacy policy document for the current language."""
+    path = _privacy_policy_path()
+    if path:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 
 class ConsentDialog(QDialog):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle(tr("consent.title"))
-        self.resize(dp(660), dp(280))
+        self.resize(dp(660), dp(260))
         self.setWindowFlags(self.windowFlags() & ~0x00040000)  # no "?" button
 
         layout = QVBoxLayout(self)
@@ -47,12 +61,6 @@ class ConsentDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(dp(8))
-
-        self.btn_privacy = QPushButton(tr("consent.privacy_policy"))
-        self.btn_privacy.setEnabled(_privacy_policy_path() is not None)
-        self.btn_privacy.clicked.connect(self._on_privacy_policy)
-        btn_row.addWidget(self.btn_privacy)
-
         btn_row.addStretch()
 
         self.btn_decline = QPushButton(tr("consent.decline"))
@@ -65,11 +73,6 @@ class ConsentDialog(QDialog):
         btn_row.addWidget(self.btn_accept)
 
         layout.addLayout(btn_row)
-
-    def _on_privacy_policy(self) -> None:
-        path = _privacy_policy_path()
-        if path:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _on_accept(self) -> None:
         save_consent(True)

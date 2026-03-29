@@ -759,6 +759,7 @@ STRINGS: dict[str, str] = {
     "settings.group_data": "Data Management",
     "settings.group_updates": "Updates",
     "settings.group_about": "About",
+    "settings.about_privacy_policy": "Privacy Policy",
 
     "settings.btn_import": "Import JSON...",
     "settings.btn_clear_snapshot": "Clear Snapshot",
