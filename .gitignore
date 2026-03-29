@@ -39,6 +39,7 @@ dist/
 *.spec.bak
 build.ps1
 build2.ps1
+update_monster_data.ps1
 installer.iss
 benchmark_optimizer.py
 *.exe
