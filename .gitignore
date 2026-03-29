@@ -22,6 +22,7 @@ app/config/saved_optimizations.json
 app/config/team_presets.json
 
 # ── Python ─────────────────────────────────────────────
+requirements.txt
 .venv/
 venv/
 __pycache__/
@@ -37,6 +38,8 @@ dist/
 *.spec
 *.spec.bak
 build.ps1
+build2.ps1
+installer.iss
 *.exe
 *.msi
 *.zip
