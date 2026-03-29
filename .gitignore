@@ -62,9 +62,8 @@ benchmark_optimizer.py
 # ── Sonstiges ──────────────────────────────────────────
 *.log
 *.tmp
-tests/*
-!tests/test_arena_rush_optimizer.py
-!tests/test_update_handoff.py
+tests/
+tools/
 app/services/license_service.py
 screenshots/
 
