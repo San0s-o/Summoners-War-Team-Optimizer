@@ -1,147 +1,198 @@
 ================================================================
 SW Team Optimizer – Datenschutzerklärung
 ================================================================
-Version 1.0 | Stand: 2026-03-28
+Version 1.1 | Stand: 2026-03-29
 ================================================================
 
 
 1. VERANTWORTLICHER
 --------------------
-San0s (Discord: san0s)
+San0s
 
 Kontakt:
-- Discord: san0s
+- E-Mail: neu.ch.dev@gmail.com
 - GitHub-Issues:
   https://github.com/San0s-o/Summoners-War-Team-Optimizer/issues
 
-Hinweis: Diese Datenschutzerklärung bezieht sich ausschließlich auf die App
-selbst. Beim Besuch des GitHub-Repositories oder beim Download über GitHub
-verarbeitet GitHub personenbezogene Daten eigenverantwortlich.
+Hinweis: Diese Datenschutzerklärung gilt ausschließlich für die Nutzung der
+App. Beim Besuch des GitHub-Repositories oder beim Download der Software über
+GitHub werden Daten durch GitHub eigenverantwortlich verarbeitet.
 Weitere Informationen findest du in der Datenschutzerklärung von GitHub.
 
 
-2. WELCHE DATEN WERDEN VERARBEITET?
--------------------------------------
+2. VERARBEITETE DATEN UND ZWECKE
+----------------------------------
 
 2.1 Pflichtdaten
 
-a) Rechtsgrundlage: Vertragserfüllung (Art. 6 Abs. 1 lit. b DSGVO)
-Diese Daten werden zur Bereitstellung der App und zur Durchführung des
-Lizenzverhältnisses verarbeitet:
+Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung)
+
+Zur Bereitstellung der App und Durchführung der Lizenzverwaltung werden
+folgende Daten verarbeitet:
 
   - Lizenzschlüssel, gespeichert als SHA-256-Hash
-    → zur Lizenzprüfung und Freischaltung der Software
+    → zur Lizenzprüfung und Freischaltung
 
   - Ingame-Name und Wizard-ID
-    → diese Daten werden aus der vom Nutzer lokal importierten Account-Datei
-      ausgelesen und ausschließlich zur Zuordnung bei Supportanfragen verwendet
+    → aus lokal importierter Account-Datei, ausschließlich zur
+      Zuordnung bei Supportanfragen
 
   - Aktivierungszeitpunkt
-    → zur Nachvollziehbarkeit des Lizenzbeginns, insbesondere bei Trial-Lizenzen
+    → zur Dokumentation des Lizenzbeginns
 
-b) Rechtsgrundlage: Berechtigtes Interesse (Art. 6 Abs. 1 lit. f DSGVO)
-Das berechtigte Interesse besteht im Schutz vor Lizenzmissbrauch und in der
-Sicherstellung der vereinbarungsgemäßen Einzelnutzung der Software.
+2.2 Daten zur Missbrauchsverhinderung
+
+Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse)
+
+Zur Sicherstellung einer ordnungsgemäßen Nutzung der Software und zur
+Verhinderung von Lizenzmissbrauch werden folgende Daten verarbeitet:
 
   - Gerätefingerabdruck, gespeichert als SHA-256-Hash
     (abgeleitet aus MAC-Adresse, Computername, Betriebssystem und Architektur)
-    → zur Gerätebindung der Lizenz und zur Verhinderung unbefugter Mehrfachnutzung
-
-    Der Gerätefingerabdruck wird ausschließlich in gehashter Form gespeichert.
-    Ein unmittelbarer Klartextabruf der Ausgangswerte ist daraus nicht vorgesehen.
 
   - Zeitstempel des letzten Programmstarts
-    → zur Erkennung missbräuchlicher Nutzung und zur Überprüfung des Lizenzstatus
 
-2.2 Optionale Statistikdaten
-Rechtsgrundlage: Einwilligung (Art. 6 Abs. 1 lit. a DSGVO)
+Das berechtigte Interesse liegt im Schutz der Software vor unbefugter Nutzung.
+Die Verarbeitung erfolgt ausschließlich zweckgebunden und ohne Profilbildung.
 
-Diese Daten werden nur verarbeitet, wenn du ausdrücklich zugestimmt hast:
+Der Gerätefingerabdruck wird ausschließlich in gehashter Form gespeichert,
+ein Rückschluss auf die ursprünglichen Werte ist nicht vorgesehen.
+
+2.3 Optionale Statistikdaten
+
+Rechtsgrundlage: Art. 6 Abs. 1 lit. a DSGVO (Einwilligung)
+
+Nur bei ausdrücklicher Zustimmung:
 
   - App-Version
-    → technische Versionsstatistik
-
   - UI-Sprache
-    → Nutzungsstatistik nach Sprachregion
 
-Diese Daten werden nicht zur persönlichen Identifikation verwendet.
+Diese Daten werden ausschließlich anonymisiert ausgewertet und nicht zur
+Identifikation verwendet.
 
-Die Einwilligung kann jederzeit in den Einstellungen der App widerrufen werden.
-Bereits erhobene optionale Daten können über Einstellungen → „Daten löschen"
-vom Server entfernt werden.
-
-
-3. SPEICHERORT UND SPEICHERDAUER
----------------------------------
-
-Speicherort:
-- Lokal auf deinem Gerät:
-  Lizenzdatei und Einstellungen im Benutzerverzeichnis
-  (%APPDATA%\SWTO\)
-
-- Serverseitig:
-  Supabase, Hosting über Amazon Web Services (AWS),
-  Region eu-west-1 (Irland, EU)
-
-Speicherdauer:
-- Trial-Lizenzdaten:
-  Werden automatisch 14 Tage nach Ablauf des Trial-Zeitraums gelöscht,
-  sofern für dasselbe Gerät kein neuer gültiger Lizenzschlüssel registriert
-  wurde. Die Löschung umfasst den Lizenzeintrag, Aktivierungsdaten und
-  Sitzungstoken.
-
-- Full-Lizenzdaten:
-  Werden gespeichert, solange der zugehörige Lizenzeintrag verwaltet wird,
-  und bei Entfernung des Lizenzeintrags oder nach Bearbeitung einer
-  berechtigten Löschanfrage gelöscht.
-
-- Optionale Statistikdaten:
-  Werden bis zum Widerruf der Einwilligung gespeichert und sind auf Anfrage
-  oder über die Funktion „Daten löschen" jederzeit entfernbar.
-
-Zur Geltendmachung deines Löschrechts kannst du den Verantwortlichen über
-Discord oder GitHub-Issues kontaktieren.
+Die Einwilligung kann jederzeit in der App widerrufen werden.
+Bereits erhobene Daten können gelöscht werden.
 
 
-4. DATENWEITERGABE
+3. PFLICHT ZUR BEREITSTELLUNG
+-------------------------------
+
+Die Bereitstellung der Pflichtdaten ist für die Nutzung der App erforderlich.
+
+Ohne diese Daten ist:
+
+  - keine Lizenzprüfung möglich
+  - keine Nutzung der Software möglich
+
+
+4. AUTOMATISIERTE ENTSCHEIDUNGEN
+----------------------------------
+
+Zur Lizenzprüfung werden automatisierte Prozesse eingesetzt.
+
+Dies kann dazu führen, dass:
+
+  - Lizenzen aktiviert oder abgelehnt werden
+  - Nutzung bei Missbrauch eingeschränkt wird
+
+Es findet jedoch keine automatisierte Entscheidungsfindung im Sinne von
+Art. 22 DSGVO mit rechtlicher Wirkung oder erheblicher Beeinträchtigung statt.
+
+
+5. DATENSICHERHEIT
 -------------------
-Es findet keine Weitergabe deiner Daten an Dritte zu Werbe- oder sonstigen
-nicht für den Betrieb der App erforderlichen Zwecken statt.
 
-Supabase verarbeitet Daten ausschließlich als technischer Dienstleister im
-Rahmen einer Auftragsverarbeitung gemäß Art. 28 DSGVO.
+Zum Schutz deiner Daten werden geeignete technische und organisatorische
+Maßnahmen gemäß Art. 32 DSGVO eingesetzt.
+
+Dazu gehören insbesondere:
+
+  - verschlüsselte Datenübertragung (TLS/HTTPS)
+  - Speicherung sensibler Daten ausschließlich in gehashter Form (SHA-256)
+  - Zugriffsbeschränkungen auf Serverebene
 
 
-5. DEINE RECHTE
+6. SPEICHERORT UND DATENVERARBEITUNG
+--------------------------------------
+
+Lokal:
+  - Einstellungen und Lizenzdaten im Benutzerverzeichnis
+    (%APPDATA%\SWTO)
+
+Server:
+  - Supabase (Backend-Dienst)
+  - Hosting über Amazon Web Services (AWS)
+  - Region: eu-west-1 (Irland, EU)
+
+Die Verarbeitung erfolgt im Rahmen einer Auftragsverarbeitung gemäß Art. 28 DSGVO.
+
+AWS kann als Unterauftragsverarbeiter eingesetzt werden.
+
+Drittlandübermittlung:
+AWS ist ein Anbieter mit Sitz in den USA.
+
+Es kann nicht ausgeschlossen werden, dass Daten in die USA übertragen werden.
+
+Zur Sicherstellung eines angemessenen Datenschutzniveaus werden geeignete
+Garantien gemäß Art. 46 DSGVO eingesetzt, insbesondere
+EU-Standardvertragsklauseln.
+
+
+7. SPEICHERDAUER
+-----------------
+
+  - Trial-Lizenzen:
+    Löschung 14 Tage nach Ablauf
+
+  - Full-Lizenzen:
+    Speicherung bis Löschung oder auf Anfrage
+
+  - Statistikdaten:
+    Speicherung bis Widerruf der Einwilligung
+
+
+8. DATENWEITERGABE
+-------------------
+
+Eine Weitergabe an Dritte erfolgt nicht.
+
+Ausnahme:
+  - technische Dienstleister (Supabase, AWS) im Rahmen der DSGVO
+
+
+9. DEINE RECHTE
 ----------------
-Als betroffene Person stehen dir nach den gesetzlichen Vorgaben insbesondere
-folgende Rechte zu:
 
-  - Auskunft über gespeicherte Daten (Art. 15 DSGVO)
-  - Berichtigung unrichtiger Daten (Art. 16 DSGVO)
-  - Löschung deiner Daten (Art. 17 DSGVO)
-  - Einschränkung der Verarbeitung (Art. 18 DSGVO)
+Du hast folgende Rechte:
+
+  - Auskunft (Art. 15 DSGVO)
+  - Berichtigung (Art. 16 DSGVO)
+  - Löschung (Art. 17 DSGVO)
+  - Einschränkung (Art. 18 DSGVO)
   - Datenübertragbarkeit (Art. 20 DSGVO)
-  - Widerspruch gegen Verarbeitungen auf Basis von Art. 6 Abs. 1 lit. f DSGVO
-    (Art. 21 DSGVO)
-  - Widerruf einer erteilten Einwilligung mit Wirkung für die Zukunft
-    (Art. 7 Abs. 3 DSGVO)
+  - Widerspruch (Art. 21 DSGVO)
+  - Widerruf (Art. 7 Abs. 3 DSGVO)
 
-Zur Ausübung deiner Rechte kannst du den Verantwortlichen über Discord oder
-GitHub-Issues kontaktieren.
+Zur Ausübung deiner Rechte:
+  - per E-Mail oder GitHub-Issues
 
-Du hast außerdem das Recht, dich bei einer Datenschutzaufsichtsbehörde zu
-beschweren, insbesondere in dem EU-Mitgliedstaat deines Aufenthaltsorts,
-deines Arbeitsplatzes oder des Orts des mutmaßlichen Verstoßes.
+Beschwerderecht:
+Du kannst dich bei einer Datenschutzaufsichtsbehörde beschweren.
 
 
-6. EINWILLIGUNG UND WIDERRUF
-------------------------------
-Die Einwilligung in die Verarbeitung optionaler Statistikdaten kann jederzeit
-in den Einstellungen der App geändert oder widerrufen werden.
+10. DATENSCHUTZBEAUFTRAGTER
+-----------------------------
 
-Ein Widerruf berührt nicht die Rechtmäßigkeit der bis zum Widerruf erfolgten
-Verarbeitung.
+Es besteht keine Verpflichtung zur Bestellung eines Datenschutzbeauftragten.
+
+
+11. EINWILLIGUNG UND WIDERRUF
+-------------------------------
+
+Einwilligungen können jederzeit in den Einstellungen der App geändert oder
+widerrufen werden.
+
+Der Widerruf wirkt nur für die Zukunft.
 
 
 ================================================================

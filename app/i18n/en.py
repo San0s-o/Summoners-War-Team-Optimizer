@@ -420,6 +420,7 @@ STRINGS: dict[str, str] = {
     "update.wizard.release_notes": "Release Notes:",
     "update.wizard.downloading": "Downloading...",
     "update.wizard.installing": "Installing...",
+    "update.wizard.closing_in": "App closes in {n} second(s)...",
 
     # -- Consent dialog ------------------------------------------
     "consent.title": "Data & Privacy",
@@ -650,7 +651,7 @@ STRINGS: dict[str, str] = {
     "svc.auto_relaunch_failed": "Update installed, but relaunch failed: {detail}",
     "svc.auto_zip_installed": "Update installed. Restarting app.",
     "svc.auto_installer_failed": "Could not launch installer: {detail}",
-    "svc.auto_installer_started": "Installer started. Please finish installation.",
+    "svc.auto_installer_started": "Update is being installed in the background. The app will restart automatically.",
     "svc.auto_updater_launch_failed": "Could not launch updater: {detail}",
     "svc.auto_updater_state_invalid": "Updater start failed: {detail}",
 

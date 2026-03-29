@@ -368,10 +368,27 @@ class UpdateWizardDialog(QDialog):
             return
         self._show_done(result_obj.ok, result_obj.message)
         if result_obj.ok and result_obj.restart_required:
+            self._restart_countdown = 3
+            self._update_countdown_label()
+            self._countdown_timer = QTimer(self)
+            self._countdown_timer.setInterval(1000)
+            self._countdown_timer.timeout.connect(self._on_countdown_tick)
+            self._countdown_timer.start()
+
+    def _update_countdown_label(self) -> None:
+        base = self._lbl_done.text().split("\n")[0]
+        self._lbl_done.setText(f"{base}\n\n{tr('update.wizard.closing_in', n=self._restart_countdown)}")
+
+    def _on_countdown_tick(self) -> None:
+        self._restart_countdown -= 1
+        if self._restart_countdown <= 0:
+            self._countdown_timer.stop()
             self.accept()
             app = QApplication.instance()
             if app is not None:
                 app.quit()
+        else:
+            self._update_countdown_label()
 
     def _show_done(self, success: bool, message: str) -> None:
         if success:

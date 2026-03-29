@@ -1,146 +1,197 @@
 ================================================================
 SW Team Optimizer – Privacy Policy
 ================================================================
-Version 1.0 | Date: 2026-03-28
+Version 1.1 | Date: 2026-03-29
 ================================================================
 
 
 1. CONTROLLER
 --------------
-San0s (Discord: san0s)
+San0s
 
 Contact:
-- Discord: san0s
+- Email: neu.ch.dev@gmail.com
 - GitHub Issues:
   https://github.com/San0s-o/Summoners-War-Team-Optimizer/issues
 
-Note: This privacy policy applies solely to the app itself. When visiting the
-GitHub repository or downloading the software via GitHub, GitHub processes
-personal data under its own responsibility.
+Note: This privacy policy applies solely to the use of the app. When visiting
+the GitHub repository or downloading the software via GitHub, data is processed
+by GitHub under its own responsibility.
 Please refer to GitHub's privacy policy for further information.
 
 
-2. WHAT DATA IS PROCESSED?
-----------------------------
+2. DATA PROCESSING AND PURPOSES
+---------------------------------
 
 2.1 Required data
 
-a) Legal basis: performance of a contract (Art. 6(1)(b) GDPR)
-This data is processed to provide the app and to perform the license agreement:
+Legal basis: Art. 6(1)(b) GDPR (performance of a contract)
+
+The following data is processed to provide the app and to perform license
+management:
 
   - License key, stored as a SHA-256 hash
-    → for license verification and software activation
+    → for license verification and activation
 
   - In-game name and Wizard ID
-    → this data is read from the account file imported locally by the user
-      and is used solely to assign support requests
+    → from locally imported account file, used solely to assign
+      support requests
 
   - Activation timestamp
-    → to document the start of the license period, especially for trial licenses
+    → to document the start of the license period
 
-b) Legal basis: legitimate interests (Art. 6(1)(f) GDPR)
-The legitimate interest consists in protecting against license abuse and
-ensuring the agreed single-device use of the software.
+2.2 Data for abuse prevention
+
+Legal basis: Art. 6(1)(f) GDPR (legitimate interests)
+
+The following data is processed to ensure proper use of the software and to
+prevent license abuse:
 
   - Device fingerprint, stored as a SHA-256 hash
     (derived from MAC address, computer name, operating system and architecture)
-    → for device binding of the license and prevention of unauthorized
-      multi-device use
-
-    The device fingerprint is stored in hashed form only.
-    Direct retrieval of the underlying plain-text values is not intended.
 
   - Timestamp of the last program start
-    → for detection of abusive use and verification of license status
 
-2.2 Optional statistics
-Legal basis: consent (Art. 6(1)(a) GDPR)
+The legitimate interest consists in protecting the software against unauthorized
+use. Processing is strictly purpose-bound and does not involve profiling.
 
-This data is only processed if you have given explicit consent:
+The device fingerprint is stored in hashed form only; recovery of the original
+values is not intended.
+
+2.3 Optional statistics
+
+Legal basis: Art. 6(1)(a) GDPR (consent)
+
+Only upon explicit consent:
 
   - App version
-    → technical version statistics
-
   - UI language
-    → usage statistics by language region
 
-This data is not used for personal identification.
+This data is evaluated in anonymized form only and is not used for
+identification purposes.
 
-Consent can be withdrawn at any time in the app settings.
-Already collected optional data can be removed from the server via
-Settings → "Delete data".
-
-
-3. STORAGE LOCATION AND RETENTION
------------------------------------
-
-Storage location:
-- Locally on your device:
-  license file and settings in the user directory
-  (%APPDATA%\SWTO\)
-
-- Server-side:
-  Supabase, hosted via Amazon Web Services (AWS),
-  region eu-west-1 (Ireland, EU)
-
-Retention period:
-- Trial license data:
-  Automatically deleted 14 days after the end of the trial period,
-  provided that no new valid license key has been registered for the same
-  device. Deletion includes the license record, activation data and session
-  tokens.
-
-- Full license data:
-  Retained as long as the corresponding license record is being administered,
-  and deleted when the license record is removed or after a valid erasure
-  request has been processed.
-
-- Optional statistics:
-  Retained until consent is withdrawn and removable at any time upon request
-  or through the "Delete data" function.
-
-To exercise your right to erasure, you may contact the controller via Discord
-or GitHub Issues.
+Consent can be withdrawn at any time within the app.
+Already collected data can be deleted.
 
 
-4. DATA SHARING
+3. OBLIGATION TO PROVIDE DATA
+-------------------------------
+
+Providing required data is necessary to use the app.
+
+Without this data:
+
+  - license verification is not possible
+  - use of the software is not possible
+
+
+4. AUTOMATED DECISIONS
+------------------------
+
+Automated processes are used for license verification.
+
+This may result in:
+
+  - licenses being activated or rejected
+  - usage being restricted in the event of abuse
+
+However, no automated decision-making within the meaning of Art. 22 GDPR
+with legal effects or significant impact takes place.
+
+
+5. DATA SECURITY
+-----------------
+
+Appropriate technical and organizational measures pursuant to Art. 32 GDPR
+are implemented to protect your data.
+
+These include in particular:
+
+  - encrypted data transmission (TLS/HTTPS)
+  - storage of sensitive data in hashed form only (SHA-256)
+  - access restrictions at server level
+
+
+6. STORAGE LOCATION AND DATA PROCESSING
+-----------------------------------------
+
+Local:
+  - Settings and license data in the user directory
+    (%APPDATA%\SWTO)
+
+Server:
+  - Supabase (backend service)
+  - Hosted via Amazon Web Services (AWS)
+  - Region: eu-west-1 (Ireland, EU)
+
+Processing is carried out under a data processing agreement pursuant to
+Art. 28 GDPR.
+
+AWS may be engaged as a sub-processor.
+
+Third-country transfer:
+AWS is a provider based in the United States.
+
+It cannot be excluded that data may be transferred to the United States.
+
+To ensure an adequate level of data protection, appropriate safeguards pursuant
+to Art. 46 GDPR are in place, in particular EU Standard Contractual Clauses.
+
+
+7. RETENTION PERIOD
+---------------------
+
+  - Trial licenses:
+    Deletion 14 days after expiry
+
+  - Full licenses:
+    Retained until deletion or upon request
+
+  - Statistics data:
+    Retained until consent is withdrawn
+
+
+8. DATA SHARING
 ----------------
-Your data is not shared with third parties for advertising or for any purposes
-not required for operating the app.
 
-Supabase processes data solely as a technical service provider under a data
-processing agreement pursuant to Art. 28 GDPR.
+Data is not shared with third parties.
+
+Exception:
+  - technical service providers (Supabase, AWS) within the framework of GDPR
 
 
-5. YOUR RIGHTS
+9. YOUR RIGHTS
 ---------------
-As a data subject, you have the following rights under applicable law:
+
+You have the following rights:
 
   - Right of access (Art. 15 GDPR)
   - Right to rectification (Art. 16 GDPR)
   - Right to erasure (Art. 17 GDPR)
   - Right to restriction of processing (Art. 18 GDPR)
   - Right to data portability (Art. 20 GDPR)
-  - Right to object to processing based on Art. 6(1)(f) GDPR
-    (Art. 21 GDPR)
-  - Right to withdraw consent with effect for the future
-    (Art. 7(3) GDPR)
+  - Right to object (Art. 21 GDPR)
+  - Right to withdraw consent (Art. 7(3) GDPR)
 
-To exercise your rights, you may contact the controller via Discord
-or GitHub Issues.
+To exercise your rights:
+  - via email or GitHub Issues
 
-You also have the right to lodge a complaint with a supervisory authority,
-in particular in the EU Member State of your habitual residence, place of work,
-or the place of the alleged infringement.
+Right to lodge a complaint:
+You may lodge a complaint with a data protection supervisory authority.
 
 
-6. CONSENT AND WITHDRAWAL
----------------------------
-Consent to the processing of optional statistics can be changed or withdrawn
-at any time in the app settings.
+10. DATA PROTECTION OFFICER
+-----------------------------
 
-Withdrawal does not affect the lawfulness of processing carried out before
-the withdrawal.
+There is no obligation to appoint a data protection officer.
+
+
+11. CONSENT AND WITHDRAWAL
+----------------------------
+
+Consent can be changed or withdrawn at any time in the app settings.
+
+Withdrawal only takes effect for the future.
 
 
 ================================================================
