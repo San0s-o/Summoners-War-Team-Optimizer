@@ -411,7 +411,18 @@ def equipped_artifacts_for_unit(account: AccountData | None, unit_id: int, rune_
         return {}
     by_id = {int(a.artifact_id): a for a in (account.artifacts or [])}
     out: Dict[int, int] = {}
-    if str(rune_mode).strip().lower() == "rta":
+    mode_key = str(rune_mode).strip().lower()
+    if mode_key in ("siege", "guild"):
+        for aid in (account.guild_artifact_equip.get(int(uid), []) or []):
+            art = by_id.get(int(aid))
+            if art is None:
+                continue
+            art_type = int(getattr(art, "type_", 0) or 0)
+            if art_type in (1, 2) and art_type not in out:
+                out[int(art_type)] = int(aid)
+        if len(out) >= 2:
+            return out
+    elif mode_key == "rta":
         for aid in (account.rta_artifact_equip.get(int(uid), []) or []):
             art = by_id.get(int(aid))
             if art is None:

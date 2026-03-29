@@ -74,6 +74,8 @@ class AccountData:
     # These come from equip_info_list (siege/guild) and world_arena_rune_equip_list (RTA)
     guild_rune_equip: Dict[int, List[int]] = field(default_factory=dict)
     rta_rune_equip: Dict[int, List[int]] = field(default_factory=dict)
+    # Siege/Guild artifact equipment: unit_id -> [artifact_id, ...]
+    guild_artifact_equip: Dict[int, List[int]] = field(default_factory=dict)
     # RTA artifact equipment: unit_id -> [artifact_id, ...]
     rta_artifact_equip: Dict[int, List[int]] = field(default_factory=dict)
 

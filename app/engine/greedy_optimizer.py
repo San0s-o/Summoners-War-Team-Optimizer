@@ -1094,6 +1094,95 @@ def _is_defensive_archetype(archetype: str = "") -> bool:
     return str(_arena_role_from_archetype(archetype)) in ("defense", "hp", "support")
 
 
+def _artifact_role_from_attribute_code(attribute_code: int) -> str:
+    code = int(attribute_code or 0)
+    if code <= 0:
+        return ""
+    # Common encodings seen in SW exports/tools:
+    # - 1..4  => attack/defense/hp/support
+    # - 6..9  => attack/defense/hp/support
+    # Some payload variants shift this block by +5 repeatedly; normalize.
+    if 1 <= code <= 4:
+        normalized = code
+    else:
+        normalized = code
+        while normalized > 9:
+            normalized -= 5
+        if 6 <= normalized <= 9:
+            normalized -= 5
+    return {
+        1: "attack",
+        2: "defense",
+        3: "hp",
+        4: "support",
+    }.get(int(normalized), "")
+
+
+def _infer_unit_role_from_base_stats(base_hp: int, base_atk: int, base_def: int) -> str:
+    # Heuristic fallback only when archetype info is missing.
+    atk = int(base_atk or 0)
+    defense = int(base_def or 0)
+    con = int((int(base_hp or 0)) / 15) if int(base_hp or 0) > 0 else 0
+    if atk > 0 and atk >= defense + 60 and atk >= con + 40:
+        return "attack"
+    if defense > 0 and defense >= atk and defense >= con + 15:
+        return "defense"
+    if con > 0 and con >= atk and con >= defense:
+        return "hp"
+    return "support"
+
+
+def _artifact_required_role(
+    art: Artifact,
+    account: Optional[AccountData] = None,
+) -> str:
+    role = _artifact_role_from_attribute_code(int(getattr(art, "attribute", 0) or 0))
+    if role:
+        return str(role)
+    if int(getattr(art, "type_", 0) or 0) != 2:
+        return ""
+    owner_uid = int(getattr(art, "occupied_id", 0) or 0)
+    if owner_uid <= 0 or account is None:
+        return ""
+    owner = account.units_by_id.get(int(owner_uid))
+    if owner is None:
+        return ""
+    owner_base_hp = int((owner.base_con or 0) * 15)
+    owner_base_atk = int(owner.base_atk or 0)
+    owner_base_def = int(owner.base_def or 0)
+    return str(_infer_unit_role_from_base_stats(owner_base_hp, owner_base_atk, owner_base_def))
+
+
+def _artifact_compatible_with_unit(
+    art: Artifact,
+    unit_attribute: int,
+    unit_archetype: str,
+    base_hp: int,
+    base_atk: int,
+    base_def: int,
+    account: Optional[AccountData] = None,
+) -> bool:
+    art_type = int(getattr(art, "type_", 0) or 0)
+    art_attr = int(getattr(art, "attribute", 0) or 0)
+    unit_attr = int(unit_attribute or 0)
+
+    # Attribute artifacts must match the monster element if both are known.
+    if art_type == 1 and art_attr > 0 and unit_attr > 0 and art_attr != unit_attr:
+        return False
+
+    # Type artifacts must match monster archetype if role info is known.
+    if art_type == 2:
+        required_role = _artifact_required_role(art, account=account)
+        if required_role:
+            unit_role = _arena_role_from_archetype(str(unit_archetype or ""))
+            if unit_role not in ("attack", "defense", "hp", "support"):
+                unit_role = _infer_unit_role_from_base_stats(base_hp, base_atk, base_def)
+            if unit_role in ("attack", "defense", "hp", "support") and unit_role != required_role:
+                return False
+
+    return True
+
+
 def _rune_damage_score_proxy(r: Rune, base_atk: int) -> int:
     atk_pct = int(_rune_stat_total(r, 4) or 0)
     atk_flat = int(_rune_stat_total(r, 3) or 0)
@@ -3856,6 +3945,13 @@ def _run_pass_with_profile(
     for unit_pos, uid in enumerate(unit_ids):
         if req.is_cancelled and req.is_cancelled():
             break
+        unit = account.units_by_id.get(uid)
+        base_hp = int((unit.base_con or 0) * 15) if unit else 0
+        base_atk = int(unit.base_atk or 0) if unit else 0
+        base_def = int(unit.base_def or 0) if unit else 0
+        unit_attribute = int(unit.attribute or 0) if unit else 0
+        unit_archetype = str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
+
         cur_pool = [
             r for r in pool
             if (r.rune_id not in blocked) or (int(reserved_rune_owner.get(int(r.rune_id), 0)) == int(uid))
@@ -3865,10 +3961,19 @@ def _run_pass_with_profile(
             if (int(a.artifact_id or 0) not in blocked_artifacts)
             or (int(reserved_artifact_owner.get(int(a.artifact_id or 0), 0)) == int(uid))
         ]
-        unit = account.units_by_id.get(uid)
-        base_hp = int((unit.base_con or 0) * 15) if unit else 0
-        base_atk = int(unit.base_atk or 0) if unit else 0
-        base_def = int(unit.base_def or 0) if unit else 0
+        cur_art_pool = [
+            a
+            for a in cur_art_pool
+            if _artifact_compatible_with_unit(
+                a,
+                unit_attribute=unit_attribute,
+                unit_archetype=unit_archetype,
+                base_hp=base_hp,
+                base_atk=base_atk,
+                base_def=base_def,
+                account=account,
+            )
+        ]
         base_spd = int(unit.base_spd or 0) if unit else 0
         totem_spd_bonus_flat = int(base_spd * int(account.sky_tribe_totem_spd_pct or 0) / 100)
         leader_spd_bonus_flat = int((req.unit_spd_leader_bonus_flat or {}).get(int(uid), 0) or 0)
@@ -3978,7 +4083,7 @@ def _run_pass_with_profile(
             arena_rush_damage_bias=(
                 str(getattr(req, "arena_rush_context", "") or "").strip().lower() == "offense"
             ),
-            unit_archetype=str((req.unit_archetype_by_uid or {}).get(int(uid), "") or ""),
+            unit_archetype=str(unit_archetype),
             artifact_hints=dict(artifact_hints_for_unit),
             broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
             is_cancelled=req.is_cancelled,

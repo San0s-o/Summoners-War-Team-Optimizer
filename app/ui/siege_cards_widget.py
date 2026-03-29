@@ -1188,7 +1188,16 @@ class SiegeDefCardsWidget(QWidget):
     def _equipped_artifacts_for(self, account: AccountData, unit_id: int, rune_mode: str) -> List[Artifact]:
         by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in (account.artifacts or [])}
         result: Dict[int, Artifact] = {}
-        if rune_mode == "rta":
+        mode = str(rune_mode or "").strip().lower()
+        if mode in ("siege", "guild"):
+            for aid in (account.guild_artifact_equip.get(int(unit_id), []) or []):
+                art = by_id.get(int(aid))
+                if not art:
+                    continue
+                art_type = int(art.type_ or 0)
+                if art_type in (1, 2) and art_type not in result:
+                    result[art_type] = art
+        elif mode == "rta":
             for aid in (account.rta_artifact_equip.get(int(unit_id), []) or []):
                 art = by_id.get(int(aid))
                 if not art:

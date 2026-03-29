@@ -413,13 +413,33 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
     acc.arena_deck_teams = arena_deck_teams
 
     # ── mode-specific rune equipment ──────────────────────────
-    # Guild/Siege: equip_info_list[*].rune_equip_list
+    # Guild/Siege: equip_info_list[*].rune_equip_list + artifact_equip_list
     for equip_info in (data.get("equip_info_list") or []):
         for entry in (equip_info.get("rune_equip_list") or []):
             rid = _safe_int(entry.get("rune_id"))
             uid = _safe_int(entry.get("occupied_id"))
             if rid and uid:
                 acc.guild_rune_equip.setdefault(uid, []).append(rid)
+        for entry in (equip_info.get("artifact_equip_list") or []):
+            art_id = _safe_int(entry.get("artifact_id"))
+            uid = _safe_int(entry.get("occupied_id"))
+            if not (art_id and uid):
+                continue
+            acc.guild_artifact_equip.setdefault(uid, []).append(art_id)
+            if art_id in full_arts_by_id:
+                continue
+            slot = _safe_int(entry.get("slot"))
+            type_ = _safe_int(entry.get("artifact_type") or entry.get("type"))
+            full_arts_by_id[art_id] = Artifact(
+                artifact_id=art_id,
+                occupied_id=0,
+                slot=slot if slot in (1, 2) else 0,
+                type_=type_ if type_ in (1, 2) else 0,
+                attribute=0,
+                rank=0,
+                level=0,
+                original_rank=0,
+            )
 
     # RTA: world_arena_rune_equip_list
     for entry in (data.get("world_arena_rune_equip_list") or []):
@@ -434,5 +454,8 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
         uid = _safe_int(entry.get("occupied_id"))
         if art_id and uid:
             acc.rta_artifact_equip.setdefault(uid, []).append(art_id)
+
+    # Keep account artifact table in sync with IDs seen in mode-specific equip lists.
+    acc.artifacts = list(full_arts_by_id.values())
 
     return acc

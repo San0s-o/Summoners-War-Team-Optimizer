@@ -31,6 +31,7 @@ from app.engine.greedy_optimizer import (
     _allowed_runes_for_mode,
     _artifact_focus_key,
     _artifact_substat_ids,
+    _artifact_compatible_with_unit,
     _artifact_context_score_proxy,
     _artifact_effect_value_scaled,
     _artifact_effect_roll_count,
@@ -205,7 +206,21 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
             locked_artifact_id = int(fixed_artifacts_by_type.get(int(art_type), 0) or 0)
             if locked_artifact_id > 0:
                 cands = [a for a in cands if int(a.artifact_id or 0) == int(locked_artifact_id)]
-            if not cands:
+            compatible_cands = [
+                a
+                for a in cands
+                if _artifact_compatible_with_unit(
+                    a,
+                    unit_attribute=int(unit.attribute or 0) if unit else 0,
+                    unit_archetype=str(unit_arch),
+                    base_hp=int(base_hp or 0),
+                    base_atk=int(base_atk or 0),
+                    base_def=int(base_def or 0),
+                    account=account,
+                )
+            ]
+            compatible_ids = {int(a.artifact_id or 0) for a in compatible_cands}
+            if not compatible_cands:
                 fallback = _run_greedy_pass(
                     account=account,
                     presets=presets,
@@ -221,6 +236,8 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                 av = model.NewBoolVar(f"xa_u{uid}_t{art_type}_a{int(a.artifact_id)}")
                 xa[(uid, art_type, int(a.artifact_id))] = av
                 vars_for_type.append(av)
+                if int(a.artifact_id or 0) not in compatible_ids:
+                    model.Add(av == 0)
             model.Add(sum(vars_for_type) == 1)
 
         # build select
