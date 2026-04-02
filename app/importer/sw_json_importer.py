@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from app.domain.models import AccountData, Unit, Rune, Artifact
 
@@ -191,6 +191,18 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
     acc.sky_tribe_totem_level = _extract_sky_tribe_totem_level(data)
     acc.sky_tribe_totem_spd_pct = _sky_tribe_totem_spd_pct_from_level(acc.sky_tribe_totem_level)
 
+    # Parse skill_master_list: maps skill_id → max_level and icon_filename
+    for sm in (data.get("skill_master_list") or []):
+        if not isinstance(sm, dict):
+            continue
+        skill_id = _safe_int(sm.get("master_id"))
+        if skill_id == 0:
+            continue
+        acc.skill_max_levels[skill_id] = max(1, _safe_int(sm.get("max_level"), 1))
+        icon = str(sm.get("icon_filename") or "").strip()
+        if icon:
+            acc.skill_icons[skill_id] = icon
+
     # Some exports split owned units between the active box and monster storage.
     # We need both sources so stored monsters (e.g. Shi Hou) appear in the UI.
     unit_sources = [
@@ -208,6 +220,12 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
             if unit_id == 0 or unit_master_id == 0:
                 continue
 
+            raw_skills = u.get("skills") or []
+            parsed_skills: Tuple[Tuple[int, int], ...] = tuple(
+                (int(s[0]), int(s[1]))
+                for s in raw_skills
+                if isinstance(s, (list, tuple)) and len(s) >= 2
+            )
             unit = Unit(
                 unit_id=unit_id,
                 unit_master_id=unit_master_id,
@@ -222,6 +240,7 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                 base_acc=_safe_int(u.get("accuracy")),
                 crit_rate=_safe_int(u.get("critical_rate")),
                 crit_dmg=_safe_int(u.get("critical_damage")),
+                skills=parsed_skills,
             )
             acc.units_by_id[unit_id] = unit
 

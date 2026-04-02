@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 @dataclass(frozen=True)
 class Unit:
@@ -17,6 +17,8 @@ class Unit:
     base_acc: int
     crit_rate: int
     crit_dmg: int
+    # Tuple of (skill_id, current_level) pairs; empty when not imported
+    skills: Tuple[Tuple[int, int], ...] = ()
 
 @dataclass(frozen=True)
 class Rune:
@@ -69,6 +71,10 @@ class AccountData:
     # an empty dict means it was included but the player owns 0 gems.
     craft_stuff: Dict[int, int] = field(default_factory=dict)
     craft_stuff_imported: bool = False   # True once craft_stuff was parsed from JSON
+
+    # Skill master list: skill_id → max_level / icon_filename (no extension)
+    skill_max_levels: Dict[int, int] = field(default_factory=dict)
+    skill_icons: Dict[int, str] = field(default_factory=dict)
 
     # Mode-specific rune equipment: unit_id -> [rune_id, ...]
     # These come from equip_info_list (siege/guild) and world_arena_rune_equip_list (RTA)

@@ -54,10 +54,19 @@ class MonsterDB:
     def __init__(self, db_path: str | Path, meta_path: str | Path | None = None):
         self.db_path = Path(db_path)
         self.meta_path = Path(meta_path) if meta_path else self.db_path.with_name("monster_meta.json")
+        self.skill_defs_path = self.db_path.with_name("skill_defs.json")
         self._by_id: Dict[int, MonsterInfo] = {}
+        # SW com2us skill ID → max_level / icon_filename / name (from skill_defs.json)
+        self.skill_max_levels: Dict[int, int] = {}
+        self.skill_icons: Dict[int, str] = {}
+        self.skill_names: Dict[int, str] = {}
 
     def load(self) -> None:
         self._by_id = {}
+        self.skill_max_levels = {}
+        self.skill_icons = {}
+        self.skill_names = {}
+        self._load_skill_defs()
         if not self.db_path.exists():
             return
         meta_by_id = self._load_meta_by_id()
@@ -88,6 +97,31 @@ class MonsterDB:
                 self._by_id[mid] = info
             except Exception:
                 continue
+
+    def _load_skill_defs(self) -> None:
+        """Load skill_defs.json (SW com2us_id → max_level + icon_filename)."""
+        if not self.skill_defs_path.exists():
+            return
+        try:
+            raw = json.loads(self.skill_defs_path.read_text(encoding="utf-8", errors="replace"))
+            skills = raw.get("skills") or {}
+            for key, entry in skills.items():
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    sw_id = int(key)
+                except Exception:
+                    continue
+                max_lvl = self._safe_int(entry.get("max_level"), 1)
+                self.skill_max_levels[sw_id] = max(1, max_lvl)
+                icon = str(entry.get("icon_filename") or "").strip().removesuffix(".png")
+                if icon:
+                    self.skill_icons[sw_id] = icon
+                name = str(entry.get("name") or "").strip()
+                if name:
+                    self.skill_names[sw_id] = name
+        except Exception:
+            pass
 
     def _load_meta_by_id(self) -> Dict[int, Dict[str, Any]]:
         if not self.meta_path.exists():

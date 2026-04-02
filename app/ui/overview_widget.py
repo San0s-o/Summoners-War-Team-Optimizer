@@ -23,11 +23,23 @@ from app.domain.artifact_effects import (
     artifact_effect_text,
     ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID,
 )
+from app.domain.rune_quality import (
+    artifact_quality_tier_key,
+    relevant_runes,
+    rune_quality_class,
+    rune_quality_tier_key,
+)
 from app.engine.efficiency import (
     rune_efficiencies,
     rune_efficiency,
     artifact_efficiency,
     rune_efficiency_max,
+)
+from app.services.overview_analytics import (
+    compute_artifact_overview_stats,
+    compute_rune_overview_stats,
+    ranked_artifact_items,
+    ranked_rune_items,
 )
 from app.i18n import tr
 from app.ui.dpi import dp
@@ -374,49 +386,13 @@ def _artifact_mainstat_label(eff_id: int, value: Any) -> str:
     return artifact_effect_text(int(eff_id or 0), value, fallback_prefix="Effekt")
 
 
-def _rune_quality_class(rune: Rune) -> int:
-    origin = int(getattr(rune, "origin_class", 0) or 0)
-    return origin if origin else int(rune.rune_class or 0)
-
-
-def _rune_quality_tier_key(rune: Rune) -> str:
-    cls_id = _rune_quality_class(rune)
-    if cls_id in (5, 6, 15, 16):
-        return "legend"
-    if cls_id in (4, 14):
-        return "hero"
-    if cls_id in (3, 13):
-        return "rare"
-    if cls_id in (2, 12):
-        return "magic"
-    if cls_id in (1, 11):
-        return "normal"
-    return "other"
-
-
-def _artifact_quality_tier_key(art: Artifact) -> str:
-    base_rank = int(getattr(art, "original_rank", 0) or 0)
-    if base_rank <= 0:
-        base_rank = int(art.rank or 0)
-    if base_rank >= 5:
-        return "legend"
-    if base_rank == 4:
-        return "hero"
-    if base_rank == 3:
-        return "rare"
-    if base_rank == 2:
-        return "magic"
-    if base_rank == 1:
-        return "normal"
-    return "other"
-
 
 _GEM_COLOR = "#1abc9c"  # teal for gem-swapped subs
 
 
 def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
     set_name = SET_NAMES.get(int(rune.set_id or 0), f"Set {int(rune.set_id or 0)}")
-    cls_id = _rune_quality_class(rune)
+    cls_id = rune_quality_class(rune)
     cls = _RUNE_CLASS_NAMES.get(cls_id, f"{tr('ui.class_short')} {cls_id}")
     lines = [
         f"{tr('overview.rank', idx=idx + 1)} | {tr('overview.efficiency')} {eff:.2f}%",
@@ -1283,59 +1259,42 @@ class OverviewWidget(QWidget):
 
     # -- cards -----------------------------------------
     def _update_cards(self, acc: AccountData) -> None:
-        n_units = len(acc.units_by_id)
-        filtered_runes = [r for r in acc.runes if int(r.upgrade_curr or 0) >= 12]
-        n_runes = len(filtered_runes)
-        n_arts = len(acc.artifacts)
+        rune_stats = compute_rune_overview_stats(acc.runes, list(self._set_eff_cards.keys()))
+        art_stats = compute_artifact_overview_stats(acc.artifacts)
 
-        self._card_units.update_value(str(n_units))
+        self._card_units.update_value(str(len(acc.units_by_id)))
         self._card_units.set_subtitle("")
-        self._card_runes.update_value(f"{n_runes:,}".replace(",", "."))
+        self._card_runes.update_value(f"{rune_stats.n_runes:,}".replace(",", "."))
         self._card_runes.set_subtitle("")
-        self._card_artifacts.update_value(f"{n_arts:,}".replace(",", "."))
+        self._card_artifacts.update_value(f"{art_stats.n_artifacts:,}".replace(",", "."))
         self._card_artifacts.set_subtitle("")
 
-        r_effs = rune_efficiencies(filtered_runes) if filtered_runes else []
-        artifacts_t1 = [a for a in acc.artifacts if int(a.type_ or 0) == 1 and a.sec_effects]
-        artifacts_t2 = [a for a in acc.artifacts if int(a.type_ or 0) == 2 and a.sec_effects]
-        a_effs_t1 = [artifact_efficiency(a) for a in artifacts_t1]
-        a_effs_t2 = [artifact_efficiency(a) for a in artifacts_t2]
+        if rune_stats.avg_eff is not None:
+            self._card_rune_avg.update_value(f"{rune_stats.avg_eff:.1f}%")
+        self._card_rune_avg.set_subtitle("")
+        if rune_stats.best_eff is not None:
+            self._card_rune_best.update_value(f"{rune_stats.best_eff:.1f}%")
+        self._card_rune_best.set_subtitle("")
 
-        if r_effs:
-            avg = sum(r_effs) / len(r_effs)
-            best = max(r_effs)
-            self._card_rune_avg.update_value(f"{avg:.1f}%")
-            self._card_rune_avg.set_subtitle("")
-            self._card_rune_best.update_value(f"{best:.1f}%")
-            self._card_rune_best.set_subtitle("")
-        else:
-            self._card_rune_avg.set_subtitle("")
-            self._card_rune_best.set_subtitle("")
-        if a_effs_t1:
-            avg = sum(a_effs_t1) / len(a_effs_t1)
-            self._card_art_avg_t1.update_value(f"{avg:.1f}%")
-            self._card_art_avg_t1.set_subtitle("")
+        if art_stats.avg_eff_t1 is not None:
+            self._card_art_avg_t1.update_value(f"{art_stats.avg_eff_t1:.1f}%")
         else:
             self._card_art_avg_t1.update_value("—")
-            self._card_art_avg_t1.set_subtitle("")
+        self._card_art_avg_t1.set_subtitle("")
 
-        if a_effs_t2:
-            avg = sum(a_effs_t2) / len(a_effs_t2)
-            self._card_art_avg_t2.update_value(f"{avg:.1f}%")
-            self._card_art_avg_t2.set_subtitle("")
+        if art_stats.avg_eff_t2 is not None:
+            self._card_art_avg_t2.update_value(f"{art_stats.avg_eff_t2:.1f}%")
         else:
             self._card_art_avg_t2.update_value("—")
-            self._card_art_avg_t2.set_subtitle("")
+        self._card_art_avg_t2.set_subtitle("")
 
         for sid, card in self._set_eff_cards.items():
-            vals = [rune_efficiency(r) for r in filtered_runes if int(r.set_id or 0) == sid]
-            if vals:
-                avg_v = sum(vals) / len(vals)
+            avg_v = rune_stats.set_avg_eff.get(sid)
+            if avg_v is not None:
                 card.update_value(f"{avg_v:.1f}%")
-                card.set_subtitle("")
             else:
                 card.update_value("\u2014")
-                card.set_subtitle("")
+            card.set_subtitle("")
 
     # -- charts ----------------------------------------
     def _clear_grid(self) -> None:
@@ -1353,15 +1312,9 @@ class OverviewWidget(QWidget):
     def _build_charts(self, acc: AccountData) -> None:
         self._clear_grid()
 
-        filtered_runes = [r for r in acc.runes if int(r.upgrade_curr or 0) >= 12]
-        rune_items = (
-            [(rune_efficiency(r), r) for r in filtered_runes]
-            if filtered_runes else []
-        )
-        art_items = (
-            [(artifact_efficiency(a), a) for a in acc.artifacts if a.sec_effects]
-            if acc.artifacts else []
-        )
+        filtered_runes = relevant_runes(acc.runes)
+        rune_items = ranked_rune_items(acc.runes)
+        art_items = ranked_artifact_items(acc.artifacts)
 
         self._rune_eff_view = self._build_rune_eff_chart(rune_items)
         self._rune_set_view = self._build_rune_set_chart(filtered_runes)
@@ -1390,7 +1343,7 @@ class OverviewWidget(QWidget):
         self._rune_set_filter_combo.addItem(tr("overview.filter_all_sets"), 0)
 
         if self._account is not None:
-            filtered_runes = [r for r in self._account.runes if int(r.upgrade_curr or 0) >= 12]
+            filtered_runes = relevant_runes(self._account.runes)
             set_ids = sorted(
                 {int(r.set_id or 0) for r in filtered_runes if int(r.set_id or 0) > 0},
                 key=lambda sid: SET_NAMES.get(sid, f"Set {sid}"),
@@ -1591,7 +1544,7 @@ class OverviewWidget(QWidget):
         return _make_chart_view(chart)
 
     def _build_rune_pool_chart(self, runes: List[Rune]) -> QChartView:
-        by_tier = Counter(_rune_quality_tier_key(r) for r in (runes or []))
+        by_tier = Counter(rune_quality_tier_key(r) for r in (runes or []))
         rows = [
             (tr("overview.quality_legend"), int(by_tier.get("legend", 0)), "#e67e22"),
             (tr("overview.quality_hero"), int(by_tier.get("hero", 0)), "#9b59b6"),
@@ -1603,7 +1556,7 @@ class OverviewWidget(QWidget):
         return self._build_pool_pie_chart(tr("overview.rune_pool_dist_chart"), rows)
 
     def _build_artifact_pool_chart(self, arts: List[Artifact]) -> QChartView:
-        by_tier = Counter(_artifact_quality_tier_key(a) for a in (arts or []))
+        by_tier = Counter(artifact_quality_tier_key(a) for a in (arts or []))
         rows = [
             (tr("overview.quality_legend"), int(by_tier.get("legend", 0)), "#1abc9c"),
             (tr("overview.quality_hero"), int(by_tier.get("hero", 0)), "#4aa3ff"),

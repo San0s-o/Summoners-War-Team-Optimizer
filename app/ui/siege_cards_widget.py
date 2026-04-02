@@ -21,6 +21,7 @@ from app.domain.artifact_effects import (
     artifact_effect_text,
     artifact_rank_label,
 )
+from app.domain.rune_quality import rune_quality_class
 from app.engine.efficiency import rune_efficiency
 from app.i18n import tr
 from app.ui.dpi import dp
@@ -80,10 +81,6 @@ _RUNE_QUALITY_BORDER: Dict[int, str] = {
     16: "#e67e22",
 }
 
-
-def _rune_quality_class(rune: Rune) -> int:
-    origin = int(getattr(rune, "origin_class", 0) or 0)
-    return origin if origin else int(rune.rune_class or 0)
 
 
 def _card_stat_label(key: str) -> str:
@@ -652,7 +649,7 @@ class MonsterCard(QFrame):
                     btn.setIcon(icon)
                     btn.setText("")
                 btn.setToolTip(_rune_rich_tooltip(rune))
-                quality_cls = _rune_quality_class(rune)
+                quality_cls = rune_quality_class(rune)
                 border_col = _RUNE_QUALITY_BORDER.get(quality_cls, "#4a4a4a")
                 btn.setStyleSheet(
                     f"QPushButton {{ border: 2px solid {border_col}; border-radius: 4px; background: #323232; }}"

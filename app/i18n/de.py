@@ -739,6 +739,10 @@ STRINGS: dict[str, str] = {
     "collection.none": "Keine Einträge.",
     "collection.tooltip_nat": "Ausgangssterne: {stars}",
     "collection.tooltip_copies": "{count} Kopien",
+    "collection.filter_missing_skillups": "Nur mit fehlenden Skillups",
+    "collection.nat_group_devilmons": "Nat {stars}  ·  {count} Devilmon(s) fehlen",
+    "collection.skill_level": "{current} / {max}",
+    "collection.skill_max": "MAX",
 
     # -- RTA overview --------------------------------------------
     "rta.spd_lead": "<b>SPD Lead:</b>",
