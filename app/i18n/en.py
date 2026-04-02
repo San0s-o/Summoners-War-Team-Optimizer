@@ -776,6 +776,8 @@ STRINGS: dict[str, str] = {
     "settings.label_license_type_trial": "Trial ({remaining} remaining)",
     "settings.label_license_type_full": "Full",
     "settings.label_license_key": "Key: {license_key}",
+    "settings.license_key_click_hint": "Click the key to copy it.",
+    "settings.license_key_copied": "License key copied to clipboard.",
     "settings.label_no_license": "No license active.",
     "settings.license_activated": "License activated successfully.",
     "settings.license_activation_failed": "Activation failed: {message}",

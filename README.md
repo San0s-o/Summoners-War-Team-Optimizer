@@ -140,7 +140,7 @@ Klicke auf **Speichern** im Ergebnis-Dialog. Unter dem jeweiligen **Gespeichert*
 
 ## Lizenz
 
-Die App erfordert einen gültigen Lizenz-Key. Beim ersten Start wirst du zur Eingabe aufgefordert. Der Key wird einmalig online aktiviert und an dein Gerät gebunden. Lizenz und Key sind im **Einstellungen**-Tab einsehbar und verwaltbar.
+Die App erfordert einen gültigen Lizenz-Key. Beim ersten Start wirst du zur Eingabe aufgefordert. Der Key wird online aktiviert und kann mit derselben Full-Lizenz auf Desktop und Mobile genutzt werden (mehrere Geräte pro Lizenz gemäß Serverkonfiguration). Lizenz und Key sind im **Einstellungen**-Tab einsehbar und verwaltbar.
 
 ### Cloud Learning (Full-Lizenz)
 

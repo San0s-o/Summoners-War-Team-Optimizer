@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 
 from PySide6.QtCore import Qt, QSize, QThreadPool, QUrl
-from PySide6.QtGui import QDesktopServices, QIcon
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -144,6 +144,24 @@ def _set_community_artifact_substat_limit(window, value: int) -> None:
     _save_app_settings(window, {_COMMUNITY_ART_SUBSTAT_LIMIT_KEY: max(1, min(2, int(raw)))})
 
 
+def _mask_license_key(key: str) -> str:
+    key = str(key or "").strip()
+    if len(key) > 9:
+        return key[:5] + "****" + key[-4:]
+    return key
+
+
+def _on_settings_license_key_clicked(window, _event=None) -> None:
+    key = str(getattr(window, "_settings_license_key_full", "") or "").strip()
+    if not key:
+        return
+    QGuiApplication.clipboard().setText(key)
+    msg = tr("settings.license_key_copied")
+    window.lbl_settings_license_feedback.setText(msg)
+    window.statusBar().showMessage(msg, 4000)
+    show_toast(window, msg, "success")
+
+
 def _populate_top_n_combo(combo: QComboBox, max_n: int = 3) -> None:
     current_data = combo.currentData()
     combo.blockSignals(True)
@@ -252,6 +270,9 @@ def init_settings_ui(window) -> None:
     license_layout.addWidget(window.lbl_settings_license_type)
 
     window.lbl_settings_license_key = QLabel("")
+    window.lbl_settings_license_key.setCursor(Qt.PointingHandCursor)
+    window.lbl_settings_license_key.setToolTip(tr("settings.license_key_click_hint"))
+    window.lbl_settings_license_key.mousePressEvent = lambda event: _on_settings_license_key_clicked(window, event)
     license_layout.addWidget(window.lbl_settings_license_key)
 
     key_row = QHBoxLayout()
@@ -594,17 +615,16 @@ def refresh_settings_license_status(window) -> None:
     expires_at = _parse_expires_at(local_data.get("license_expires_at"))
 
     if not key:
+        window._settings_license_key_full = ""
         window.lbl_settings_license_type.setText(tr("settings.label_no_license"))
         window.lbl_settings_license_key.setText("")
         window.grp_settings_cloud.setVisible(False)
         return
 
-    # Mask key: show first 5 and last 4 chars
-    if len(key) > 9:
-        masked = key[:5] + "****" + key[-4:]
-    else:
-        masked = key
-    window.lbl_settings_license_key.setText(tr("settings.label_license_key", license_key=masked))
+    window._settings_license_key_full = key
+    window.lbl_settings_license_key.setText(
+        tr("settings.label_license_key", license_key=_mask_license_key(key))
+    )
 
     is_trial = "trial" in license_type.lower()
     is_full = bool(license_type) and not is_trial
@@ -1273,6 +1293,7 @@ def retranslate_settings(window) -> None:
 
     window.grp_settings_license.setTitle(tr("settings.group_license"))
     window.btn_settings_activate.setText(tr("btn.activate"))
+    window.lbl_settings_license_key.setToolTip(tr("settings.license_key_click_hint"))
 
     window.grp_settings_cloud.setTitle(tr("settings.group_cloud"))
     window.chk_settings_cloud_learning.setText(tr("settings.cloud_learning_optin"))
