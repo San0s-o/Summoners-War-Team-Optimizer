@@ -1,16 +1,18 @@
 ## Desktop App
 
-This folder is the monorepo entrypoint for the existing desktop application.
+This folder is the monorepo entrypoint for the desktop application.
 
 Current state:
-- Runtime code still lives in the repository root `app/` package.
-- This folder provides a stable place for desktop-specific scripts and docs.
+- Runtime code lives in `apps/desktop/src/desktop_app`.
+- `run_desktop.py` is a convenience launcher for local development.
 
 Run (from repo root):
 ```powershell
-python -m app
+python .\apps\desktop\run_desktop.py
 ```
 
-Future migration target:
-- Move desktop-specific UI/runtime modules into `apps/desktop/src`.
-- Keep shared optimization/domain logic in `packages/core-py`.
+Alternative:
+```powershell
+$env:PYTHONPATH = ".\apps\desktop\src"
+python -m desktop_app
+```

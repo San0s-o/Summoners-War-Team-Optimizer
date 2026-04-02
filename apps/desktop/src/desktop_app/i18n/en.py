@@ -1,0 +1,878 @@
+"""English translations."""
+
+STRINGS: dict[str, str] = {
+    # -- Main Window ---------------------------------------------
+    "main.title": "SW Team Optimizer",
+    "main.import_btn": "Import JSON",
+    "main.no_import": "No import loaded.",
+    "main.import_label": "Import: {source}",
+    "main.import_failed": "Import failed",
+    "main.file_dialog_title": "Select Summoners War JSON",
+    "main.file_dialog_filter": "JSON (*.json);;All files (*.*)",
+    "main.search_placeholder": "Search monster...",
+    "main.snapshot_title": "Load snapshot",
+    "main.snapshot_failed": "Could not load snapshot:\n{exc}",
+    "main.source_unknown": "Original name unknown",
+    "main.import_outdated_title": "Import outdated",
+    "main.import_outdated_msg": "The current import \"{source}\" is from {date} and older than 1 month.\n\nPlease import a current JSON file to keep your data up to date.",
+
+    # -- Tabs (group tabs) ---------------------------------------
+    "tab.overview": "Overview",
+    "tab.monster_collection": "Monster Collection",
+    "tab.siege_group": "Siege",
+    "tab.wgb_group": "World Guild Battle",
+    "tab.rta_group": "RTA",
+    "tab.arena_rush_group": "Arena Rush",
+    "tab.rune_optimization": "Runes && Artifacts",
+    # -- Sub-tabs (within groups) --------------------------------
+    "tab.subtab_current": "Current",
+    "tab.subtab_builder": "Builder",
+    "tab.subtab_saved": "Saved",
+    "rune_opt.subtab_runes": "Runes",
+    "rune_opt.subtab_artifacts": "Artifacts",
+    "rune_opt.subtab_gem_suggestions": "Gem Suggestions",
+    # -- Legacy tab keys (for compatibility) ---------------------
+    "tab.siege_current": "Siege Defenses (current)",
+    "tab.rta_current": "RTA (current)",
+    "tab.siege_builder": "Siege Builder (Custom)",
+    "tab.siege_saved": "Siege Optimizations (saved)",
+    "tab.wgb_builder": "GWB Builder (Custom)",
+    "tab.wgb_saved": "GWB Optimizations (saved)",
+    "tab.rta_builder": "RTA Builder (Custom)",
+    "tab.rta_saved": "RTA Optimizations (saved)",
+    "tab.arena_rush_builder": "Arena Rush Builder",
+    "tab.arena_rush_saved": "Arena Rush Optimizations (saved)",
+
+    # -- Buttons -------------------------------------------------
+    "btn.add": "Add",
+    "btn.remove": "Remove",
+    "btn.close": "Close",
+    "btn.cancel": "Cancel",
+    "btn.save": "Save",
+    "btn.saved": "Saved",
+    "btn.delete": "Delete",
+    "btn.yes": "Yes",
+    "btn.no": "No",
+    "btn.validate": "Validate",
+    "btn.validate_pools": "Validate (Pools/Teams)",
+    "btn.builds": "Builds...",
+    "btn.optimize": "Optimize",
+    "btn.activate": "Activate",
+    "btn.quit": "Quit",
+    "btn.later": "Later",
+    "btn.release_page": "Release Page",
+    "btn.install_update": "Update",
+    "btn.new_team": "New Team",
+    "btn.edit_team": "Edit Team",
+    "btn.delete_team": "Delete Team",
+    "btn.optimize_team": "Optimize Team",
+    "btn.take_siege": "Load current Siege Defenses",
+    "btn.take_rta": "Load current RTA Monsters",
+    "btn.take_arena_def": "Load current Arena Defense",
+    "btn.take_arena_off": "Load Arena Offense Decks",
+    "btn.load_current_runes": "Load current runes",
+    "btn.restore_saved_preset": "Restore saved preset",
+    "btn.load_preferred_runes": "Load preferred runes",
+    "btn.load_preferred_runes_all": "Load preferred runes for all",
+    "btn.save_preferred_runes": "Save preferred runes",
+    "btn.load_preferred_artifacts": "Load preferred artifacts",
+    "btn.load_preferred_artifacts_all": "Load preferred artifacts for all",
+    "btn.save_preferred_artifacts": "Save preferred artifacts",
+    "btn.load_community_trends": "Load community trend",
+    "btn.load_community_trends_all": "Load community trends for all",
+    "btn.actions": "Actions",
+
+    # -- Labels --------------------------------------------------
+    "label.passes": "Passes",
+    "label.workers": "Cores",
+    "label.mode": "Mode",
+    "profile.smart": "Smart",
+    "profile.fast": "Fast",
+    "profile.balanced": "Balanced",
+    "profile.manual": "Manual (CPU)",
+    "profile.maximum": "Maximum",
+    "label.saved_opt": "Saved Optimization:",
+    "label.team": "Team",
+    "label.team_name": "Team Name",
+    "label.units": "units",
+    "label.defense": "Defense {n}",
+    "label.team_slot_1_leader": "Slot 1 (Leader)",
+    "label.team_slot_2": "Slot 2",
+    "label.team_slot_3": "Slot 3",
+    "label.team_leader_hint": "Note: Slot 1 defines the team's leader skill.",
+    "label.arena_defense": "Arena Defense",
+    "label.arena_offense": "Arena Offense {n}",
+    "label.offense": "Offense {n}",
+    "label.active": "Active",
+    "label.import_account_first": "Import an account first.",
+    "label.no_teams": "No teams defined.",
+    "label.no_team_selected": "No team selected.",
+    "label.no_units": "No units.",
+    "label.error": "Error",
+    "label.spd_tick_short": "Tick",
+    "label.effect_spd_buff": "SPD+",
+    "label.effect_atb_boost": "ATB",
+    "label.min_mode": "Calculation",
+    "label.min_mode_hint": "With base stats: entered values are rune bonus.",
+    "label.min_base_prefix": "{value} +",
+    "label.min_base_values": "Base stats: SPD {spd} | HP {hp} | ATK {atk} | DEF {defense}",
+
+    # -- Tooltips ------------------------------------------------
+    "tooltip.load_current_runes": "Load currently equipped rune sets and mainstats for all monsters.",
+    "tooltip.restore_saved_preset": "Restore the build settings that were loaded when this dialog was opened.",
+    "tooltip.load_preferred_runes": "Load preferred rune set combinations and mainstats from monster_rune_set_preferences.json for this monster.",
+    "tooltip.load_preferred_runes_all": "Load preferred rune set combinations and mainstats from monster_rune_set_preferences.json for all monsters.",
+    "tooltip.load_preferred_runes_missing": "No rune preferences found for this monster in monster_rune_set_preferences.json.",
+    "tooltip.save_preferred_runes": "Save currently selected rune sets and mainstats as monster preferences in monster_rune_set_preferences.json.",
+    "tooltip.load_preferred_artifacts": "Load preferred artifact mains and substats from monster_rune_set_preferences.json for this monster.",
+    "tooltip.load_preferred_artifacts_all": "Load preferred artifact mains and substats from monster_rune_set_preferences.json for all monsters.",
+    "tooltip.load_preferred_artifacts_missing": "No artifact preferences found for this monster in monster_rune_set_preferences.json.",
+    "tooltip.save_preferred_artifacts": "Save currently selected artifact mains and substats as monster preferences in monster_rune_set_preferences.json.",
+    "tooltip.load_community_trends": "Load community build trends (sets/mainstats/artifacts) for this monster.",
+    "tooltip.load_community_trends_all": "Load community build trends (sets/mainstats/artifacts) for all monsters.",
+    "tooltip.set_multi": "Multi-select. After first selection only same-size sets (2-piece/4-piece).",
+    "tooltip.set3": "Only active when Set 1 and Set 2 are both 2-piece sets.",
+    "tooltip.mainstat_multi": "Multi-select possible. No selection = Any.",
+    "tooltip.art_attr_focus": "Attribute artifact: HP/ATK/DEF (multi-select, empty = Any).",
+    "tooltip.art_type_focus": "Type artifact: HP/ATK/DEF (multi-select, empty = Any).",
+    "tooltip.art_sub": "{kind} artifact: Select substat (empty = Any).",
+    "tooltip.passes": "Number of optimizer passes (1 = single pass only).",
+    "tooltip.workers": "Number of CPU cores/threads used by the solver (max 90% of available cores).",
+    "tooltip.spd_tick": "Optional SPD tick per monster. Enforces the corresponding SPD breakpoint.",
+    "tooltip.effect_spd_buff": "When enabled, an SPD buff after this unit's turn is considered.",
+    "tooltip.effect_atb_boost": "When enabled, an attack bar push in % is considered.",
+    "tooltip.team_slot_leader": "In Siege/GWB, the first monster (slot 1) defines the team's leader skill.",
+    "tooltip.siege_optimize_check": "When checked, this defense will be optimized. Uncheck to skip it.",
+    "tooltip.clear_slot": "Clear this slot",
+    "tooltip.clear_defense": "Clear entire defense",
+    "tooltip.builds": "Edit build presets (rune sets, main stats, sub stats)",
+    "tooltip.siege_block_excluded": "Runes and artifacts from monsters in non-optimized defenses are blocked (unavailable) for the optimization.",
+    "chk.siege_block_excluded": "Block runes/artifacts from non-optimized defenses",
+    "tooltip.optimize_order_priority": (
+        "Drag & Drop order = optimization order. "
+        "Especially important for Fast/Balanced, because earlier monsters "
+        "pick first from the shared rune/artifact pool."
+    ),
+
+    # -- Group Boxes ---------------------------------------------
+    "group.opt_order": "Optimization Order (Drag & Drop)",
+    "group.turn_order": "Turn Order per Team (Drag & Drop)",
+    "group.siege_select": "Select Siege Teams (up to 10 defenses x 3 monsters)",
+    "group.wgb_select": "Select GWB Teams (5 defenses x 3 monsters)",
+    "group.rta_select": "Select RTA Monsters (up to 25 - order via Drag & Drop)",
+    "group.arena_def_select": "Arena Defense (4 monsters)",
+    "group.arena_off_select": "Arena Offense Teams (up to 15 teams x 4 monsters)",
+    "group.build_monster_list": "Monsters (Optimization Order)",
+    "group.build_editor": "Build Editor",
+    "group.build_rune_sets": "Rune Sets",
+    "group.build_mainstats": "Mainstats (Slots 2/4/6)",
+    "group.build_artifacts": "Artifacts",
+    "group.build_advanced_settings": "Advanced Settings",
+    "group.build_min_stats": "Minimum Stats",
+    "group.build_stat_weights": "Stat Priorities",
+    "tooltip.stat_weights": "Scale how important each stat is for the optimizer score (0.0 = ignore, 1.0 = full weight). Does not affect minimum stat constraints.",
+
+    # -- Table Headers -------------------------------------------
+    "header.monster": "Monster",
+    "header.set1": "Set 1",
+    "header.set2": "Set 2",
+    "header.set3": "Set 3",
+    "header.slot2_main": "Slot 2 Main",
+    "header.slot4_main": "Slot 4 Main",
+    "header.slot6_main": "Slot 6 Main",
+    "header.attr_main": "Attr Main",
+    "header.attr_sub1": "Attr Sub 1",
+    "header.attr_sub2": "Attr Sub 2",
+    "header.type_main": "Type Main",
+    "header.type_sub1": "Type Sub 1",
+    "header.type_sub2": "Type Sub 2",
+    "header.min_spd": "Min SPD",
+    "header.min_hp": "Min HP",
+    "header.min_atk": "Min ATK",
+    "header.min_def": "Min DEF",
+    "header.min_cr": "Min CR",
+    "header.min_cd": "Min CD",
+    "header.min_res": "Min RES",
+    "header.min_acc": "Min ACC",
+    "min.mode.with_base": "With base stats",
+    "min.mode.without_base": "Without base stats",
+    "header.stat": "Stat",
+    "header.base": "Base",
+    "header.runes": "Runes",
+    "header.totem": "Totem",
+    "header.leader": "Leader",
+    "header.total": "Total",
+    "header.value": "Value",
+    "header.before": "Before",
+    "header.after": "After",
+    "header.delta": "Delta",
+    "rune_opt.col.symbol": "Rune",
+    "rune_opt.col.set": "Set",
+    "rune_opt.col.quality": "Quality / Ancient",
+    "rune_opt.col.slot": "Slot",
+    "rune_opt.col.upgrade": "+",
+    "rune_opt.col.substats": "Substats",
+    "rune_opt.col.gem_grind": "Gem/Grind",
+    "rune_opt.col.monster": "Monster",
+    "rune_opt.col.current_eff": "Current Eff",
+    "rune_opt.col.hero_max_eff": "Max Hero Eff",
+    "rune_opt.col.legend_max_eff": "Max Legend Eff",
+    "rune_opt.col.hero_potential": "Hero Potential",
+    "rune_opt.col.legend_potential": "Legend Potential",
+    "rune_opt.gem_grind_status": "Gems: {gems} | Grinds: {grinds}",
+    "rune_opt.quality_ancient": "{quality} (Ancient)",
+    "rune_opt.filter_set": "Set:",
+    "rune_opt.filter_slot": "Slot:",
+    "rune_opt.filter_monster": "Monster:",
+    "rune_opt.filter_all": "All",
+    "rune_opt.filter_reset": "Reset",
+    "rune_opt.search_placeholder": "Search set, quality, monster…",
+    "rune_opt.hint_no_import": "Please import an account first.",
+    "rune_opt.hint_no_rows": "No runes at +12 or higher found.",
+    "rune_opt.hint_no_filter_rows": "No runes match the selected set/slot/monster filter.",
+    "rune_opt.count": "Runes at +12 or higher: {n}",
+    "rune_opt.count_filtered": "Runes at +12 or higher: {shown} / {total}",
+
+    # -- Gem Suggestions -----------------------------------------
+    "gem_sug.account_pattern": "Account gem pattern ({total} gems total): {stats}",
+    "gem_sug.account_pattern_none": "No gems found in account yet.",
+    "gem_sug.count_filtered": "Gem suggestions: {shown} / {total}",
+    "gem_sug.hint_no_rows": "No runes at +12 or higher without a gem found.",
+    "gem_sug.hint_no_filter_rows": "No runes match the selected filter.",
+    "gem_sug.col.swap": "Suggested Gem Swap",
+    "gem_sug.col.account_freq": "Acct. Freq.",
+    "gem_sug.col.inventory": "Gem Stock",
+    "gem_sug.col.mainstat": "Main Stat",
+    "gem_sug.col.swap_only": "Swap Only",
+    "gem_sug.col.hero_grind": "Hero Grind",
+    "gem_sug.col.legend_grind": "Legend Grind",
+    "gem_sug.col.hero_eff_after": "Hero Eff. after Gem",
+    "gem_sug.col.legend_eff_after": "Legend Eff. after Gem",
+    "gem_sug.col.hero_gain": "Hero Gain",
+    "gem_sug.col.legend_gain": "Legend Gain",
+    "gem_sug.filter_avail_label": "Gem Stock:",
+    "gem_sug.filter_avail_have": "Available (≥1×)",
+    "gem_sug.filter_avail_missing": "Not available (0×)",
+    "gem_sug.inventory_unknown": "n/a",
+    "gem_sug.inventory_none": "0×",
+    "gem_sug.inventory_tooltip": (
+        "Gem stock from JSON import (craft_stuff). "
+        "n/a = not included in this export. "
+        "Note: IDs may differ depending on game version."
+    ),
+
+    # -- Artifact overview ---------------------------------------
+    "art_opt.col.type": "Type",
+    "art_opt.col.quality": "Quality",
+    "art_opt.col.level": "Level",
+    "art_opt.col.slot": "Slot",
+    "art_opt.col.mainstat": "Main Stat",
+    "art_opt.col.substats": "Substats",
+    "art_opt.col.monster": "Monster",
+    "art_opt.col.efficiency": "Efficiency",
+    "art_opt.filter_type": "Type:",
+    "art_opt.filter_monster": "Monster:",
+    "art_opt.filter_all": "All",
+    "art_opt.filter_reset": "Reset",
+    "art_opt.search_placeholder": "Search rank, mainstat, monster…",
+    "art_opt.type_attribute": "Attribute",
+    "art_opt.type_type": "Type",
+    "art_opt.hint_no_import": "Please import an account first.",
+    "art_opt.hint_no_rows": "No artifacts found.",
+    "art_opt.hint_no_filter_rows": "No artifacts match the selected filter.",
+    "art_opt.count": "Artifacts: {n}",
+    "art_opt.count_filtered": "Artifacts: {shown} / {total}",
+
+    # -- Status / Validation -------------------------------------
+    "status.siege_ready": "Ready. Select/load Siege teams -> Validate -> Builds -> Optimize.",
+    "status.wgb_ready": "Ready. (GWB) Select teams.",
+    "status.siege_taken": "Current defenses loaded. Please validate.",
+    "status.rta_taken": "{count} active RTA monsters loaded.",
+    "status.arena_rush_ready": "Ready. Load Arena def/off -> Validate -> Builds -> Optimize.",
+    "status.arena_def_taken": "Arena defense loaded from snapshot.",
+    "status.arena_off_taken": "{count} Arena offense decks loaded.",
+    "status.arena_off_taken_limited": "{count}/{total} Arena offense decks loaded (UI limit reached).",
+    "status.arena_caps_loading": "Loading monster skill data for effect filters...",
+    "status.pass_progress": "{prefix}: Pass {current}/{total}...",
+    "status.community_trends_loaded": "Community trend loaded: {count} monsters with priors.",
+    "status.community_trends_none": "No community priors found for the current selection.",
+    "status.community_trends_disabled": "Community trends are disabled.",
+    "status.pref_runes_saved": "Preferred runes saved for {name}.",
+    "status.pref_artifacts_saved": "Preferred artifacts saved for {name}.",
+
+    # -- Validation Messages -------------------------------------
+    "val.incomplete_team": "{label}: Team {team} is incomplete ({have}/{need}).",
+    "val.duplicate_in_team": "{label}: Team {team} contains '{name}' twice.",
+    "val.no_teams": "{label}: No teams selected.",
+    "val.ok": "{label}: OK ({count} units).",
+    "val.no_account": "No account loaded.",
+    "val.duplicate_monster_wgb": "Monster '{name}' appears multiple times (GWB allows each monster only once).",
+    "val.title_siege": "Siege Validation",
+    "val.title_siege_ok": "Siege Validation OK",
+    "val.title_wgb": "GWB Validation",
+    "val.title_wgb_ok": "GWB Validation OK",
+    "val.title_rta": "RTA Validation",
+    "val.title_rta_ok": "RTA Validation OK",
+    "val.title_arena": "Arena Rush Validation",
+    "val.title_arena_ok": "Arena Rush Validation OK",
+    "val.arena_def_need_4": "Arena defense must contain exactly 4 monsters (currently {have}).",
+    "val.arena_def_duplicate": "Arena defense contains duplicates.",
+    "val.arena_off_need_4": "Offense team {team} must contain exactly 4 monsters (currently {have}).",
+    "val.arena_off_duplicate": "Offense team {team} contains duplicates.",
+    "val.arena_need_off": "At least one complete offense team is required.",
+    "val.arena_turn_conflict": "Turn-order conflict between teams detected:\n{details}",
+    "val.arena_turn_conflict_line": "{unit}: teams [{teams}] use different slots [{slots}]",
+    "val.arena_ok": "Arena Rush: OK ({off_count} offense teams).",
+    "val.set_invalid": "Invalid set combo for {unit}: none of the set options fit in 6 slots.",
+
+    # -- Dialog Messages -----------------------------------------
+    "dlg.team_needs_units_title": "Team needs units",
+    "dlg.team_needs_units": "Please add at least one monster.",
+    "dlg.load_import_first": "Please load an import first.",
+    "dlg.load_import_and_team": "Please load an import and select a team first.",
+    "dlg.validate_first": "Please validate first.\n\n{msg}",
+    "dlg.select_monsters_first": "Please select monsters first.",
+    "dlg.duplicates_found": "Duplicates found. Please validate first.",
+    "dlg.max_15_rta": "Maximum 25 monsters allowed.",
+    "dlg.arena_builds": "Arena Rush Builds",
+    "dlg.delete_confirm": "Really delete '{name}'?",
+    "dlg.builds_saved_title": "Saved",
+    "dlg.builds_saved": "Saved to {path}",
+    "dlg.select_left": "Please select a monster on the left.",
+    "dlg.no_result": "No result found.",
+    "build.community_status_disabled": "Community prior: disabled (settings).",
+    "build.community_status_not_loaded": "Community prior: not loaded yet.",
+    "build.community_status_none": "Community prior: no data.",
+    "build.community_status_active": "Community prior active ({samples} samples, confidence {confidence}%).",
+
+    # -- Optimization result display -----------------------------
+    "result.title_team": "Team Optimization: {name}",
+    "result.title_siege": "Optimizer",
+    "result.title_wgb": "GWB Optimizer",
+    "result.title_rta": "RTA Optimizer",
+    "result.title_arena_def": "Arena Rush - Defense",
+    "result.title_arena_off": "Arena Rush - Offense {n}",
+    "result.opt_running": "{mode} optimization running",
+    "result.team_opt_running": "Team '{name}' optimization running",
+    "result.avg_rune_eff": "O Rune efficiency: <b>{eff}%</b>",
+    "result.avg_rune_eff_none": "O Rune efficiency: <b>-</b>",
+    "result.compare_before_after": "Show before/after",
+    "result.rune_changes": "Changed rune slots: {changes}",
+    "result.rune_changes_none": "No rune-slot changes.",
+    "result.opt_name": "{mode} Optimization {ts}",
+
+    # -- Saved optimization display names ------------------------
+    "saved.opt_replace": " Optimization ",
+    "saved.siege_opt": "SIEGE Optimization",
+    "saved.wgb_opt": "GWB Optimization",
+    "saved.rta_opt": "RTA Optimization",
+    "saved.arena_rush_opt": "Arena Rush Optimization",
+
+    # -- Stat Labels ---------------------------------------------
+    "stat.HP": "HP",
+    "stat.ATK": "ATK",
+    "stat.DEF": "DEF",
+    "stat.SPD": "SPD",
+    "stat.CR": "Crit. Rate",
+    "stat.CD": "Crit. DMG",
+    "stat.RES": "Resistance",
+    "stat.ACC": "Accuracy",
+
+    # -- Siege cards stat labels ---------------------------------
+    "card_stat.HP": "HP",
+    "card_stat.ATK": "ATK",
+    "card_stat.DEF": "DEF",
+    "card_stat.SPD": "SPD",
+    "card_stat.CR": "Crit. Rate",
+    "card_stat.CD": "Crit. DMG",
+    "card_stat.RES": "RES",
+    "card_stat.ACC": "ACC",
+
+    # -- Artifact labels -----------------------------------------
+    "artifact.attribute": "Attribute",
+    "artifact.type": "Type",
+    "artifact.no_rune": "No rune",
+    "artifact.no_artifact": "No artifact",
+
+    # -- Generic UI labels --------------------------------------
+    "ui.artifact": "Artifact",
+    "ui.artifacts_title": "Artifacts",
+    "ui.rune_id": "Rune ID",
+    "ui.artifact_id": "Artifact ID",
+    "ui.focus": "Focus",
+    "ui.current_on": "currently on: {owner}",
+    "ui.slot": "Slot",
+    "ui.main": "Main",
+    "ui.prefix": "Prefix",
+    "ui.subs": "Subs",
+    "ui.rolls": "Rolls {n}",
+    "ui.class_short": "Cls.",
+
+    # -- Update dialog -------------------------------------------
+    "update.title": "Update available",
+    "update.text": "New version available: {latest}\nInstalled: {current}",
+    "update.open_release": "Open GitHub release now?",
+    "update.auto_failed": "Update failed.",
+    "update.wizard.step_info": "Info",
+    "update.wizard.step_download": "Download",
+    "update.wizard.step_done": "Done",
+    "update.wizard.new_version": "New version: {latest}  (current: {current})",
+    "update.wizard.release_notes": "Release Notes:",
+    "update.wizard.downloading": "Downloading...",
+    "update.wizard.installing": "Installing...",
+    "update.wizard.closing_in": "App closes in {n} second(s)...",
+
+    # -- Consent dialog ------------------------------------------
+    "consent.title": "Data & Privacy",
+    "consent.body": (
+        "<b>Required data</b> – processed to provide and secure your license:<br>"
+        "• License key (hashed) + device fingerprint (hashed) → license verification and device binding<br>"
+        "• In-game name &amp; Wizard ID from your account file → identification for support requests<br>"
+        "• Activation time &amp; last start → license status and abuse detection<br>"
+        "<i>Storage: locally on your device &amp; Supabase (AWS eu-west-1, Ireland). "
+        "Retention: as long as the license is active. Deletion on request.</i><br><br>"
+        "<b>Optional statistics</b> – only with your consent:<br>"
+        "• App version &amp; UI language → technical usage statistics, no identification<br>"
+        "<i>Storage: Supabase (AWS eu-west-1, Ireland). Deletion at any time via Settings → Delete statistics data from server.</i><br><br>"
+        "If you do not consent, the app continues to work normally. "
+        "Only the required data will be processed. "
+        "You can change your choice at any time in the settings."
+    ),
+    "consent.accept": "Allow optional statistics",
+    "consent.decline": "Use required data only",
+    "consent.privacy_policy": "Privacy Policy",
+    "settings.consent_stats_label": "Store optional statistics (app version, language)",
+    "settings.consent_stats_hint": "App version and UI language will be stored linked to your license.",
+    "settings.consent_saved_on": "Statistics will be stored from now on.",
+    "settings.consent_saved_off": "Statistics will no longer be stored.",
+    "settings.consent_show_dialog": "Show privacy notice",
+    "settings.consent_clear_stats": "Delete statistics data from server",
+    "settings.consent_clear_stats_ok": "Statistics data has been deleted from the server.",
+    "settings.consent_clear_stats_fail": "Deletion failed. Please try again.",
+    "settings.export_my_data": "Download my stored data",
+    "settings.export_my_data_ok": "File saved.",
+    "settings.export_my_data_fail": "Export failed.",
+    "settings.export_yes": "Yes",
+    "settings.export_no": "No",
+    "settings.export_title": "My stored data",
+    "settings.export_generated": "Generated on",
+    "settings.export_app_id": "App",
+    "settings.export_section_license": "License",
+    "settings.export_license_type": "License type",
+    "settings.export_license_created": "License created on",
+    "settings.export_license_expires": "License expires on",
+    "settings.export_section_identity": "Identity",
+    "settings.export_ingame_name": "In-game name",
+    "settings.export_wizard_id": "Wizard ID",
+    "settings.export_machine_fp": "Device fingerprint",
+    "settings.export_section_timestamps": "Timestamps",
+    "settings.export_activated_at": "Activated on",
+    "settings.export_last_seen": "Last started",
+    "settings.export_section_stats": "Optional statistics",
+    "settings.export_app_version": "App version",
+    "settings.export_language": "UI language",
+    "settings.export_section_consent": "Privacy consent",
+    "settings.export_consent_given": "Consent given",
+    "settings.export_consent_at": "Consent given on",
+    "settings.export_consent_version": "Consent version",
+    "settings.export_section_cloud_lr": "Optimizer Runs (Cloud Learning)",
+    "settings.export_cloud_lr_total": "Total",
+    "settings.export_cloud_lr_by_kind": "By optimizer",
+    "settings.export_cloud_lr_range": "Date range",
+    "settings.export_section_cloud_build": "Build Preferences (Cloud)",
+    "settings.export_cloud_build_total": "Total",
+    "settings.export_cloud_build_by_mode": "By mode",
+    "settings.export_cloud_build_units": "Distinct units",
+    "settings.export_cloud_build_range": "Date range",
+    "settings.export_cloud_unavailable": "No cloud learning data available.",
+
+    # -- License dialog ------------------------------------------
+    "license.title": "License Activation",
+    "license.enter_key": "Please enter your serial key.",
+    "license.trial_remaining": "Trial ({remaining} remaining)",
+    "license.trial": "Trial",
+    "license.days": "{n} days",
+    "license.hours": "{n} hours",
+    "license.minutes": "{n} minutes",
+    "license.validating": "Validating license...",
+
+    # -- Help dialog ---------------------------------------------
+    "help.title": "Guide",
+    "help.content": (
+        "<h2 style='color:#e8c252;'>SW Team Optimizer – Quick Guide</h2>"
+
+        "<table width='100%' cellspacing='0' cellpadding='0' "
+        "style='border-collapse:collapse; margin:6px 0 14px 0;'>"
+        "<tr><td colspan='3' bgcolor='#1e3550' "
+        "style='padding:5px 10px; color:#7ab8f5; font-weight:bold;'>"
+        "Mode Overview</td></tr>"
+        "<tr bgcolor='#242424'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>Siege</td>"
+        "<td style='padding:4px 10px;'>up to 10 defs · 3 monsters each</td>"
+        "<td style='padding:4px 10px; color:#888;'>Current · Builder · Saved</td>"
+        "</tr>"
+        "<tr bgcolor='#1c1c1c'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>WGB</td>"
+        "<td style='padding:4px 10px;'>5 defs · 3 monsters each</td>"
+        "<td style='padding:4px 10px; color:#888;'>Builder · Saved</td>"
+        "</tr>"
+        "<tr bgcolor='#242424'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>RTA</td>"
+        "<td style='padding:4px 10px;'>up to 15 monsters</td>"
+        "<td style='padding:4px 10px; color:#888;'>Current · Builder · Saved</td>"
+        "</tr>"
+        "<tr bgcolor='#1c1c1c'>"
+        "<td style='padding:4px 10px; font-weight:bold;'>Arena Rush</td>"
+        "<td style='padding:4px 10px;'>1 def (4) + up to 15 offense teams (4 each)</td>"
+        "<td style='padding:4px 10px; color:#888;'>Builder · Saved</td>"
+        "</tr>"
+        "</table>"
+
+        "<h3 style='color:#4a90e2;'>1 · Import JSON</h3>"
+        "<p>Open the <b>Settings</b> tab and click <b>Import JSON</b>. "
+        "Select your Summoners War JSON export (e.g. via SWEX). "
+        "After importing: <b>Overview</b> shows account statistics and rune "
+        "efficiency charts; <b>Monster Collection</b> lets you browse all units.</p>"
+
+        "<h3 style='color:#4a90e2;'>2 · View current setups</h3>"
+        "<p><b>Siege → Current</b> – In-game siege defenses as cards with rune details.<br>"
+        "<b>RTA → Current</b> – Currently equipped RTA monsters with a speed-lead "
+        "toggle for turn-order comparisons.</p>"
+
+        "<h3 style='color:#4a90e2;'>3 · Build teams</h3>"
+        "<p>Switch to the <b>Builder</b> sub-tab of the desired mode. "
+        "<b>Load current …</b> imports your in-game data directly "
+        "(available for Siege and Arena Rush). "
+        "RTA: add monsters via the <b>Add</b> button, reorder by Drag &amp; Drop. "
+        "In Arena Rush each offense team has an <b>Active</b> checkbox to "
+        "include or exclude it from optimization.</p>"
+
+        "<h3 style='color:#4a90e2;'>4 · Define builds</h3>"
+        "<p>Click <b>Builds (Sets+Mainstats)…</b> to configure per monster:</p>"
+        "<ul>"
+        "<li><b>Sets</b> – Multi-select for Set 1 &amp; 2; only same-size sets "
+        "(2-piece or 4-piece) per slot. Set 3 is only active when Set 1 &amp; 2 "
+        "are both 2-piece sets.</li>"
+        "<li><b>Main stats</b> – Slots 2, 4, 6; multi-select (empty = any).</li>"
+        "<li><b>Artifacts</b> – Attribute &amp; type artifact: focus + up to 2 substats "
+        "(empty = any).</li>"
+        "<li><b>Min stats</b> – Minimum values, e.g. min SPD 200.</li>"
+        "<li><b>Priority</b> – Lower number = receives the best runes first.</li>"
+        "<li><b>Turn order</b> – Reorder via Drag &amp; Drop; an SPD tick enforces "
+        "the exact breakpoint range (e.g. Tick 6 = SPD 239–285).</li>"
+        "</ul>"
+
+        "<h3 style='color:#4a90e2;'>5 · Optimize</h3>"
+        "<p>Click <b>Optimize</b>. Two profiles are available:</p>"
+        "<ul>"
+        "<li><b>Smart</b> – Hybrid GPU/CPU AI profile; selected by default. "
+        "Recommended for all modes.</li>"
+        "<li><b>Maximum</b> – Global optimization across all monsters at once; "
+        "finds the best rune distribution by efficiency.</li>"
+        "</ul>"
+        "<p>Progress is shown in a dialog.</p>"
+
+        "<h3 style='color:#4a90e2;'>6 · Save &amp; load results</h3>"
+        "<p>Saved optimizations appear in the <b>Saved</b> sub-tab and can be "
+        "loaded or deleted there at any time.</p>"
+
+        "<h3 style='color:#4a90e2;'>7 · Runes &amp; Artifacts</h3>"
+        "<p>Searchable tables with efficiency values for all runes and artifacts. "
+        "In the <b>Runes</b> sub-tab: <b>Gem suggestions</b> show which substat "
+        "is worth swapping per rune.</p>"
+
+        "<h3 style='color:#4a90e2;'>8 · Cloud Learning (Full)</h3>"
+        "<p>In <b>Settings</b>, full-license users can enable <b>Cloud Learning</b>: "
+        "anonymized learning metrics are uploaded and global priors are fetched. "
+        "Disabled = fully local. Trial licenses always remain local.</p>"
+
+        "<h3 style='color:#e8c252;'>Tips</h3>"
+        "<ul>"
+        "<li>In the rune chart use <b>Ctrl+Scroll</b> to adjust the number of "
+        "displayed top runes.</li>"
+        "<li>Hover over a data point → rune details including subs and grinds.</li>"
+        "<li>Substats swapped with a <span style='color:#1abc9c'><b>Gem</b></span> "
+        "are highlighted in color.</li>"
+        "<li>Tabs can be reordered via Drag &amp; Drop in the tab bar.</li>"
+        "</ul>"
+    ),
+
+    # -- Optimizer messages --------------------------------------
+    "opt.slot_no_runes": "Slot {slot}: no runes in pool.",
+    "opt.no_attr_artifact": "No attribute artifact (type 1) in pool.",
+    "opt.no_type_artifact": "No type artifact (type 2) in pool.",
+    "opt.no_builds": "No builds available.",
+    "opt.feasible": "Build is fundamentally feasible with available runes/artifacts.",
+    "opt.mainstat_missing": "Build '{name}': Slot {slot} mainstat {allowed} not available.",
+    "opt.no_artifact_match": (
+        "Build '{name}': no matching artifact for "
+        "{kind} (Focus={focus}, Subs={subs})."
+    ),
+    "opt.set_too_many": "Build '{name}': Set option {opt} requires {pieces} pieces (>6).",
+    "opt.set_not_enough": "Build '{name}': Set {set_id} needs {pieces}, available {avail}.",
+    "opt.infeasible": "Infeasible: pool/build constraints are incompatible.",
+    "opt.not_feasible": "Not feasible: {detail}",
+    "opt.internal_no_rune": "Internal error: Slot {slot} no rune.",
+    "opt.internal_no_artifact": "Internal error: Artifact type {art_type} missing.",
+    "opt.no_units": "No units.",
+    "opt.ok": "OK",
+    "opt.cancelled": "Optimization cancelled.",
+    "opt.progress.step_prep": "Preparation",
+    "opt.progress.step_run": "Optimization",
+    "opt.progress.step_defense": "Defense",
+    "opt.progress.step_offense": "Offense Teams",
+    "opt.partial_fail": "Done, but at least one monster could not be built.",
+    "opt.stable_solution": "stable solution without further improvement",
+    "opt.no_improvement": "no improvement in consecutive passes",
+    "opt.multi_pass": (
+        "{prefix} Multi-pass active: best result from {used} "
+        "passes (pass {pass_idx})."
+    ),
+    "opt.multi_pass_early": (
+        "{prefix} Multi-pass active: best result from {used} of {planned} "
+        "planned passes (pass {pass_idx}); stopped early "
+        "({reason})."
+    ),
+
+    # -- Update service messages ---------------------------------
+    "svc.no_repo": "No GitHub repo configured (github_repo missing).",
+    "svc.no_version": "No release-ready app_version value set.",
+    "svc.check_failed": "Update check failed: {detail}",
+    "svc.invalid_response": "Update check: invalid API response.",
+    "svc.unexpected_format": "Update check: unexpected data format.",
+    "svc.no_asset": "No suitable download asset found in release.",
+    "svc.download_http_fail": "Download failed (HTTP {status}).",
+    "svc.download_failed": "Download failed: {detail}",
+    "svc.download_ok": "Update downloaded successfully.",
+    "svc.auto_zip_only_frozen": "ZIP update is only available in the packaged desktop_app.",
+    "svc.auto_install_dir_missing": "Install directory not found.",
+    "svc.auto_exe_missing": "Current executable not found.",
+    "svc.auto_install_failed": "Automatic install failed: {detail}",
+    "svc.auto_relaunch_failed": "Update installed, but relaunch failed: {detail}",
+    "svc.auto_zip_installed": "Update installed. Restarting desktop_app.",
+    "svc.auto_installer_failed": "Could not launch installer: {detail}",
+    "svc.auto_installer_started": "Update is being installed in the background. The app will restart automatically.",
+    "svc.auto_updater_launch_failed": "Could not launch updater: {detail}",
+    "svc.auto_updater_state_invalid": "Updater start failed: {detail}",
+
+    # -- License service messages --------------------------------
+    "lic.invalid_response": "Invalid server response ({status}).",
+    "lic.server_error": "Server error ({status}).",
+    "lic.activation_failed": "Activation failed.",
+    "lic.activated": "License activated.",
+    "lic.check_failed": "License check failed.",
+    "lic.valid": "License valid.",
+    "lic.valid_cached": "License temporarily verified from local cache.",
+    "lic.no_key": "No key entered.",
+    "lic.network_error": "Network error during license check: {detail}",
+    "lic.not_configured": "License server not configured (license_config.json missing/incomplete).",
+
+    # -- Overview widget -----------------------------------------
+    "overview.monsters": "Monsters",
+    "overview.runes": "Runes",
+    "overview.artifacts": "Artifacts",
+    "overview.rune_eff": "Rune Eff. (%)",
+    "overview.attr_art_eff": "Attribute Artifact Eff. (%)",
+    "overview.type_art_eff": "Type Artifact Eff. (%)",
+    "overview.best_rune": "Best Rune",
+    "overview.set_eff": "{name} Eff. (%)",
+    "overview.sub_collected": "Collected & analyzed",
+    "overview.sub_rune_eff": "Rune Efficiency up to {pct}%",
+    "overview.sub_best_rune": "Efficiency Score",
+    "overview.sub_set_eff": "Top-tier set efficiency",
+    "overview.chart_top_label": "Rune Chart Top:",
+    "overview.rune_set_filter_label": "Set Filter:",
+    "overview.filter_all_sets": "All Sets",
+    "overview.rune_eff_chart": "Rune Efficiency (Top {n})",
+    "overview.set_dist_chart": "Rune Set Distribution",
+    "overview.set_slot_dist_chart": "Slot Distribution - {name}",
+    "overview.slot_mainstat_dist_chart": "Main Stat Distribution - {name} - Slot {slot}",
+    "overview.drill_breadcrumb_root": "Rune Sets",
+    "overview.drill_center_sets": "All Sets",
+    "overview.drill_center_count": "{count} Runes",
+    "overview.drill_hint_sets": "Click a segment to view slot distribution",
+    "overview.drill_hint_slots": "Click a slot to view main stats • Click outside to reset",
+    "overview.drill_hint_main": "Click outside the chart to reset",
+    "overview.set_eff_chart": "Important Sets Efficiency (Top {n})",
+    "overview.art_eff_chart": "Artifact Efficiency (Top {n})",
+    "overview.rune_pool_dist_chart": "Rune Pool Distribution",
+    "overview.artifact_pool_dist_chart": "Artifact Pool Distribution",
+    "overview.quality_legend": "Legend",
+    "overview.quality_hero": "Hero",
+    "overview.quality_rare": "Rare",
+    "overview.quality_magic": "Magic",
+    "overview.quality_normal": "Normal",
+    "overview.quality_other": "Other",
+    "overview.axis_count": "Count / Rank",
+    "overview.axis_eff": "Efficiency (%)",
+    "overview.series_current": "Current",
+    "overview.series_hero_max": "Hero max",
+    "overview.series_legend_max": "Legend max",
+    "overview.series_attr_art": "Attribute Artifact",
+    "overview.series_type_art": "Type Artifact",
+    "overview.other": "Other ({count})",
+    "overview.other_sets": "Other Sets",
+    "overview.rank": "Rank #{idx}",
+    "overview.efficiency": "Efficiency",
+    "overview.quality": "Quality",
+    "overview.current_eff": "Current: {eff}%",
+    "overview.hero_max": "Hero max (Grind/Gem): {eff}%",
+    "overview.legend_max": "Legend max (Grind/Gem): {eff}%",
+    "overview.slot_left": "Left",
+    "overview.slot_right": "Right",
+    "overview.mainstat": "Main stat:",
+
+    # -- Monster collection --------------------------------------
+    "collection.no_import": "Please import an account first.",
+    "collection.summary": "6* awakened: {owned} | Missing: {missing}",
+    "collection.summary_owned": "6* awakened monsters: {owned}",
+    "collection.section_owned": "6* awakened monsters",
+    "collection.section_missing": "Missing monsters (awakened forms)",
+    "collection.nat_group": "Nat {stars}",
+    "collection.none": "No entries.",
+    "collection.tooltip_nat": "Base stars: {stars}",
+    "collection.tooltip_copies": "{count} copies",
+    "collection.filter_missing_skillups": "Only missing skill-ups",
+    "collection.nat_group_devilmons": "Nat {stars}  ·  {count} devilmon(s) needed",
+    "collection.skill_level": "{current} / {max}",
+    "collection.skill_max": "MAX",
+
+    # -- RTA overview --------------------------------------------
+    "rta.spd_lead": "<b>SPD Lead:</b>",
+    "rta.no_lead": "No Lead (0%)",
+
+    # -- Siege cards ---------------------------------------------
+    "card.avg_rune_eff": "O Rune efficiency: <b>{eff}%</b>",
+    "card.avg_rune_eff_none": "O Rune efficiency: <b>-</b>",
+    "card.focus": "Focus:",
+    "card.defense": "Defense {n}",
+
+    # -- RTA validation messages ---------------------------------
+    "rta.no_monsters": "RTA: No monsters selected.",
+    "rta.duplicate": "RTA: '{name}' is selected twice.",
+    "rta.ok": "RTA: OK ({count} monsters).",
+    "arena_rush.mode": "Arena Rush",
+
+    # -- Tabs (Settings) -----------------------------------------
+    "tab.settings": "Settings",
+
+    # -- Settings tab --------------------------------------------
+    "settings.group_account": "Account / JSON Import",
+    "settings.group_license": "License Management",
+    "settings.group_cloud": "Cloud & Community",
+    "settings.group_appearance": "Appearance",
+    "settings.group_data": "Data Management",
+    "settings.group_updates": "Updates",
+    "settings.group_about": "About",
+    "settings.about_privacy_policy": "Privacy Policy",
+
+    "settings.btn_import": "Import JSON...",
+    "settings.btn_clear_snapshot": "Clear Snapshot",
+    "settings.label_import_status": "Current: {source}",
+    "settings.label_import_date": "Imported: {date}",
+    "settings.label_no_import": "No import loaded.",
+
+    "settings.label_license_type": "License: {type}",
+    "settings.label_license_type_trial": "Trial ({remaining} remaining)",
+    "settings.label_license_type_full": "Full",
+    "settings.label_license_key": "Key: {license_key}",
+    "settings.license_key_click_hint": "Click the key to copy it.",
+    "settings.license_key_copied": "License key copied to clipboard.",
+    "settings.label_no_license": "No license active.",
+    "settings.license_activated": "License activated successfully.",
+    "settings.license_activation_failed": "Activation failed: {message}",
+    "settings.cloud_learning_optin": "Enable cloud learning (share data online to improve)",
+    "settings.cloud_learning_optin_hint": "Full license only: if disabled, learning remains fully local.",
+    "settings.cloud_learning_optin_unavailable": "Cloud learning is available for full licenses only.",
+    "settings.cloud_learning_saved_on": "Cloud learning enabled.",
+    "settings.cloud_learning_saved_off": "Cloud learning disabled (local only).",
+    "settings.community_trends_optin": "Apply community build trends (load sets/mainstats/artifacts)",
+    "settings.community_trends_optin_hint": "Full license only: uses community trends as additional build preselection.",
+    "settings.community_trends_requires_cloud": "Community build trends require cloud learning to be enabled.",
+    "settings.community_trends_optin_unavailable": "Community build trends are available for full licenses only.",
+    "settings.community_trends_saved_on": "Community build trends enabled.",
+    "settings.community_trends_saved_off": "Community build trends disabled.",
+    "settings.community_set_limit_label": "Apply set combos:",
+    "settings.community_mainstat_limit_label": "Apply mainstats:",
+    "settings.community_art_substat_limit_label": "Apply artifact substats:",
+    "settings.community_limits_hint": "Defines how many top community suggestions are applied (sets/mainstats 1-3, artifact substats 1-2).",
+    "settings.community_set_limit_saved": "Community set selection: Top {n}.",
+    "settings.community_mainstat_limit_saved": "Community mainstat selection: Top {n}.",
+    "settings.community_art_substat_limit_saved": "Community artifact substats: Top {n}.",
+    "settings.top_n_option": "Top {n}",
+    "settings.btn_delete_cloud_data": "Delete All Cloud Data",
+    "settings.cloud_delete_unavailable": "Deleting cloud data is available for full licenses only.",
+    "settings.cloud_delete_in_progress": "Deleting cloud data...",
+    "settings.cloud_delete_success": "Cloud data deleted (learning runs: {learning_runs}, build events: {build_events}).",
+    "settings.cloud_delete_failed": "Cloud data could not be deleted.",
+    "settings.cloud_delete_failed_reason": "Cloud data could not be deleted: {reason}",
+    "settings.confirm_delete_cloud_data": (
+        "Really delete ALL cloud data for this license?\n\n"
+        "This permanently removes your uploaded learning runs and community build events from the server.\n"
+        "This action cannot be undone."
+    ),
+    "settings.confirm_delete_cloud_data_second": (
+        "Final confirmation:\n\n"
+        "Your cloud data will be permanently deleted and cannot be restored on any device.\n"
+        "Continue?"
+    ),
+
+    "settings.label_language": "Language:",
+
+    "settings.label_theme": "UI Theme:",
+    "settings.extra_info_optin": "Show extra info (progress/debug details)",
+    "settings.extra_info_saved_on": "Extra info enabled.",
+    "settings.extra_info_saved_off": "Extra info disabled.",
+    "settings.theme_applied": "Theme applied. Some views update on next data load.",
+
+    "settings.btn_reset_presets": "Reset Build Presets",
+    "settings.btn_clear_optimizations": "Clear Saved Optimizations",
+    "settings.btn_clear_teams": "Clear Teams",
+    "settings.broken_set_exclude_label": "Exclude sets for broken slots:",
+    "settings.broken_set_exclude_placeholder": "e.g. Violent, Will",
+    "settings.broken_set_exclude_hint": (
+        "If a build uses partial set options (e.g. Swift + broken), these sets are blocked "
+        "for broken slots so they remain available for other builds."
+    ),
+    "settings.broken_set_exclude_saved": "Broken-slot excluded sets saved: {sets}",
+    "settings.broken_set_exclude_saved_with_unknown": (
+        "Saved. Unknown set tokens ignored: {unknown}"
+    ),
+    "settings.confirm_reset_presets": "Really reset all build presets to defaults?",
+    "settings.confirm_clear_optimizations": "Really delete all saved optimizations?",
+    "settings.confirm_clear_teams": "Really delete all teams?",
+    "settings.confirm_clear_snapshot": "Really delete the imported account snapshot?",
+    "settings.confirm_title": "Confirm",
+    "settings.data_cleared": "{name} cleared.",
+
+    "settings.btn_check_update": "Check for Updates",
+    "settings.label_version": "Version: {version}",
+    "settings.update_checking": "Checking for updates...",
+    "settings.update_no_update": "You are on the latest version ({version}).",
+    "settings.update_error": "Update check failed.",
+
+    "settings.about_version": "App Version: {version}",
+    "settings.about_license": "License: {type}",
+    "settings.about_creator": "Creator: {name}",
+    "settings.about_discord": "Discord: {handle}",
+    "settings.btn_open_discord_dm": "Open Discord DM",
+    "settings.discord_opened": "Discord opened. Send a DM to {handle}.",
+    "settings.discord_open_failed": "Could not open Discord. Contact: {handle}",
+    "settings.about_open_source": (
+        "Open source: "
+        "<a href='https://www.qt.io/'>PySide6 (Qt)</a>, "
+        "<a href='https://developers.google.com/optimization'>OR-Tools</a>, "
+        "<a href='https://requests.readthedocs.io/'>Requests</a>"
+    ),
+    "settings.about_data_sources": (
+        "Data sources: "
+        "<a href='https://swarfarm.com/api/'>Swarfarm API</a> "
+        "(monsters, skills, skill icons)."
+    ),
+    "settings.about_data_dir": "Data Directory: {path}",
+    "settings.about_com2us": (
+        "Summoners War, all monsters, icons and game content are property of "
+        "<a href='https://www.com2us.com/'>Com2uS</a>. "
+        "This tool is an unofficial third-party project and is not affiliated with Com2uS."
+    ),
+}
