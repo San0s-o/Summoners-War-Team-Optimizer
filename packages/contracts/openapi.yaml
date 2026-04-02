@@ -1,0 +1,226 @@
+openapi: 3.1.0
+info:
+  title: SWTO Optimizer API
+  version: 0.1.0
+paths:
+  /api/v1/health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: Service health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+  /api/v1/optimize/jobs:
+    post:
+      operationId: createOptimizeJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OptimizeJobRequest"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OptimizeJobAccepted"
+  /api/v1/accounts/import:
+    post:
+      operationId: importAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportAccountRequest"
+      responses:
+        "200":
+          description: Account imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountSummary"
+        "400":
+          description: Invalid input
+  /api/v1/accounts/{account_id}:
+    get:
+      operationId: getAccountDetails
+      parameters:
+        - in: path
+          name: account_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Account details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountDetails"
+        "404":
+          description: Account not found
+  /api/v1/optimize/jobs/{job_id}:
+    get:
+      operationId: getOptimizeJob
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OptimizeJobStatus"
+        "404":
+          description: Job not found
+components:
+  schemas:
+    OptimizeJobRequest:
+      type: object
+      required: [account_id, mode, payload]
+      properties:
+        account_id:
+          type: string
+        mode:
+          type: string
+          enum: [siege, wgb, rta, arena_rush]
+        payload:
+          type: object
+          additionalProperties: true
+    OptimizeJobAccepted:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued]
+    OptimizeJobStatus:
+      type: object
+      required: [job_id, status, created_at]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        result:
+          type: object
+          additionalProperties: true
+        error:
+          type: string
+    ImportAccountRequest:
+      type: object
+      required: [raw_json]
+      properties:
+        account_id:
+          type: string
+        raw_json:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+    AccountSummary:
+      type: object
+      required:
+        - account_id
+        - units
+        - runes
+        - artifacts
+        - siege_teams
+        - arena_def_units
+        - arena_offense_teams
+        - rta_active_units
+        - imported_at
+      properties:
+        account_id:
+          type: string
+        units:
+          type: integer
+        runes:
+          type: integer
+        artifacts:
+          type: integer
+        siege_teams:
+          type: integer
+        arena_def_units:
+          type: integer
+        arena_offense_teams:
+          type: integer
+        rta_active_units:
+          type: integer
+        imported_at:
+          type: string
+          format: date-time
+    AccountUnit:
+      type: object
+      required: [unit_id, unit_master_id, name, element, level, grade, equipped_runes, equipped_artifacts]
+      properties:
+        unit_id:
+          type: integer
+        unit_master_id:
+          type: integer
+        name:
+          type: string
+        element:
+          type: string
+        level:
+          type: integer
+        grade:
+          type: integer
+        equipped_runes:
+          type: integer
+        equipped_artifacts:
+          type: integer
+    AccountDetails:
+      type: object
+      required: [summary, units, siege_teams, arena_defense, arena_offense, rta_active]
+      properties:
+        summary:
+          $ref: "#/components/schemas/AccountSummary"
+        units:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccountUnit"
+        siege_teams:
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+        arena_defense:
+          type: array
+          items:
+            type: integer
+        arena_offense:
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+        rta_active:
+          type: array
+          items:
+            type: integer

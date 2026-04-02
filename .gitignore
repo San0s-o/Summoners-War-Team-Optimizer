@@ -31,6 +31,7 @@ __pycache__/
 *.pyd
 .pytest_cache/
 .ruff_cache/
+*.egg-info/
 
 # ── Build-Artefakte ────────────────────────────────────
 build/
@@ -75,3 +76,10 @@ app/config
 scripts/
 app/services/*
 !app/services/update_handoff.py
+
+# Android / Gradle
+apps/android/.gradle/
+apps/android/build/
+apps/android/app/build/
+apps/android/local.properties
+apps/android/app/src/main/assets/icons/
