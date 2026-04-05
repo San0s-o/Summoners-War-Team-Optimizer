@@ -96,8 +96,11 @@ def _rune_prefs_fallback_path() -> "Path | None":
     meipass = getattr(sys, "_MEIPASS", None)
     if not meipass:
         return None
-    p = Path(meipass) / "app" / "config" / "monster_rune_set_preferences.json"
-    return p if p.exists() else None
+    p = Path(meipass) / "desktop_app" / "config" / "monster_rune_set_preferences.json"
+    if p.exists():
+        return p
+    legacy = Path(meipass) / "app" / "config" / "monster_rune_set_preferences.json"
+    return legacy if legacy.exists() else None
 
 
 @dataclass

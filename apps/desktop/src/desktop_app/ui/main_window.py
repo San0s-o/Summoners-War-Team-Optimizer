@@ -211,9 +211,9 @@ class MainWindow(QMainWindow):
         self._loaded_current_runes_compare_by_mode: Dict[str, Dict[str, Dict[int, Dict[int, int]]]] = {}
 
         # paths
-        self.project_root = Path(__file__).resolve().parents[2]
-        self.assets_dir = self.project_root / "app" / "assets"
-        self.config_dir = user_data_dir() if getattr(sys, "frozen", False) else self.project_root / "app" / "config"
+        self.project_root = Path(__file__).resolve().parents[1]
+        self.assets_dir = self.project_root / "assets"
+        self.config_dir = user_data_dir() if getattr(sys, "frozen", False) else self.project_root / "config"
         self.presets_path = self.config_dir / "build_presets.json"
 
         # Monster DB (offline)

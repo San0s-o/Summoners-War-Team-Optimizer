@@ -26,6 +26,9 @@ def resolve_app_icon() -> QIcon:
         candidates.extend(
             [
                 base / "app_icon.ico",
+                base / "_internal" / "desktop_app" / "assets" / "app_icon.ico",
+                base / "_internal" / "desktop_app" / "assets" / "app_icon.png",
+                # Legacy fallback for older package layouts.
                 base / "_internal" / "app" / "assets" / "app_icon.ico",
                 base / "_internal" / "app" / "assets" / "app_icon.png",
             ]

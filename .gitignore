@@ -94,3 +94,10 @@ apps/desktop/src/desktop_app/services/license_service.py
 apps/desktop/src/desktop_app/config
 apps/desktop/src/desktop_app/services/*
 !apps/desktop/src/desktop_app/services/update_handoff.py
+.third_party
+apps/android/app/.cxx
+
+# Lokale Experiment-/Toolchain-Artefakte
+third_party/
+apps/desktop/src/app/config/app_settings.json
+apps/android
