@@ -78,11 +78,7 @@ app/services/*
 !app/services/update_handoff.py
 
 # Android / Gradle
-apps/android/.gradle/
-apps/android/build/
-apps/android/app/build/
-apps/android/local.properties
-apps/android/app/src/main/assets/icons/
+apps/android/
 
 # Desktop migration mirror rules
 apps/desktop/src/desktop_app/assets/
@@ -94,12 +90,10 @@ apps/desktop/src/desktop_app/services/license_service.py
 apps/desktop/src/desktop_app/config
 apps/desktop/src/desktop_app/services/*
 !apps/desktop/src/desktop_app/services/update_handoff.py
-.third_party
-apps/android/app/.cxx
 
 # Lokale Experiment-/Toolchain-Artefakte
 third_party/
 apps/desktop/src/app/config/app_settings.json
-apps/android
 benchmark_mobile_optimizer.py
 packages/
+services/optimizer-api/
