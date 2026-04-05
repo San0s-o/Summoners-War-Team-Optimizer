@@ -1,4 +1,4 @@
-# ── Secrets & Lizenz ───────────────────────────────────
+﻿# Secrets & License
 license_config.json
 license.json
 *.secret
@@ -6,22 +6,13 @@ license.json
 .env.*
 !.env.example
 
-
-# ── Supabase (Edge Functions, SQL, Secrets) ────────────
+# Supabase
 supabase/
 
-# ── Interne Admin-Tools (Keygen, DB-Updater) ──────────
-app/tools/
+# Internal admin/tooling
 LICENSE_COMMANDS.md
 
-# ── Game-Assets & lokale Nutzerdaten ──────────────────
-app/assets/
-app/data/
-app/config/build_presets.json
-app/config/saved_optimizations.json
-app/config/team_presets.json
-
-# ── Python ─────────────────────────────────────────────
+# Python
 requirements.txt
 .venv/
 venv/
@@ -33,7 +24,7 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 
-# ── Build-Artefakte ────────────────────────────────────
+# Build artifacts
 build/
 dist/
 *.spec
@@ -48,52 +39,39 @@ benchmark_optimizer.py
 *.zip
 *.tar.gz
 
-# ── Kryptografie-Material ──────────────────────────────
+# Crypto material
 *.pem
 *.key
 *.cert
 *.p12
 
-# ── IDE & Editor ───────────────────────────────────────
+# IDE/editor
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# ── Sonstiges ──────────────────────────────────────────
+# Misc local artifacts
 *.log
 *.tmp
 tests/
 tools/
-app/services/license_service.py
 screenshots/
-
-# Lokale App-Config / Caches (nicht oeffentlich relevant)
-app/config
-
-# Lokale Script-Artefakte
 scripts/
-app/services/*
-!app/services/update_handoff.py
 
-# Android / Gradle
+# Android
 apps/android/
+benchmark_mobile_optimizer.py
 
-# Desktop migration mirror rules
+# Desktop local/runtime data
 apps/desktop/src/desktop_app/assets/
 apps/desktop/src/desktop_app/data/
+apps/desktop/src/desktop_app/config/
 apps/desktop/src/desktop_app/config/build_presets.json
 apps/desktop/src/desktop_app/config/saved_optimizations.json
 apps/desktop/src/desktop_app/config/team_presets.json
 apps/desktop/src/desktop_app/services/license_service.py
-apps/desktop/src/desktop_app/config
 apps/desktop/src/desktop_app/services/*
 !apps/desktop/src/desktop_app/services/update_handoff.py
-
-# Lokale Experiment-/Toolchain-Artefakte
-third_party/
 apps/desktop/src/app/config/app_settings.json
-benchmark_mobile_optimizer.py
-packages/
-services/optimizer-api/
