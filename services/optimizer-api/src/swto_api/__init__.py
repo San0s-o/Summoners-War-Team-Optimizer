@@ -1,1 +1,0 @@
-"""SWTO optimizer API package."""
