@@ -101,3 +101,4 @@ apps/android/app/.cxx
 third_party/
 apps/desktop/src/app/config/app_settings.json
 apps/android
+benchmark_mobile_optimizer.py
