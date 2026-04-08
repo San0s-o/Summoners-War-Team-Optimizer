@@ -743,6 +743,14 @@ STRINGS: dict[str, str] = {
     "collection.nat_group_devilmons": "Nat {stars}  ·  {count} Devilmon(s) fehlen",
     "collection.skill_level": "{current} / {max}",
     "collection.skill_max": "MAX",
+    "collection.detail_skills": "Skills",
+    "collection.detail_runes": "Runen",
+    "collection.detail_tab_pve": "PvE",
+    "collection.detail_tab_siege": "Siege",
+    "collection.detail_tab_rta": "RTA",
+    "collection.detail_slot": "S{n}",
+    "collection.detail_rune_empty": "leer",
+    "collection.detail_team_memberships": "Teams",
 
     # -- RTA overview --------------------------------------------
     "rta.spd_lead": "<b>SPD Lead:</b>",

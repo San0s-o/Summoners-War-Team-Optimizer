@@ -3,25 +3,106 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from PySide6.QtCore import Qt, QRect, QPoint, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap, QCursor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QGridLayout,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from desktop_app.domain.models import AccountData, Unit
+from desktop_app.domain.models import AccountData, Rune, Unit
 from desktop_app.domain.monster_db import MonsterDB, MonsterInfo
+from desktop_app.domain.presets import EFFECT_ID_TO_MAINSTAT_KEY, SET_NAMES
+from desktop_app.engine.efficiency import rune_efficiency, rune_efficiency_max
 from desktop_app.i18n import tr
 from desktop_app.ui import theme as _theme
 from desktop_app.ui.dpi import dp
+
+_PCT_KEYS = {"HP%", "ATK%", "DEF%", "CR", "CD", "RES", "ACC"}
+_QUALITY_BASE_NAME = {
+    1: "Normal",
+    2: "Magic",
+    3: "Rare",
+    4: "Hero",
+    5: "Legend",
+    6: "Legend",
+    11: "Normal",
+    12: "Magic",
+    13: "Rare",
+    14: "Hero",
+    15: "Legend",
+    16: "Legend",
+}
+_ANCIENT_CLASS_IDS = {11, 12, 13, 14, 15, 16}
+
+
+def _stat_label(eff_id: int, value: object) -> str:
+    key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(eff_id or 0), f"#{eff_id}")
+    base = key.rstrip("%")
+    try:
+        v = float(value)  # type: ignore[arg-type]
+        val = str(int(v)) if abs(v - int(v)) < 1e-9 else f"{v:.1f}"
+    except Exception:
+        val = str(value)
+    suffix = "%" if key in _PCT_KEYS else ""
+    return f"{base} +{val}{suffix}"
+
+
+def _quality_class_id(rune: Rune) -> int:
+    origin = int(getattr(rune, "origin_class", 0) or 0)
+    return origin if origin else int(rune.rune_class or 0)
+
+
+def _quality_text(rune: Rune) -> str:
+    cls_id = _quality_class_id(rune)
+    base = _QUALITY_BASE_NAME.get(cls_id, f"{tr('ui.class_short')} {cls_id}")
+    if cls_id in _ANCIENT_CLASS_IDS:
+        return tr("rune_opt.quality_ancient", quality=base)
+    return base
+
+
+def _substats_text(rune: Rune) -> str:
+    parts: list[str] = []
+    for sec in (rune.sec_eff or []):
+        if not sec:
+            continue
+        eff_id = int(sec[0] or 0) if len(sec) > 0 else 0
+        base = int(sec[1] or 0) if len(sec) > 1 else 0
+        gemmed = int(sec[2] or 0) if len(sec) > 2 else 0
+        grind = int(sec[3] or 0) if len(sec) > 3 else 0
+        pct = "%" if EFFECT_ID_TO_MAINSTAT_KEY.get(eff_id, "") in _PCT_KEYS else ""
+        total = base + grind
+        token = _stat_label(eff_id, total)
+        if grind > 0:
+            token += f" ({base}+{grind}{pct})"
+        if gemmed > 0:
+            token += " [Gem]"
+        parts.append(token)
+    return ", ".join(parts)
+
+
+def _gem_grind_status(rune: Rune) -> str:
+    gemmed = 0
+    grinded = 0
+    for sec in (rune.sec_eff or []):
+        if not sec:
+            continue
+        gemmed += 1 if (len(sec) > 2 and int(sec[2] or 0) > 0) else 0
+        grinded += 1 if (len(sec) > 3 and int(sec[3] or 0) > 0) else 0
+    return tr("rune_opt.gem_grind_status", gems=gemmed, grinds=grinded)
 
 
 def _unit_has_missing_skillups(unit: Unit, skill_max_levels: Dict[int, int]) -> bool:
@@ -47,136 +128,278 @@ def _count_missing_skillups(unit: Unit, skill_max_levels: Dict[int, int]) -> int
     return total
 
 
-class _SkillPopup(QFrame):
-    """Frameless floating popup showing skill icons and levels for a monster."""
+class _MonsterDetailDialog(QDialog):
+    """Full detail dialog opened when clicking a monster icon."""
 
-    _ICON_SIZE = 52
+    _ICON_SIZE = 72
+    _SKILL_ICON_SIZE = 48
 
-    def __init__(self) -> None:
-        super().__init__(None, Qt.ToolTip | Qt.FramelessWindowHint)  # type: ignore[arg-type]
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setStyleSheet(
-            f"QFrame {{ background: {_theme.C['popup_bg']}; "
-            f"border: 1px solid {_theme.C['popup_border']}; "
-            f"border-radius: {dp(6)}px; }}"
-        )
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(dp(10), dp(8), dp(10), dp(8))
-        lay.setSpacing(dp(5))
-
-        self._name_label = QLabel()
-        self._name_label.setStyleSheet(
-            f"color: {_theme.C['text']}; font-weight: bold; background: transparent; border: none;"
-        )
-        lay.addWidget(self._name_label)
-
-        self._skills_widget = QWidget()
-        self._skills_widget.setStyleSheet("background: transparent;")
-        self._skills_row = QHBoxLayout(self._skills_widget)
-        self._skills_row.setContentsMargins(0, 0, 0, 0)
-        self._skills_row.setSpacing(dp(8))
-        lay.addWidget(self._skills_widget)
-
-    def populate(
+    def __init__(
         self,
-        monster_name: str,
-        skills: Tuple[Tuple[int, int], ...],
+        info: MonsterInfo,
+        unit: Unit,
+        account: AccountData,
         skill_max_levels: Dict[int, int],
         skill_icons: Dict[int, str],
         skill_names: Dict[int, str],
         assets_dir: Path,
+        parent: QWidget | None = None,
     ) -> None:
-        while self._skills_row.count():
-            item = self._skills_row.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        super().__init__(parent)
+        self.setWindowTitle(str(info.name or ""))
+        self.setMinimumSize(dp(920), dp(760))
+        self.resize(dp(980), dp(820))
+        self.setStyleSheet(
+            f"QDialog {{ background: {_theme.C['bg']}; }}"
+            f"QLabel {{ color: {_theme.C['text']}; }}"
+            f"QTabWidget::pane {{ border: 1px solid {_theme.C['card_border']}; border-radius: {dp(4)}px; }}"
+            f"QTabBar::tab {{ background: {_theme.C['card_bg']}; color: {_theme.C['text_dim']}; "
+            f"  padding: {dp(5)}px {dp(12)}px; border-radius: {dp(4)}px; margin-right: {dp(2)}px; }}"
+            f"QTabBar::tab:selected {{ background: {_theme.C['accent']}; color: {_theme.C['text']}; }}"
+        )
 
-        self._name_label.setText(monster_name)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(dp(16), dp(14), dp(16), dp(14))
+        root.setSpacing(dp(12))
 
-        icon_size = dp(self._ICON_SIZE)
-        col_width = max(icon_size, dp(70))
+        # â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        header = QHBoxLayout()
+        header.setSpacing(dp(12))
 
-        for skill_id, current_level in skills:
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(dp(self._ICON_SIZE), dp(self._ICON_SIZE))
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        px = self._load_monster_pixmap(info, assets_dir)
+        if px:
+            icon_lbl.setPixmap(px.scaled(dp(self._ICON_SIZE), dp(self._ICON_SIZE), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        header.addWidget(icon_lbl)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(dp(2))
+        name_lbl = QLabel(str(info.name or ""))
+        name_lbl.setStyleSheet(f"font-size: 14pt; font-weight: bold; color: {_theme.C['text']};")
+        title_col.addWidget(name_lbl)
+        element = str(info.element or "")
+        unit_class = int(getattr(unit, "unit_class", 0) or 0)
+        level = int(getattr(unit, "unit_level", 0) or 0)
+        meta_lbl = QLabel(f"{element}  |  Lv{level}  |  â˜…{unit_class}")
+        meta_lbl.setStyleSheet(f"color: {_theme.C['text_dim']};")
+        title_col.addWidget(meta_lbl)
+
+        teams = self._team_memberships(unit.unit_id, account)
+        if teams:
+            teams_lbl = QLabel("  Â·  ".join(teams))
+            teams_lbl.setStyleSheet(f"color: {_theme.C['accent']}; font-size: 9pt;")
+            title_col.addWidget(teams_lbl)
+
+        header.addLayout(title_col)
+        header.addStretch()
+        root.addLayout(header)
+
+        # â”€â”€ Skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        skills_label = QLabel(tr("collection.detail_skills"))
+        skills_label.setStyleSheet(f"font-weight: bold; font-size: 10pt; color: {_theme.C['text']};")
+        root.addWidget(skills_label)
+
+        skills_row = QHBoxLayout()
+        skills_row.setSpacing(dp(10))
+        skills_row.setAlignment(Qt.AlignLeft)
+        for idx, (skill_id, current_level) in enumerate(unit.skills or ()):
             max_lvl = skill_max_levels.get(skill_id, 0)
-
-            col_widget = QWidget()
-            col_widget.setFixedWidth(col_width)
-            col_widget.setStyleSheet("background: transparent;")
-            col = QVBoxLayout(col_widget)
-            col.setContentsMargins(0, 0, 0, 0)
+            col = QVBoxLayout()
             col.setSpacing(dp(2))
             col.setAlignment(Qt.AlignHCenter)
 
-            # Skill icon
-            icon_lbl = QLabel()
-            icon_lbl.setFixedSize(icon_size, icon_size)
-            icon_lbl.setAlignment(Qt.AlignCenter)
-            icon_lbl.setStyleSheet("background: transparent; border: none;")
+            icon_lbl2 = QLabel()
+            sz = dp(self._SKILL_ICON_SIZE)
+            icon_lbl2.setFixedSize(sz, sz)
+            icon_lbl2.setAlignment(Qt.AlignCenter)
             icon_filename = skill_icons.get(skill_id, "")
             if icon_filename and assets_dir:
-                base = icon_filename.removesuffix(".png")
-                icon_path = assets_dir / "skills" / f"{base}.png"
-                if icon_path.exists():
-                    px = QPixmap(str(icon_path)).scaled(
-                        icon_size, icon_size,
-                        Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation,
-                    )
-                    icon_lbl.setPixmap(px)
-            col.addWidget(icon_lbl, 0, Qt.AlignHCenter)
+                p = assets_dir / "skills" / f"{icon_filename}.png"
+                if p.exists():
+                    icon_lbl2.setPixmap(QPixmap(str(p)).scaled(sz, sz, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            if not icon_lbl2.pixmap() or icon_lbl2.pixmap().isNull():
+                icon_lbl2.setText(f"S{idx + 1}")
+                icon_lbl2.setStyleSheet(
+                    f"background: {_theme.C['card_bg']}; border-radius: {dp(6)}px; "
+                    f"color: {_theme.C['text']}; font-weight: bold;"
+                )
+            col.addWidget(icon_lbl2)
 
-            # Skill name
             skill_name = skill_names.get(skill_id, "")
             if skill_name:
-                name_lbl = QLabel(skill_name)
-                name_lbl.setAlignment(Qt.AlignCenter)
-                name_lbl.setWordWrap(True)
-                name_lbl.setFixedWidth(col_width)
-                name_lbl.setStyleSheet(
-                    f"color: {_theme.C['text']}; font-size: 8pt; background: transparent; border: none;"
-                )
-                col.addWidget(name_lbl, 0, Qt.AlignHCenter)
+                nm = QLabel(skill_name)
+                nm.setAlignment(Qt.AlignCenter)
+                nm.setWordWrap(True)
+                nm.setFixedWidth(max(sz, dp(88)))
+                nm.setStyleSheet(f"font-size: 9pt; color: {_theme.C['text_dim']};")
+                col.addWidget(nm)
 
-            # Level label
             if max_lvl <= 1:
-                level_text = f"{current_level}"
-                color = _theme.C["text_dim"]
+                lv_text, lv_color = str(current_level), _theme.C["text_dim"]
             elif current_level >= max_lvl:
-                level_text = tr("collection.skill_max")
-                color = _theme.C["green"]
+                lv_text, lv_color = tr("collection.skill_max"), _theme.C["green"]
             else:
-                level_text = tr("collection.skill_level", current=current_level, max=max_lvl)
-                color = _theme.C["orange"]
-
-            lv_lbl = QLabel(level_text)
+                lv_text = tr("collection.skill_level", current=current_level, max=max_lvl)
+                lv_color = _theme.C["orange"]
+            lv_lbl = QLabel(lv_text)
             lv_lbl.setAlignment(Qt.AlignCenter)
-            lv_lbl.setStyleSheet(
-                f"color: {color}; font-size: 8pt; background: transparent; border: none;"
+            lv_lbl.setStyleSheet(f"font-size: 9pt; font-weight: 600; color: {lv_color};")
+            col.addWidget(lv_lbl)
+
+            col_w = QWidget()
+            col_w.setLayout(col)
+            skills_row.addWidget(col_w)
+
+        skills_row.addStretch()
+        root.addLayout(skills_row)
+
+        # â”€â”€ Runes (tabs: PvE / Siege / RTA) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        runes_label = QLabel(tr("collection.detail_runes"))
+        runes_label.setStyleSheet(f"font-weight: bold; color: {_theme.C['text']};")
+        root.addWidget(runes_label)
+
+        tab_widget = QTabWidget()
+        rune_modes = [
+            (tr("collection.detail_tab_pve"),   account.equipped_runes_for(unit.unit_id, "pve")),
+            (tr("collection.detail_tab_siege"),  account.equipped_runes_for(unit.unit_id, "siege")),
+            (tr("collection.detail_tab_rta"),    account.equipped_runes_for(unit.unit_id, "rta")),
+        ]
+        for tab_label, runes in rune_modes:
+            tab_widget.addTab(self._rune_tab(runes), tab_label)
+        root.addWidget(tab_widget)
+
+        # â”€â”€ Close button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        btns = QDialogButtonBox(QDialogButtonBox.Close)
+        btns.rejected.connect(self.reject)
+        root.addWidget(btns)
+
+    def _rune_tab(self, runes: list[Rune]) -> QWidget:
+        w = QWidget()
+        w.setStyleSheet(f"background: {_theme.C['bg']};")
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+
+        table = QTableWidget(6, 11, w)
+        table.setAlternatingRowColors(True)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionMode(QTableWidget.NoSelection)
+        table.verticalHeader().setVisible(False)
+        table.setWordWrap(True)
+        table.setStyleSheet(
+            f"QTableWidget {{"
+            f" background: {_theme.C['bg']}; color: {_theme.C['text']};"
+            f" gridline-color: {_theme.C['card_border']}; font-size: 9pt;"
+            f"}}"
+            f"QHeaderView::section {{"
+            f" background: {_theme.C['card_bg']}; color: {_theme.C['text_dim']};"
+            f" border: 0; border-bottom: 1px solid {_theme.C['card_border']};"
+            f" padding: {dp(5)}px;"
+            f"}}"
+        )
+        table.setHorizontalHeaderLabels(
+            [
+                tr("rune_opt.col.slot"),
+                tr("rune_opt.col.set"),
+                tr("rune_opt.col.quality"),
+                tr("rune_opt.col.upgrade"),
+                tr("ui.main"),
+                tr("ui.prefix"),
+                tr("rune_opt.col.substats"),
+                tr("rune_opt.col.gem_grind"),
+                tr("rune_opt.col.current_eff"),
+                tr("rune_opt.col.hero_max_eff"),
+                tr("rune_opt.col.legend_max_eff"),
+            ]
+        )
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.Stretch)
+        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(9, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(10, QHeaderView.ResizeToContents)
+
+        by_slot: Dict[int, Rune] = {r.slot_no: r for r in runes}
+        for row, slot in enumerate(range(1, 7)):
+            rune = by_slot.get(slot)
+            slot_item = QTableWidgetItem(tr("collection.detail_slot", n=slot))
+            slot_item.setForeground(QColor(_theme.C["text_dim"]))
+            table.setItem(row, 0, slot_item)
+            if rune is None:
+                for col in range(1, 11):
+                    table.setItem(row, col, QTableWidgetItem(tr("collection.detail_rune_empty")))
+                continue
+
+            set_name = SET_NAMES.get(rune.set_id, f"Set {rune.set_id}")
+            main_stat = _stat_label(rune.pri_eff[0], rune.pri_eff[1]) if rune.pri_eff else "-"
+            has_prefix = (
+                rune.prefix_eff
+                and len(rune.prefix_eff) >= 2
+                and int(rune.prefix_eff[0] or 0) > 0
+                and int(rune.prefix_eff[1] or 0) > 0
             )
-            col.addWidget(lv_lbl, 0, Qt.AlignHCenter)
+            prefix_stat = _stat_label(rune.prefix_eff[0], rune.prefix_eff[1]) if has_prefix else "-"
+            substats = _substats_text(rune) or "-"
 
-            self._skills_row.addWidget(col_widget)
+            table.setItem(row, 1, QTableWidgetItem(str(set_name)))
+            table.setItem(row, 2, QTableWidgetItem(_quality_text(rune)))
+            table.setItem(row, 3, QTableWidgetItem(f"+{int(rune.upgrade_curr or 0)}"))
+            main_item = QTableWidgetItem(main_stat)
+            main_item.setForeground(QColor(_theme.C["accent"]))
+            table.setItem(row, 4, main_item)
+            table.setItem(row, 5, QTableWidgetItem(prefix_stat))
+            subs_item = QTableWidgetItem(substats)
+            subs_item.setToolTip(substats)
+            table.setItem(row, 6, subs_item)
+            table.setItem(row, 7, QTableWidgetItem(_gem_grind_status(rune)))
+            table.setItem(row, 8, QTableWidgetItem(f"{float(rune_efficiency(rune)):.2f}%"))
+            table.setItem(row, 9, QTableWidgetItem(f"{float(rune_efficiency_max(rune, 'hero')):.2f}%"))
+            table.setItem(row, 10, QTableWidgetItem(f"{float(rune_efficiency_max(rune, 'legend')):.2f}%"))
 
-    def show_near(self, global_pos: QPoint) -> None:
-        self.adjustSize()
-        screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
-        avail = screen.availableGeometry() if screen else None
-        x = global_pos.x() + dp(14)
-        y = global_pos.y() + dp(14)
-        sz = self.sizeHint()
-        if avail:
-            if x + sz.width() > avail.right():
-                x = global_pos.x() - sz.width() - dp(6)
-            if y + sz.height() > avail.bottom():
-                y = global_pos.y() - sz.height() - dp(6)
-            x = max(avail.left(), x)
-            y = max(avail.top(), y)
-        self.move(x, y)
-        self.show()
+            for col in (3, 8, 9, 10):
+                item = table.item(row, col)
+                if item is not None:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            slot_item.setToolTip(f"{tr('ui.rune_id')}: {int(rune.rune_id or 0)}")
+
+        table.resizeRowsToContents()
+        layout.addWidget(table)
+        return w
+
+    @staticmethod
+    def _load_monster_pixmap(info: MonsterInfo, assets_dir: Path) -> Optional[QPixmap]:
+        rel = str(info.icon or "").strip()
+        if not rel or not assets_dir:
+            return None
+        p = (assets_dir / rel).resolve()
+        return QPixmap(str(p)) if p.exists() else None
+
+    @staticmethod
+    def _team_memberships(unit_id: int, account: AccountData) -> List[str]:
+        labels: List[str] = []
+        if unit_id in account.rta_active_unit_ids():
+            labels.append("RTA")
+        for idx, team in enumerate(account.siege_def_teams()):
+            if unit_id in team:
+                labels.append(f"Siege T{idx + 1}")
+        if unit_id in account.arena_def_team():
+            labels.append("Arena Def")
+        for idx, deck in enumerate(account.arena_offense_decks()):
+            if unit_id in deck:
+                labels.append(f"Arena Off T{idx + 1}")
+        return labels
 
 
 class _MonsterIcon(QWidget):
-    """Icon widget that optionally renders a count badge, a missing-skillup dot, and a hover popup."""
+    """Icon widget that renders a monster icon, a missing-skillup dot, and opens a detail dialog on click."""
 
     def __init__(
         self,
@@ -190,6 +413,9 @@ class _MonsterIcon(QWidget):
         skill_names: Optional[Dict[int, str]] = None,
         assets_dir: Optional[Path] = None,
         monster_name: str = "",
+        info: Optional["MonsterInfo"] = None,
+        unit: Optional[Unit] = None,
+        account: Optional[AccountData] = None,
     ):
         super().__init__()
         self._pixmap = pixmap
@@ -202,17 +428,14 @@ class _MonsterIcon(QWidget):
         self._skill_names = skill_names or {}
         self._assets_dir = assets_dir
         self._monster_name = monster_name
-        self._popup: Optional[_SkillPopup] = None
+        self._info = info
+        self._unit = unit
+        self._account = account
 
         size = icon_px + pad_px * 2
         self.setFixedSize(size, size)
-        if not skills:
-            self.setToolTip(monster_name)
-
-        self._hide_timer = QTimer(self)
-        self._hide_timer.setSingleShot(True)
-        self._hide_timer.setInterval(100)
-        self._hide_timer.timeout.connect(self._on_hide_timer)
+        self.setToolTip(monster_name)
+        self.setCursor(Qt.PointingHandCursor)
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         p = QPainter(self)
@@ -242,29 +465,20 @@ class _MonsterIcon(QWidget):
 
         p.end()
 
-    def enterEvent(self, event) -> None:
-        self._hide_timer.stop()
-        if self._skills and self._assets_dir:
-            if self._popup is None:
-                self._popup = _SkillPopup()
-            self._popup.populate(
-                self._monster_name,
-                self._skills,
-                self._skill_max_levels,
-                self._skill_icons,
-                self._skill_names,
-                self._assets_dir,
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._info and self._unit and self._account and self._assets_dir:
+            dlg = _MonsterDetailDialog(
+                info=self._info,
+                unit=self._unit,
+                account=self._account,
+                skill_max_levels=self._skill_max_levels,
+                skill_icons=self._skill_icons,
+                skill_names=self._skill_names,
+                assets_dir=self._assets_dir,
+                parent=self,
             )
-            self._popup.show_near(QCursor.pos())
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:
-        self._hide_timer.start()
-        super().leaveEvent(event)
-
-    def _on_hide_timer(self) -> None:
-        if self._popup:
-            self._popup.hide()
+            dlg.exec()
+        super().mousePressEvent(event)
 
 
 class MonsterCollectionWidget(QWidget):
@@ -497,6 +711,9 @@ class MonsterCollectionWidget(QWidget):
             skill_names=skill_names,
             assets_dir=self._assets_dir,
             monster_name=str(info.name or ""),
+            info=info,
+            unit=unit,
+            account=self._account,
         )
 
     def _monster_pixmap(self, info: MonsterInfo) -> Optional[QPixmap]:
@@ -509,3 +726,4 @@ class MonsterCollectionWidget(QWidget):
         if not p.exists():
             return None
         return QPixmap(str(p))
+
