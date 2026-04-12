@@ -865,6 +865,10 @@ STRINGS: dict[str, str] = {
     "settings.about_creator": "Ersteller: {name}",
     "settings.about_discord": "Discord: {handle}",
     "settings.btn_open_discord_dm": "Discord-DM öffnen",
+    "settings.btn_report_bug": "Fehler melden",
+    "settings.bug_report_title": "Fehler melden",
+    "settings.bug_report_hint": "Beschreibe den Fehler (z. B. Schreibfehler, falscher Text, falsche Übersetzung):",
+    "settings.bug_report_open": "Als GitHub-Issue öffnen",
     "settings.discord_opened": "Discord wurde geöffnet. Schreibe {handle} eine DM.",
     "settings.discord_open_failed": "Discord konnte nicht geöffnet werden. Kontakt: {handle}",
     "settings.about_open_source": (

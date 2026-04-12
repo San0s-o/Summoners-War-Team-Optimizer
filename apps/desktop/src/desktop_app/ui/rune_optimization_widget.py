@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QPalette
+from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
+    QFrame,
     QPushButton,
     QComboBox,
     QHBoxLayout,
@@ -27,6 +28,7 @@ from desktop_app.domain.presets import SET_NAMES, EFFECT_ID_TO_MAINSTAT_KEY
 from desktop_app.engine.efficiency import rune_efficiency, rune_efficiency_max
 from desktop_app.i18n import tr
 from desktop_app.ui.dpi import dp
+from desktop_app.ui import theme as _theme
 from desktop_app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 _QUALITY_BASE_NAME = {
@@ -157,6 +159,38 @@ def _gem_grind_status(rune: Rune) -> str:
     return tr("rune_opt.gem_grind_status", gems=gemmed, grinds=grinded)
 
 
+def _eff_item(value: float) -> QTableWidgetItem:
+    """Efficiency cell: gold>=120, green>=80, dim otherwise."""
+    text = f"{value:.2f}%"
+    item = _SortableNumericItem(text)
+    item.setData(Qt.UserRole, float(value))
+    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    if value >= 120.0:
+        item.setForeground(QColor(_theme.C["orange"]))
+    elif value >= 100.0:
+        item.setForeground(QColor(_theme.C["accent"]))
+    elif value >= 80.0:
+        item.setForeground(QColor(_theme.C["green"]))
+    else:
+        item.setForeground(QColor(_theme.C["text_dim"]))
+    return item
+
+
+def _potential_item(value: float) -> QTableWidgetItem:
+    """Potential cell: accent color if meaningful, dim if near zero."""
+    text = f"{value:.2f}%"
+    item = _SortableNumericItem(text)
+    item.setData(Qt.UserRole, float(value))
+    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    if value >= 10.0:
+        item.setForeground(QColor(_theme.C["accent"]))
+    elif value >= 3.0:
+        item.setForeground(QColor(_theme.C["text"]))
+    else:
+        item.setForeground(QColor(_theme.C["text_dim"]))
+    return item
+
+
 def _icon_item(icon: QIcon, sort_value: int, tooltip: str = "") -> QTableWidgetItem:
     item = _SortableNumericItem("")
     if not icon.isNull():
@@ -217,47 +251,70 @@ class RuneOptimizationWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        layout.setSpacing(dp(6))
+        layout.setSpacing(dp(8))
 
-        # ── search bar ───────────────────────────────────────────
-        search_row = QHBoxLayout()
-        search_row.setSpacing(dp(6))
+        # ── Unified filter toolbar ────────────────────────────────
+        filter_frame = QFrame()
+        filter_frame.setObjectName("runeFilterBar")
+        filter_frame.setStyleSheet(
+            f"QFrame#runeFilterBar {{ background: {_theme.C['bg_mid']}; "
+            f"border-radius: {dp(8)}px; border: none; }}"
+        )
+        fb = QHBoxLayout(filter_frame)
+        fb.setContentsMargins(dp(10), dp(7), dp(10), dp(7))
+        fb.setSpacing(dp(8))
+
         self._search_box = QLineEdit()
         self._search_box.setPlaceholderText(tr("rune_opt.search_placeholder"))
         self._search_box.setClearButtonEnabled(True)
-        self._search_box.setMaximumWidth(dp(280))
+        self._search_box.setMaximumWidth(dp(400))
         self._search_box.textChanged.connect(self._on_search_changed)
-        search_row.addWidget(self._search_box)
-        search_row.addStretch(1)
-        layout.addLayout(search_row)
+        fb.addWidget(self._search_box)
 
-        top = QHBoxLayout()
-        self.lbl_info = QLabel("")
-        top.addWidget(self.lbl_info)
-        top.addStretch(1)
+        _vsep = QFrame()
+        _vsep.setFrameShape(QFrame.VLine)
+        _vsep.setFixedWidth(1)
+        _vsep.setStyleSheet(f"background: {_theme.C['border']}; border: none;")
+        fb.addWidget(_vsep)
+
         self.lbl_filter_set = QLabel("")
-        top.addWidget(self.lbl_filter_set)
+        self.lbl_filter_set.setStyleSheet(f"color: {_theme.C['text_dim']}; border: none;")
+        fb.addWidget(self.lbl_filter_set)
         self.combo_filter_set = QComboBox()
-        self.combo_filter_set.setMinimumWidth(dp(150))
+        self.combo_filter_set.setMinimumWidth(dp(140))
         self.combo_filter_set.currentIndexChanged.connect(self._on_filters_changed)
-        top.addWidget(self.combo_filter_set)
+        fb.addWidget(self.combo_filter_set)
+
         self.lbl_filter_slot = QLabel("")
-        top.addWidget(self.lbl_filter_slot)
+        self.lbl_filter_slot.setStyleSheet(f"color: {_theme.C['text_dim']}; border: none;")
+        fb.addWidget(self.lbl_filter_slot)
         self.combo_filter_slot = QComboBox()
-        self.combo_filter_slot.setMinimumWidth(dp(90))
+        self.combo_filter_slot.setMinimumWidth(dp(80))
         self.combo_filter_slot.currentIndexChanged.connect(self._on_filters_changed)
-        top.addWidget(self.combo_filter_slot)
+        fb.addWidget(self.combo_filter_slot)
+
         self.lbl_filter_monster = QLabel("")
-        top.addWidget(self.lbl_filter_monster)
+        self.lbl_filter_monster.setStyleSheet(f"color: {_theme.C['text_dim']}; border: none;")
+        fb.addWidget(self.lbl_filter_monster)
         self.combo_filter_monster = _UnitSearchComboBox()
-        self.combo_filter_monster.setMinimumWidth(dp(200))
+        self.combo_filter_monster.setMinimumWidth(dp(190))
         self.combo_filter_monster.currentIndexChanged.connect(self._on_filters_changed)
-        top.addWidget(self.combo_filter_monster)
+        fb.addWidget(self.combo_filter_monster)
+
         self.btn_reset_filters = QPushButton("")
+        self.btn_reset_filters.setProperty("ghost", True)
         self.btn_reset_filters.clicked.connect(self._on_reset_filters)
-        top.addWidget(self.btn_reset_filters)
-        top.addStretch(1)
-        layout.addLayout(top)
+        fb.addWidget(self.btn_reset_filters)
+
+        fb.addStretch(1)
+
+        self.lbl_info = QLabel("")
+        self.lbl_info.setStyleSheet(
+            f"color: {_theme.C['text_dim']}; font-size: 9pt; border: none;"
+        )
+        fb.addWidget(self.lbl_info)
+
+        layout.addWidget(filter_frame)
 
         self.table = QTableWidget(0, 13)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -266,7 +323,7 @@ class RuneOptimizationWidget(QWidget):
         self.table.setSortingEnabled(True)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(36)
+        self.table.verticalHeader().setDefaultSectionSize(40)
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.setItemDelegateForColumn(5, _RichTextDelegate(self.table))
         layout.addWidget(self.table, 1)
@@ -448,11 +505,11 @@ class RuneOptimizationWidget(QWidget):
             if int(rune.occupied_type or 0) == 1 and self._monster_name_fn:
                 monster_name = self._monster_name_fn(int(rune.occupied_id or 0))
             self.table.setItem(row, 7, QTableWidgetItem(monster_name))
-            self.table.setItem(row, 8, _numeric_item(current, "%"))
-            self.table.setItem(row, 9, _numeric_item(hero_max, "%"))
-            self.table.setItem(row, 10, _numeric_item(legend_max, "%"))
-            self.table.setItem(row, 11, _numeric_item(hero_potential, "%"))
-            self.table.setItem(row, 12, _numeric_item(legend_potential, "%"))
+            self.table.setItem(row, 8, _eff_item(current))
+            self.table.setItem(row, 9, _eff_item(hero_max))
+            self.table.setItem(row, 10, _eff_item(legend_max))
+            self.table.setItem(row, 11, _potential_item(hero_potential))
+            self.table.setItem(row, 12, _potential_item(legend_potential))
 
         self.table.resizeColumnsToContents()
         self.table.setColumnWidth(0, 44)

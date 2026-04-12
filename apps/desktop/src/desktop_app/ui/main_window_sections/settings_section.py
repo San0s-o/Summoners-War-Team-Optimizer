@@ -52,6 +52,34 @@ def _open_discord_dm(window) -> None:
         show_toast(window, tr("settings.discord_open_failed", handle=_ABOUT_DISCORD), "error")
 
 
+def _open_bug_report_dialog(window) -> None:
+    from urllib.parse import quote
+    from PySide6.QtWidgets import QDialog, QDialogButtonBox, QTextEdit, QLabel, QVBoxLayout
+
+    dlg = QDialog(window)
+    dlg.setWindowTitle(tr("settings.bug_report_title"))
+    dlg.setMinimumWidth(dp(420))
+    layout = QVBoxLayout(dlg)
+    lbl = QLabel(tr("settings.bug_report_hint"))
+    lbl.setWordWrap(True)
+    layout.addWidget(lbl)
+    text_edit = QTextEdit()
+    text_edit.setMinimumHeight(dp(100))
+    layout.addWidget(text_edit)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    buttons.button(QDialogButtonBox.Ok).setText(tr("settings.bug_report_open"))
+    buttons.button(QDialogButtonBox.Cancel).setText(tr("btn.cancel"))
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    layout.addWidget(buttons)
+    if dlg.exec() == QDialog.Accepted:
+        body = text_edit.toPlainText().strip()
+        if body:
+            encoded = quote(body)
+            url = f"https://github.com/San0s-o/Summoners-War-Team-Optimizer/issues/new?labels=bug&title=Bug+Report&body={encoded}"
+            QDesktopServices.openUrl(QUrl(url))
+
+
 def _on_open_privacy_policy() -> None:
     from desktop_app.ui.dialogs.consent_dialog import open_privacy_policy
     open_privacy_policy()
@@ -533,6 +561,10 @@ def init_settings_ui(window) -> None:
         except ImportError:
             pass
     about_layout.addWidget(window.btn_settings_open_discord_dm)
+
+    window.btn_settings_report_bug = QPushButton(tr("settings.btn_report_bug"))
+    window.btn_settings_report_bug.clicked.connect(lambda: _open_bug_report_dialog(window))
+    about_layout.addWidget(window.btn_settings_report_bug)
 
     window.lbl_settings_about_open_source = QLabel("")
     window.lbl_settings_about_open_source.setWordWrap(True)

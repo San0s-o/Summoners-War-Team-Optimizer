@@ -864,6 +864,10 @@ STRINGS: dict[str, str] = {
     "settings.about_creator": "Creator: {name}",
     "settings.about_discord": "Discord: {handle}",
     "settings.btn_open_discord_dm": "Open Discord DM",
+    "settings.btn_report_bug": "Report a Bug",
+    "settings.bug_report_title": "Report a Bug",
+    "settings.bug_report_hint": "Describe the bug (e.g. typo, wrong text, wrong translation):",
+    "settings.bug_report_open": "Open as GitHub Issue",
     "settings.discord_opened": "Discord opened. Send a DM to {handle}.",
     "settings.discord_open_failed": "Could not open Discord. Contact: {handle}",
     "settings.about_open_source": (

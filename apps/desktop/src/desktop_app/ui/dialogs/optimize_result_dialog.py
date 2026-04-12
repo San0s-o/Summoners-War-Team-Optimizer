@@ -84,13 +84,9 @@ class OptimizeResultDialog(QDialog):
         self.setMinimumSize(dp(800), dp(500))
         self.setWindowState(Qt.WindowMaximized)
         c = _theme.C
+        # Semantic frame styles – global theme handles QListWidget / QDialog
         self.setStyleSheet(
             f"""
-            QListWidget {{
-                border: 1px solid {c['border']};
-                border-radius: {dp(10)}px;
-                background: {c['bg_mid']};
-            }}
             QFrame#TeamIconBar {{
                 border: 1px solid {c['border']};
                 border-radius: {dp(10)}px;
@@ -98,7 +94,7 @@ class OptimizeResultDialog(QDialog):
             }}
             QFrame[teamCard="true"] {{
                 border: 1px solid {c['border']};
-                border-radius: {dp(8)}px;
+                border-radius: {dp(10)}px;
                 background: {c['card_bg']};
             }}
             QFrame[teamCard="true"][selected="true"] {{
@@ -107,7 +103,7 @@ class OptimizeResultDialog(QDialog):
             }}
             QFrame[resultPane="true"] {{
                 border: 1px solid {c['card_border']};
-                border-radius: {dp(8)}px;
+                border-radius: {dp(10)}px;
                 background: {c['card_bg']};
             }}
             """
@@ -178,10 +174,9 @@ class OptimizeResultDialog(QDialog):
 
         self.team_icon_bar = QFrame()
         self.team_icon_bar.setObjectName("TeamIconBar")
-        self.team_icon_bar.setFrameShape(QFrame.StyledPanel)
         self.team_icon_layout = QHBoxLayout(self.team_icon_bar)
-        self.team_icon_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        self.team_icon_layout.setSpacing(dp(10))
+        self.team_icon_layout.setContentsMargins(dp(10), dp(10), dp(10), dp(10))
+        self.team_icon_layout.setSpacing(dp(12))
         right.addWidget(self.team_icon_bar)
 
         self.detail_container = QWidget()
@@ -272,13 +267,12 @@ class OptimizeResultDialog(QDialog):
 
         for result_key, result in team_results:
             card = QFrame()
-            card.setFrameShape(QFrame.StyledPanel)
             card.setProperty("teamCard", True)
             card.setProperty("selected", int(result_key) == int(selected_result_key))
-            card.setMinimumWidth(dp(116))
+            card.setMinimumWidth(dp(120))
             v = QVBoxLayout(card)
-            v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-            v.setSpacing(dp(5))
+            v.setContentsMargins(dp(10), dp(10), dp(10), dp(10))
+            v.setSpacing(dp(6))
 
             icon_lbl = QLabel()
             icon = self._unit_icon_fn(result.unit_id)
@@ -346,11 +340,10 @@ class OptimizeResultDialog(QDialog):
 
     def _make_result_pane(self) -> tuple[QFrame, QVBoxLayout]:
         pane = QFrame()
-        pane.setFrameShape(QFrame.StyledPanel)
         pane.setProperty("resultPane", True)
         v = QVBoxLayout(pane)
-        v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        v.setSpacing(dp(6))
+        v.setContentsMargins(dp(14), dp(12), dp(14), dp(12))
+        v.setSpacing(dp(8))
         return pane, v
 
     def _render_details(self, result_key: int | None) -> None:
@@ -432,9 +425,16 @@ class OptimizeResultDialog(QDialog):
         w, v = self._make_result_pane()
 
         label = self._unit_label_fn(unit_id)
-        title = QLabel(f"<b>{label}</b>" if result.ok else f"<b>{label} ({tr('label.error')})</b>")
-        title.setTextFormat(Qt.RichText)
+        title_text = label if result.ok else f"{label} ({tr('label.error')})"
+        title = QLabel(title_text)
+        title.setStyleSheet(
+            f"font-size: 10pt; font-weight: 700; color: {_theme.C['text']}; border: none;"
+        )
         v.addWidget(title)
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background: {_theme.C['card_border']}; border: none;")
+        v.addWidget(sep)
 
         if self._show_extra_info:
             rune_ids = list((result.runes_by_slot or {}).values())
@@ -564,11 +564,19 @@ class OptimizeResultDialog(QDialog):
 
     def _build_runes_tab(self, result: GreedyUnitResult, unit_id: int) -> QWidget:
         w, v = self._make_result_pane()
-        v.addWidget(QLabel(f"<b>{tr('header.runes')}</b>"))
+        _lbl = QLabel(tr("header.runes"))
+        _lbl.setStyleSheet(
+            f"font-size: 10pt; font-weight: 700; color: {_theme.C['text']}; border: none;"
+        )
+        v.addWidget(_lbl)
+        _sep = QFrame()
+        _sep.setFixedHeight(1)
+        _sep.setStyleSheet(f"background: {_theme.C['card_border']}; border: none;")
+        v.addWidget(_sep)
 
         grid = QGridLayout()
-        grid.setHorizontalSpacing(dp(8))
-        grid.setVerticalSpacing(dp(8))
+        grid.setHorizontalSpacing(dp(10))
+        grid.setVerticalSpacing(dp(10))
         slots = sorted((result.runes_by_slot or {}).items())
         for idx, (slot, rune_id) in enumerate(slots):
             rune = self._rune_lookup.get(rune_id)
@@ -594,20 +602,39 @@ class OptimizeResultDialog(QDialog):
                 continue
 
             frame = QFrame()
-            frame.setFrameShape(QFrame.StyledPanel)
+            frame.setObjectName("artifactCard")
             frame.setStyleSheet(
-                f"QFrame {{ border: 1px solid {_theme.C['card_border']}; border-radius: 8px; padding: 4px; background: {_theme.C['bg_mid']}; }}"
+                f"QFrame#artifactCard {{ border: 1px solid {_theme.C['card_border']}; "
+                f"border-radius: {dp(10)}px; background: {_theme.C['bg_mid']}; }}"
             )
             fv = QVBoxLayout(frame)
-            fv.setContentsMargins(dp(6), dp(4), dp(6), dp(4))
-            fv.setSpacing(dp(2))
+            fv.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
+            fv.setSpacing(dp(4))
 
             kind = _artifact_kind_label(art_type)
             focus = ""
             if art.pri_effect:
                 focus = ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID.get(int(art.pri_effect[0] or 0), "")
-            header_text = f"<b>{kind}</b> | {focus} | +{int(art.level or 0)}" if focus else f"<b>{kind}</b> | +{int(art.level or 0)}"
-            fv.addWidget(QLabel(header_text))
+
+            # Header row: kind + upgrade level
+            _ah = QHBoxLayout()
+            _ah.setSpacing(dp(6))
+            _kind_lbl = QLabel(kind)
+            _kind_lbl.setStyleSheet(
+                f"font-size: 9pt; font-weight: 600; color: {_theme.C['text_dim']}; border: none;"
+            )
+            _ah.addWidget(_kind_lbl)
+            _upg_lbl = QLabel(f"+{int(art.level or 0)}")
+            _upg_lbl.setStyleSheet(
+                f"font-size: 8pt; color: {_theme.C['text_dim']}; border: none;"
+            )
+            _ah.addWidget(_upg_lbl)
+            _ah.addStretch()
+            fv.addLayout(_ah)
+            _adiv = QFrame()
+            _adiv.setFixedHeight(1)
+            _adiv.setStyleSheet(f"background: {_theme.C['card_border']}; border: none;")
+            fv.addWidget(_adiv)
 
             owner_uid = int(art.occupied_id or 0)
             if owner_uid > 0:
@@ -615,6 +642,18 @@ class OptimizeResultDialog(QDialog):
                 owner_lbl = QLabel(tr("ui.current_on", owner=owner))
                 owner_lbl.setStyleSheet(f"color: {_theme.C['text_dim']}; font-size: 7pt;")
                 fv.addWidget(owner_lbl)
+
+            if art.pri_effect:
+                _eid = int(art.pri_effect[0] or 0)
+                _val = art.pri_effect[1] if len(art.pri_effect) > 1 else 0
+                _focus = ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID.get(_eid, "")
+                _main_text = f"{_focus} +{int(_val)}" if _focus else _artifact_effect_text(_eid, _val)
+                _main_lbl = QLabel(_main_text)
+                _main_lbl.setStyleSheet(
+                    f"font-size: 11pt; font-weight: bold; color: {_theme.C['text']}; "
+                    f"border: none; padding: {dp(2)}px 0 {dp(3)}px 0;"
+                )
+                fv.addWidget(_main_lbl)
 
             sec_lines: List[str] = []
             for sec in (art.sec_effects or []):
@@ -629,7 +668,9 @@ class OptimizeResultDialog(QDialog):
             if sec_lines:
                 for line in sec_lines:
                     lbl = QLabel(line)
-                    lbl.setStyleSheet(f"font-size: 8pt; color: {_theme.C['text']};")
+                    lbl.setStyleSheet(
+                        f"font-size: 9pt; color: {_theme.C['text']}; border: none;"
+                    )
                     fv.addWidget(lbl)
 
             v.addWidget(frame)
@@ -639,63 +680,107 @@ class OptimizeResultDialog(QDialog):
 
     def _build_rune_frame(self, rune: Rune, slot: int) -> QWidget:
         frame = QFrame()
-        frame.setFrameShape(QFrame.StyledPanel)
+        frame.setObjectName("runeCard")
         frame.setStyleSheet(
-            f"QFrame {{ border: 1px solid {_theme.C['card_border']}; border-radius: 8px; padding: 2px; background: {_theme.C['bg_mid']}; }}"
+            f"QFrame#runeCard {{ border: 1px solid {_theme.C['card_border']}; "
+            f"border-radius: {dp(10)}px; background: {_theme.C['bg_mid']}; }}"
         )
-        frame.setMinimumWidth(dp(200))
+        frame.setMinimumWidth(dp(215))
         main_v = QVBoxLayout(frame)
-        main_v.setSpacing(dp(3))
-        main_v.setContentsMargins(dp(6), dp(4), dp(6), dp(4))
+        main_v.setSpacing(dp(4))
+        main_v.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
 
         owner_uid = self._mode_rune_owner.get(rune.rune_id)
         if not owner_uid and rune.occupied_type == 1 and rune.occupied_id:
             owner_uid = int(rune.occupied_id)
 
-        header = QHBoxLayout()
-        header.setSpacing(dp(4))
-        set_icon = self._set_icon_fn(rune.set_id)
-        icon_lbl = QLabel()
-        if not set_icon.isNull():
-            icon_lbl.setPixmap(set_icon.pixmap(dp(28), dp(28)))
-        else:
-            icon_lbl.setFixedSize(dp(28), dp(28))
-        header.addWidget(icon_lbl)
-        set_name = SET_NAMES.get(rune.set_id, f"Set {rune.set_id}")
-        header_lbl = QLabel(f"<b>{tr('ui.slot')} {slot}</b> | {set_name} | +{rune.upgrade_curr}")
-        header_lbl.setTextFormat(Qt.RichText)
-        header.addWidget(header_lbl)
-        header.addStretch()
+        eff = float(rune_efficiency(rune))
+        eff_color = (
+            _theme.C["green"] if eff >= 80
+            else _theme.C["orange"] if eff >= 60
+            else _theme.C["text_dim"]
+        )
+
+        # Row 1: Slot label + owner icon + efficiency
+        row1 = QHBoxLayout()
+        row1.setSpacing(dp(4))
+        slot_lbl = QLabel(f"{tr('ui.slot')} {slot}")
+        slot_lbl.setStyleSheet(
+            f"font-size: 8pt; font-weight: 600; color: {_theme.C['text_dim']}; "
+            f"background: transparent; border: none;"
+        )
+        row1.addWidget(slot_lbl)
+        row1.addStretch()
         if owner_uid:
             monster_icon = self._unit_icon_fn(owner_uid)
             if not monster_icon.isNull():
-                monster_icon_lbl = QLabel()
-                monster_icon_lbl.setPixmap(monster_icon.pixmap(dp(32), dp(32)))
-                header.addWidget(monster_icon_lbl)
-        main_v.addLayout(header)
+                owner_icon_lbl = QLabel()
+                owner_icon_lbl.setPixmap(monster_icon.pixmap(dp(24), dp(24)))
+                owner_icon_lbl.setStyleSheet("border: none; background: transparent;")
+                row1.addWidget(owner_icon_lbl)
+        eff_lbl = QLabel(f"{eff:.1f}%")
+        eff_lbl.setStyleSheet(
+            f"font-size: 8pt; font-weight: 700; color: {eff_color}; "
+            f"background: transparent; border: none;"
+        )
+        row1.addWidget(eff_lbl)
+        main_v.addLayout(row1)
 
+        # Row 2: Set icon + set name + upgrade level
+        row2 = QHBoxLayout()
+        row2.setSpacing(dp(5))
+        set_icon = self._set_icon_fn(rune.set_id)
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(dp(20), dp(20))
+        icon_lbl.setStyleSheet("border: none; background: transparent;")
+        if not set_icon.isNull():
+            icon_lbl.setPixmap(set_icon.pixmap(dp(20), dp(20)))
+        row2.addWidget(icon_lbl)
+        set_name = SET_NAMES.get(rune.set_id, f"Set {rune.set_id}")
+        set_lbl = QLabel(set_name)
+        set_lbl.setStyleSheet(
+            f"font-size: 8pt; font-weight: 600; color: {_theme.C['accent']}; border: none;"
+        )
+        row2.addWidget(set_lbl)
+        upg_lbl = QLabel(f"+{int(rune.upgrade_curr or 0)}")
+        upg_lbl.setStyleSheet(
+            f"font-size: 8pt; color: {_theme.C['text_dim']}; border: none;"
+        )
+        row2.addWidget(upg_lbl)
+        row2.addStretch()
+        main_v.addLayout(row2)
+
+        # Owner name (if rune is borrowed from another unit)
         if owner_uid:
             owner = self._unit_label_fn(owner_uid)
-            src = QLabel(tr("ui.current_on", owner=owner))
-            src.setStyleSheet(f"color: {_theme.C['text_dim']}; font-size: 7pt;")
-            main_v.addWidget(src)
+            owner_src = QLabel(tr("ui.current_on", owner=owner))
+            owner_src.setStyleSheet(
+                f"color: {_theme.C['text_dim']}; font-size: 7pt; border: none;"
+            )
+            main_v.addWidget(owner_src)
 
+        # Hairline divider
+        div = QFrame()
+        div.setFixedHeight(1)
+        div.setStyleSheet(f"background: {_theme.C['card_border']}; border: none;")
+        main_v.addWidget(div)
+
+        # Main stat
         main_lbl = QLabel(self._stat_label(rune.pri_eff))
         main_lbl.setStyleSheet(
-            f"font-size: 11pt; font-weight: bold; color: {_theme.C['text']};"
-            f" padding: 2px 0px 4px 0px;"
+            f"font-size: 12pt; font-weight: bold; color: {_theme.C['text']}; "
+            f"border: none; padding: {dp(2)}px 0 {dp(3)}px 0;"
         )
         main_v.addWidget(main_lbl)
 
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet(f"color: {_theme.C['card_border']}; margin: 0px;")
-        sep.setFixedHeight(1)
-        main_v.addWidget(sep)
-
+        # Prefix
         pfx = self._prefix_text(rune.prefix_eff)
         if pfx != "—":
-            main_v.addWidget(QLabel(f"{tr('ui.prefix')}: {pfx}"))
+            pfx_lbl = QLabel(f"{tr('ui.prefix')}: {pfx}")
+            pfx_lbl.setStyleSheet(
+                f"font-size: 8pt; color: {_theme.C['text_dim']}; border: none;"
+            )
+            main_v.addWidget(pfx_lbl)
 
         for sec in (rune.sec_eff or []):
             if not sec:
@@ -712,10 +797,11 @@ class OptimizeResultDialog(QDialog):
                 base_text += f" <span style='color: #FFD700;'>({value}+{grind}{pct})</span>"
             if gem_flag:
                 base_text = f"<span style='color:#1abc9c'>{base_text} [Gem]</span>"
-            text = base_text
-            lbl = QLabel(text)
+            lbl = QLabel(base_text)
             lbl.setTextFormat(Qt.RichText)
-            lbl.setStyleSheet(f"font-size: 8pt; color: {_theme.C['text']};")
+            lbl.setStyleSheet(
+                f"font-size: 9pt; color: {_theme.C['text']}; border: none;"
+            )
             main_v.addWidget(lbl)
 
         return frame

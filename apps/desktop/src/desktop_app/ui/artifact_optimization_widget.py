@@ -201,7 +201,7 @@ class ArtifactOptimizationWidget(QWidget):
         self._search_box = QLineEdit()
         self._search_box.setPlaceholderText(tr("art_opt.search_placeholder"))
         self._search_box.setClearButtonEnabled(True)
-        self._search_box.setMaximumWidth(dp(280))
+        self._search_box.setMaximumWidth(dp(400))
         self._search_box.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self._search_box)
         search_row.addStretch(1)

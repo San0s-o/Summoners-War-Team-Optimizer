@@ -462,14 +462,13 @@ class MonsterCard(QFrame):
         self._assets_dir = assets_dir
         self._computed_stats = computed_stats
 
-        self.setFrameShape(QFrame.StyledPanel)
         _elem_accent = _element_colours().get(element, _theme.C["border"])
         self.setStyleSheet(f"""
             MonsterCard {{
                 background: {_theme.C['card_bg']};
                 border: 1px solid {_theme.C['card_border']};
                 border-left: 3px solid {_elem_accent};
-                border-radius: 6px;
+                border-radius: {dp(8)}px;
             }}
             QLabel {{ color: {_theme.C['text']}; font-size: {dp(12)}px; }}
             QPushButton {{
@@ -498,8 +497,8 @@ class MonsterCard(QFrame):
         self._anim_shadow.setEasingCurve(QEasingCurve.OutCubic)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
-        layout.setSpacing(dp(6))
+        layout.setContentsMargins(dp(10), dp(8), dp(10), dp(8))
+        layout.setSpacing(dp(8))
 
         # ── monster icon + name ──────────────────────────────
         top = QHBoxLayout()
@@ -787,7 +786,7 @@ class TeamCard(QGroupBox):
                 font-size: {dp(13)}px;
                 color: {_theme.C['text']};
                 border: 1px solid {_theme.C['border']};
-                border-radius: 6px;
+                border-radius: {dp(8)}px;
                 margin-top: {dp(10)}px;
                 padding-top: {dp(12)}px;
             }}

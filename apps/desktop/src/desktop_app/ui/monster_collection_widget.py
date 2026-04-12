@@ -3,27 +3,27 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import QGraphicsDropShadowEffect
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
-    QHeaderView,
     QHBoxLayout,
     QLabel,
     QScrollArea,
     QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from desktop_app.domain.models import AccountData, Rune, Unit
+from desktop_app.domain.artifact_effects import ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID, artifact_effect_text
+from desktop_app.domain.models import AccountData, Artifact, Rune, Unit
 from desktop_app.domain.monster_db import MonsterDB, MonsterInfo
 from desktop_app.domain.presets import EFFECT_ID_TO_MAINSTAT_KEY, SET_NAMES
 from desktop_app.engine.efficiency import rune_efficiency, rune_efficiency_max
@@ -131,8 +131,8 @@ def _count_missing_skillups(unit: Unit, skill_max_levels: Dict[int, int]) -> int
 class _MonsterDetailDialog(QDialog):
     """Full detail dialog opened when clicking a monster icon."""
 
-    _ICON_SIZE = 72
-    _SKILL_ICON_SIZE = 48
+    _ICON_SIZE = 96
+    _SKILL_ICON_SIZE = 52
 
     def __init__(
         self,
@@ -146,95 +146,164 @@ class _MonsterDetailDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._assets_dir = assets_dir
         self.setWindowTitle(str(info.name or ""))
-        self.setMinimumSize(dp(920), dp(760))
-        self.resize(dp(980), dp(820))
-        self.setStyleSheet(
-            f"QDialog {{ background: {_theme.C['bg']}; }}"
-            f"QLabel {{ color: {_theme.C['text']}; }}"
-            f"QTabWidget::pane {{ border: 1px solid {_theme.C['card_border']}; border-radius: {dp(4)}px; }}"
-            f"QTabBar::tab {{ background: {_theme.C['card_bg']}; color: {_theme.C['text_dim']}; "
-            f"  padding: {dp(5)}px {dp(12)}px; border-radius: {dp(4)}px; margin-right: {dp(2)}px; }}"
-            f"QTabBar::tab:selected {{ background: {_theme.C['accent']}; color: {_theme.C['text']}; }}"
+        self.setMinimumSize(dp(980), dp(700))
+        self.resize(dp(1100), dp(880))
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        content = QWidget()
+        root = QVBoxLayout(content)
+        root.setContentsMargins(dp(24), dp(20), dp(24), dp(16))
+        root.setSpacing(dp(18))
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+        # ── Header ────────────────────────────────────────────────────────────────────────
+        element = str(info.element or "").lower()
+        elem_color = _ELEMENT_COLORS.get(element, _theme.C["accent"])
+
+        header_frame = QFrame()
+        header_frame.setObjectName("detailHeader")
+        header_frame.setStyleSheet(
+            f"QFrame#detailHeader {{ background: {_theme.C['bg_mid']}; "
+            f"border-radius: {dp(12)}px; border: none; }}"
         )
+        header_h = QHBoxLayout(header_frame)
+        header_h.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
+        header_h.setSpacing(dp(14))
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(dp(16), dp(14), dp(16), dp(14))
-        root.setSpacing(dp(12))
+        # Thin element color accent bar
+        accent_bar = QFrame()
+        accent_bar.setFixedWidth(dp(4))
+        accent_bar.setStyleSheet(
+            f"background: {elem_color}; border-radius: {dp(2)}px; border: none;"
+        )
+        header_h.addWidget(accent_bar)
 
-        # â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        header = QHBoxLayout()
-        header.setSpacing(dp(12))
-
+        # Monster icon with element-colored border
+        icon_size = dp(self._ICON_SIZE)
         icon_lbl = QLabel()
-        icon_lbl.setFixedSize(dp(self._ICON_SIZE), dp(self._ICON_SIZE))
+        icon_lbl.setFixedSize(icon_size, icon_size)
         icon_lbl.setAlignment(Qt.AlignCenter)
+        icon_lbl.setStyleSheet(
+            f"border: 2px solid {elem_color}; border-radius: {dp(8)}px; "
+            f"background: {_theme.C['bg']};"
+        )
         px = self._load_monster_pixmap(info, assets_dir)
         if px:
-            icon_lbl.setPixmap(px.scaled(dp(self._ICON_SIZE), dp(self._ICON_SIZE), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        header.addWidget(icon_lbl)
+            pad = dp(4)
+            icon_lbl.setPixmap(
+                px.scaled(icon_size - pad, icon_size - pad, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
+        header_h.addWidget(icon_lbl)
 
-        title_col = QVBoxLayout()
-        title_col.setSpacing(dp(2))
+        # Name + metadata column
+        name_col = QVBoxLayout()
+        name_col.setSpacing(dp(5))
+
         name_lbl = QLabel(str(info.name or ""))
-        name_lbl.setStyleSheet(f"font-size: 14pt; font-weight: bold; color: {_theme.C['text']};")
-        title_col.addWidget(name_lbl)
-        element = str(info.element or "")
-        unit_class = int(getattr(unit, "unit_class", 0) or 0)
+        name_lbl.setStyleSheet(
+            f"font-size: 16pt; font-weight: bold; color: {_theme.C['text']}; border: none;"
+        )
+        name_col.addWidget(name_lbl)
+
         level = int(getattr(unit, "unit_level", 0) or 0)
-        meta_lbl = QLabel(f"{element}  |  Lv{level}  |  â˜…{unit_class}")
-        meta_lbl.setStyleSheet(f"color: {_theme.C['text_dim']};")
-        title_col.addWidget(meta_lbl)
+        unit_class = int(getattr(unit, "unit_class", 0) or 0)
+        meta_parts = []
+        if element:
+            meta_parts.append(element.capitalize())
+        if level:
+            meta_parts.append(f"Lv{level}")
+        meta_lbl = QLabel("  ·  ".join(meta_parts))
+        meta_lbl.setStyleSheet(
+            f"font-size: 10pt; color: {_theme.C['text_dim']}; border: none;"
+        )
+        name_col.addWidget(meta_lbl)
+
+        stars_lbl = QLabel("★" * unit_class + "☆" * max(0, 6 - unit_class))
+        stars_lbl.setStyleSheet(
+            f"font-size: 13pt; color: {elem_color}; border: none; letter-spacing: 2px;"
+        )
+        name_col.addWidget(stars_lbl)
 
         teams = self._team_memberships(unit.unit_id, account)
         if teams:
-            teams_lbl = QLabel("  Â·  ".join(teams))
-            teams_lbl.setStyleSheet(f"color: {_theme.C['accent']}; font-size: 9pt;")
-            title_col.addWidget(teams_lbl)
+            teams_h = QHBoxLayout()
+            teams_h.setSpacing(dp(6))
+            teams_h.setContentsMargins(0, dp(2), 0, 0)
+            for t in teams:
+                badge = QLabel(t)
+                badge.setStyleSheet(
+                    f"background: transparent; color: {_theme.C['accent']}; "
+                    f"border: 1px solid {_theme.C['accent']}; border-radius: {dp(10)}px; "
+                    f"padding: {dp(2)}px {dp(8)}px; font-size: 8pt; font-weight: 600;"
+                )
+                teams_h.addWidget(badge)
+            teams_h.addStretch()
+            name_col.addLayout(teams_h)
 
-        header.addLayout(title_col)
-        header.addStretch()
-        root.addLayout(header)
+        name_col.addStretch()
+        header_h.addLayout(name_col)
+        header_h.addStretch()
+        root.addWidget(header_frame)
 
-        # â”€â”€ Skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        skills_label = QLabel(tr("collection.detail_skills"))
-        skills_label.setStyleSheet(f"font-weight: bold; font-size: 10pt; color: {_theme.C['text']};")
-        root.addWidget(skills_label)
+        # ── Skills ────────────────────────────────────────────────────────────────────────────
+        self._add_section_title(root, tr("collection.detail_skills"))
 
-        skills_row = QHBoxLayout()
-        skills_row.setSpacing(dp(10))
-        skills_row.setAlignment(Qt.AlignLeft)
+        skills_h = QHBoxLayout()
+        skills_h.setSpacing(dp(10))
+        sz = dp(self._SKILL_ICON_SIZE)
+
         for idx, (skill_id, current_level) in enumerate(unit.skills or ()):
             max_lvl = skill_max_levels.get(skill_id, 0)
-            col = QVBoxLayout()
-            col.setSpacing(dp(2))
-            col.setAlignment(Qt.AlignHCenter)
 
-            icon_lbl2 = QLabel()
-            sz = dp(self._SKILL_ICON_SIZE)
-            icon_lbl2.setFixedSize(sz, sz)
-            icon_lbl2.setAlignment(Qt.AlignCenter)
+            card = QFrame()
+            card.setObjectName("skillCard")
+            card.setStyleSheet(
+                f"QFrame#skillCard {{ background: {_theme.C['bg_mid']}; "
+                f"border-radius: {dp(10)}px; border: none; }}"
+            )
+            cv = QVBoxLayout(card)
+            cv.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
+            cv.setSpacing(dp(6))
+
+            skill_icon_lbl = QLabel()
+            skill_icon_lbl.setFixedSize(sz, sz)
+            skill_icon_lbl.setAlignment(Qt.AlignCenter)
             icon_filename = skill_icons.get(skill_id, "")
+            loaded = False
             if icon_filename and assets_dir:
                 p = assets_dir / "skills" / f"{icon_filename}.png"
                 if p.exists():
-                    icon_lbl2.setPixmap(QPixmap(str(p)).scaled(sz, sz, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            if not icon_lbl2.pixmap() or icon_lbl2.pixmap().isNull():
-                icon_lbl2.setText(f"S{idx + 1}")
-                icon_lbl2.setStyleSheet(
+                    skill_icon_lbl.setPixmap(
+                        QPixmap(str(p)).scaled(sz, sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    )
+                    loaded = True
+            if not loaded:
+                skill_icon_lbl.setText(f"S{idx + 1}")
+                skill_icon_lbl.setStyleSheet(
                     f"background: {_theme.C['card_bg']}; border-radius: {dp(6)}px; "
-                    f"color: {_theme.C['text']}; font-weight: bold;"
+                    f"color: {_theme.C['text']}; font-weight: bold; border: none;"
                 )
-            col.addWidget(icon_lbl2)
+            cv.addWidget(skill_icon_lbl, alignment=Qt.AlignHCenter)
 
-            skill_name = skill_names.get(skill_id, "")
-            if skill_name:
-                nm = QLabel(skill_name)
-                nm.setAlignment(Qt.AlignCenter)
-                nm.setWordWrap(True)
-                nm.setFixedWidth(max(sz, dp(88)))
-                nm.setStyleSheet(f"font-size: 9pt; color: {_theme.C['text_dim']};")
-                col.addWidget(nm)
+            sname = skill_names.get(skill_id, "")
+            nm = QLabel(sname)
+            nm.setAlignment(Qt.AlignCenter)
+            nm.setWordWrap(True)
+            nm.setFixedWidth(max(sz, dp(90)))
+            nm.setStyleSheet(
+                f"font-size: 8pt; color: {_theme.C['text_dim']}; border: none;"
+            )
+            cv.addWidget(nm)
 
             if max_lvl <= 1:
                 lv_text, lv_color = str(current_level), _theme.C["text_dim"]
@@ -243,135 +312,314 @@ class _MonsterDetailDialog(QDialog):
             else:
                 lv_text = tr("collection.skill_level", current=current_level, max=max_lvl)
                 lv_color = _theme.C["orange"]
+
             lv_lbl = QLabel(lv_text)
             lv_lbl.setAlignment(Qt.AlignCenter)
-            lv_lbl.setStyleSheet(f"font-size: 9pt; font-weight: 600; color: {lv_color};")
-            col.addWidget(lv_lbl)
+            lv_lbl.setStyleSheet(
+                f"font-size: 8pt; font-weight: 700; color: {lv_color}; border: none;"
+            )
+            cv.addWidget(lv_lbl)
 
-            col_w = QWidget()
-            col_w.setLayout(col)
-            skills_row.addWidget(col_w)
+            skills_h.addWidget(card)
 
-        skills_row.addStretch()
-        root.addLayout(skills_row)
+        skills_h.addStretch()
+        skills_w = QWidget()
+        skills_w.setLayout(skills_h)
+        root.addWidget(skills_w)
 
-        # â”€â”€ Runes (tabs: PvE / Siege / RTA) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        runes_label = QLabel(tr("collection.detail_runes"))
-        runes_label.setStyleSheet(f"font-weight: bold; color: {_theme.C['text']};")
-        root.addWidget(runes_label)
+        # ── Runes (tabs: PvE / Siege / RTA) ──────────────────────────────────────────────────────
+        self._add_section_title(root, tr("collection.detail_runes"))
 
-        tab_widget = QTabWidget()
-        rune_modes = [
+        rune_tabs = QTabWidget()
+        rune_tabs.setDocumentMode(True)
+        for tab_label, runes in [
             (tr("collection.detail_tab_pve"),   account.equipped_runes_for(unit.unit_id, "pve")),
             (tr("collection.detail_tab_siege"),  account.equipped_runes_for(unit.unit_id, "siege")),
             (tr("collection.detail_tab_rta"),    account.equipped_runes_for(unit.unit_id, "rta")),
-        ]
-        for tab_label, runes in rune_modes:
-            tab_widget.addTab(self._rune_tab(runes), tab_label)
-        root.addWidget(tab_widget)
+        ]:
+            rune_tabs.addTab(self._rune_tab(runes), tab_label)
+        root.addWidget(rune_tabs)
 
-        # â”€â”€ Close button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Artefakte ───────────────────────────────────────────────────────────────────────────────────────
+        art_by_id: Dict[int, Artifact] = {a.artifact_id: a for a in account.artifacts}
+        pve_arts = [a for a in account.artifacts if int(a.occupied_id or 0) == int(unit.unit_id)]
+        siege_art_ids = account.guild_artifact_equip.get(int(unit.unit_id), [])
+        siege_arts = [art_by_id[aid] for aid in siege_art_ids if aid in art_by_id]
+        rta_art_ids = account.rta_artifact_equip.get(int(unit.unit_id), [])
+        rta_arts = [art_by_id[aid] for aid in rta_art_ids if aid in art_by_id]
+
+        self._add_section_title(root, tr("ui.artifacts_title"))
+
+        art_tabs = QTabWidget()
+        art_tabs.setDocumentMode(True)
+        for tab_label, arts in [
+            (tr("collection.detail_tab_pve"),   pve_arts),
+            (tr("collection.detail_tab_siege"),  siege_arts),
+            (tr("collection.detail_tab_rta"),    rta_arts),
+        ]:
+            art_tabs.addTab(self._artifact_tab(arts), tab_label)
+        root.addWidget(art_tabs)
+
+        # ── Close button (außerhalb des Scrollbereichs, immer sichtbar) ──────────────────────────────────
+        btn_h = QHBoxLayout()
+        btn_h.setContentsMargins(dp(16), dp(8), dp(16), dp(10))
+        btn_h.addStretch()
         btns = QDialogButtonBox(QDialogButtonBox.Close)
         btns.rejected.connect(self.reject)
-        root.addWidget(btns)
+        btn_h.addWidget(btns)
+        outer.addLayout(btn_h)
+
+    def _add_section_title(self, layout: QVBoxLayout, text: str) -> None:
+        """Adds a section header with a hairline separator below."""
+        header_w = QWidget()
+        hh = QVBoxLayout(header_w)
+        hh.setContentsMargins(0, 0, 0, 0)
+        hh.setSpacing(dp(6))
+
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            f"font-size: 10pt; font-weight: 700; color: {_theme.C['text']}; border: none;"
+        )
+        hh.addWidget(lbl)
+
+        line = QFrame()
+        line.setFixedHeight(1)
+        line.setStyleSheet(f"background: {_theme.C['card_border']}; border: none;")
+        hh.addWidget(line)
+
+        layout.addWidget(header_w)
 
     def _rune_tab(self, runes: list[Rune]) -> QWidget:
         w = QWidget()
-        w.setStyleSheet(f"background: {_theme.C['bg']};")
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-
-        table = QTableWidget(6, 11, w)
-        table.setAlternatingRowColors(True)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionMode(QTableWidget.NoSelection)
-        table.verticalHeader().setVisible(False)
-        table.setWordWrap(True)
-        table.setStyleSheet(
-            f"QTableWidget {{"
-            f" background: {_theme.C['bg']}; color: {_theme.C['text']};"
-            f" gridline-color: {_theme.C['card_border']}; font-size: 9pt;"
-            f"}}"
-            f"QHeaderView::section {{"
-            f" background: {_theme.C['card_bg']}; color: {_theme.C['text_dim']};"
-            f" border: 0; border-bottom: 1px solid {_theme.C['card_border']};"
-            f" padding: {dp(5)}px;"
-            f"}}"
-        )
-        table.setHorizontalHeaderLabels(
-            [
-                tr("rune_opt.col.slot"),
-                tr("rune_opt.col.set"),
-                tr("rune_opt.col.quality"),
-                tr("rune_opt.col.upgrade"),
-                tr("ui.main"),
-                tr("ui.prefix"),
-                tr("rune_opt.col.substats"),
-                tr("rune_opt.col.gem_grind"),
-                tr("rune_opt.col.current_eff"),
-                tr("rune_opt.col.hero_max_eff"),
-                tr("rune_opt.col.legend_max_eff"),
-            ]
-        )
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.Stretch)
-        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(9, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(10, QHeaderView.ResizeToContents)
-
+        grid = QGridLayout(w)
+        grid.setContentsMargins(dp(4), dp(12), dp(4), dp(8))
+        grid.setHorizontalSpacing(dp(10))
+        grid.setVerticalSpacing(dp(10))
         by_slot: Dict[int, Rune] = {r.slot_no: r for r in runes}
-        for row, slot in enumerate(range(1, 7)):
-            rune = by_slot.get(slot)
-            slot_item = QTableWidgetItem(tr("collection.detail_slot", n=slot))
-            slot_item.setForeground(QColor(_theme.C["text_dim"]))
-            table.setItem(row, 0, slot_item)
-            if rune is None:
-                for col in range(1, 11):
-                    table.setItem(row, col, QTableWidgetItem(tr("collection.detail_rune_empty")))
+        for idx, slot in enumerate(range(1, 7)):
+            row, col = divmod(idx, 3)
+            grid.addWidget(self._rune_card(by_slot.get(slot), slot), row, col)
+        return w
+
+    def _rune_card(self, rune: Optional[Rune], slot: int) -> QWidget:
+        frame = QFrame()
+        frame.setObjectName("runeCard")
+        frame.setStyleSheet(
+            f"QFrame#runeCard {{ border: 1px solid {_theme.C['card_border']}; "
+            f"border-radius: {dp(10)}px; background: {_theme.C['bg_mid']}; }}"
+        )
+        frame.setMinimumWidth(dp(215))
+        v = QVBoxLayout(frame)
+        v.setSpacing(dp(4))
+        v.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
+
+        if rune is None:
+            slot_lbl = QLabel(f"{tr('ui.slot')} {slot}")
+            slot_lbl.setStyleSheet(
+                f"font-size: 9pt; font-weight: 600; color: {_theme.C['text_dim']}; "
+                f"background: transparent; border: none;"
+            )
+            v.addWidget(slot_lbl)
+            empty = QLabel(tr("collection.detail_rune_empty"))
+            empty.setStyleSheet(
+                f"color: {_theme.C['text_dim']}; font-size: 8pt; border: none;"
+            )
+            v.addWidget(empty)
+            v.addStretch()
+            return frame
+
+        eff = float(rune_efficiency(rune))
+        eff_color = (
+            _theme.C["green"] if eff >= 80
+            else _theme.C["orange"] if eff >= 60
+            else _theme.C["text_dim"]
+        )
+
+        # Row 1: Slot label + efficiency value
+        row1 = QHBoxLayout()
+        row1.setSpacing(dp(4))
+        slot_lbl = QLabel(f"{tr('ui.slot')} {slot}")
+        slot_lbl.setStyleSheet(
+            f"font-size: 8pt; font-weight: 600; color: {_theme.C['text_dim']}; "
+            f"background: transparent; border: none;"
+        )
+        row1.addWidget(slot_lbl)
+        row1.addStretch()
+        eff_lbl = QLabel(f"{eff:.1f}%")
+        eff_lbl.setStyleSheet(
+            f"font-size: 8pt; font-weight: 700; color: {eff_color}; "
+            f"background: transparent; border: none;"
+        )
+        row1.addWidget(eff_lbl)
+        v.addLayout(row1)
+
+        # Row 2: Set icon + set name + upgrade level
+        row2 = QHBoxLayout()
+        row2.setSpacing(dp(5))
+        set_icon = self._load_set_icon(rune.set_id)
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(dp(20), dp(20))
+        icon_lbl.setStyleSheet("border: none; background: transparent;")
+        if set_icon and not set_icon.isNull():
+            icon_lbl.setPixmap(set_icon.pixmap(dp(20), dp(20)))
+        row2.addWidget(icon_lbl)
+        set_name = SET_NAMES.get(rune.set_id, f"Set {rune.set_id}")
+        set_lbl = QLabel(set_name)
+        set_lbl.setStyleSheet(
+            f"font-size: 8pt; font-weight: 600; color: {_theme.C['accent']}; border: none;"
+        )
+        row2.addWidget(set_lbl)
+        upg_lbl = QLabel(f"+{int(rune.upgrade_curr or 0)}")
+        upg_lbl.setStyleSheet(
+            f"font-size: 8pt; color: {_theme.C['text_dim']}; border: none;"
+        )
+        row2.addWidget(upg_lbl)
+        row2.addStretch()
+        v.addLayout(row2)
+
+        # Hairline divider
+        div = QFrame()
+        div.setFixedHeight(1)
+        div.setStyleSheet(f"background: {_theme.C['card_border']}; border: none;")
+        v.addWidget(div)
+
+        # Main stat
+        if rune.pri_eff:
+            main_lbl = QLabel(_stat_label(rune.pri_eff[0], rune.pri_eff[1]))
+            main_lbl.setStyleSheet(
+                f"font-size: 12pt; font-weight: bold; color: {_theme.C['text']}; "
+                f"border: none; padding: {dp(2)}px 0 {dp(3)}px 0;"
+            )
+            v.addWidget(main_lbl)
+
+        # Prefix stat
+        has_prefix = (
+            rune.prefix_eff
+            and len(rune.prefix_eff) >= 2
+            and int(rune.prefix_eff[0] or 0) > 0
+            and int(rune.prefix_eff[1] or 0) > 0
+        )
+        if has_prefix:
+            pfx = QLabel(f"{tr('ui.prefix')}: {_stat_label(rune.prefix_eff[0], rune.prefix_eff[1])}")
+            pfx.setStyleSheet(
+                f"font-size: 8pt; color: {_theme.C['text_dim']}; border: none;"
+            )
+            v.addWidget(pfx)
+
+        # Substats
+        for sec in (rune.sec_eff or []):
+            if not sec:
+                continue
+            eff_id = int(sec[0] or 0)
+            base_val = int(sec[1] or 0) if len(sec) > 1 else 0
+            gem_flag = int(sec[2] or 0) if len(sec) > 2 else 0
+            grind = int(sec[3] or 0) if len(sec) > 3 else 0
+            total = base_val + grind
+            pct = "%" if EFFECT_ID_TO_MAINSTAT_KEY.get(eff_id, "") in _PCT_KEYS else ""
+            text = _stat_label(eff_id, total)
+            if grind > 0:
+                text += f" <span style='color:#FFD700;'>({base_val}+{grind}{pct})</span>"
+            if gem_flag:
+                text = f"<span style='color:#1abc9c'>{text} [Gem]</span>"
+            lbl = QLabel(text)
+            lbl.setTextFormat(Qt.RichText)
+            lbl.setStyleSheet(
+                f"font-size: 9pt; color: {_theme.C['text']}; border: none;"
+            )
+            v.addWidget(lbl)
+
+        return frame
+
+    def _load_set_icon(self, set_id: int) -> Optional[QIcon]:
+        name = SET_NAMES.get(set_id, "")
+        slug = name.lower().replace(" ", "_") if name else str(set_id)
+        icon_path = self._assets_dir / "runes" / "sets" / f"{set_id}_{slug}.png"
+        return QIcon(str(icon_path)) if icon_path.exists() else None
+
+    def _artifact_tab(self, artifacts: list[Artifact]) -> QWidget:
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(dp(4), dp(12), dp(4), dp(8))
+        h.setSpacing(dp(12))
+
+        by_type: Dict[int, Artifact] = {a.type_: a for a in artifacts}
+        for art_type in (1, 2):
+            art = by_type.get(art_type)
+            frame = QFrame()
+            frame.setObjectName("artifactCard")
+            frame.setStyleSheet(
+                f"QFrame#artifactCard {{ border: 1px solid {_theme.C['card_border']}; "
+                f"border-radius: {dp(10)}px; background: {_theme.C['bg_mid']}; }}"
+            )
+            v = QVBoxLayout(frame)
+            v.setSpacing(dp(4))
+            v.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
+
+            kind = tr("artifact.attribute") if art_type == 1 else tr("artifact.type")
+
+            # Header row: kind label + upgrade level
+            kind_h = QHBoxLayout()
+            kind_h.setSpacing(dp(6))
+            kind_lbl = QLabel(kind)
+            kind_lbl.setStyleSheet(
+                f"font-size: 9pt; font-weight: 600; color: {_theme.C['text_dim']}; border: none;"
+            )
+            kind_h.addWidget(kind_lbl)
+            if art is not None:
+                upg_lbl = QLabel(f"+{int(art.level or 0)}")
+                upg_lbl.setStyleSheet(
+                    f"font-size: 8pt; color: {_theme.C['text_dim']}; border: none;"
+                )
+                kind_h.addWidget(upg_lbl)
+            kind_h.addStretch()
+            v.addLayout(kind_h)
+
+            # Hairline divider
+            div = QFrame()
+            div.setFixedHeight(1)
+            div.setStyleSheet(f"background: {_theme.C['card_border']}; border: none;")
+            v.addWidget(div)
+
+            if art is None:
+                empty = QLabel(tr("collection.detail_rune_empty"))
+                empty.setStyleSheet(
+                    f"color: {_theme.C['text_dim']}; font-size: 8pt; border: none;"
+                )
+                v.addWidget(empty)
+                v.addStretch()
+                h.addWidget(frame)
                 continue
 
-            set_name = SET_NAMES.get(rune.set_id, f"Set {rune.set_id}")
-            main_stat = _stat_label(rune.pri_eff[0], rune.pri_eff[1]) if rune.pri_eff else "-"
-            has_prefix = (
-                rune.prefix_eff
-                and len(rune.prefix_eff) >= 2
-                and int(rune.prefix_eff[0] or 0) > 0
-                and int(rune.prefix_eff[1] or 0) > 0
-            )
-            prefix_stat = _stat_label(rune.prefix_eff[0], rune.prefix_eff[1]) if has_prefix else "-"
-            substats = _substats_text(rune) or "-"
+            if art.pri_effect:
+                eid = int(art.pri_effect[0] or 0)
+                val = art.pri_effect[1] if len(art.pri_effect) > 1 else 0
+                focus = ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID.get(eid, "")
+                main_text = f"{focus} +{int(val)}" if focus else artifact_effect_text(eid, val)
+                main_lbl = QLabel(main_text)
+                main_lbl.setStyleSheet(
+                    f"font-size: 11pt; font-weight: bold; color: {_theme.C['text']}; "
+                    f"border: none; padding: {dp(2)}px 0 {dp(3)}px 0;"
+                )
+                v.addWidget(main_lbl)
 
-            table.setItem(row, 1, QTableWidgetItem(str(set_name)))
-            table.setItem(row, 2, QTableWidgetItem(_quality_text(rune)))
-            table.setItem(row, 3, QTableWidgetItem(f"+{int(rune.upgrade_curr or 0)}"))
-            main_item = QTableWidgetItem(main_stat)
-            main_item.setForeground(QColor(_theme.C["accent"]))
-            table.setItem(row, 4, main_item)
-            table.setItem(row, 5, QTableWidgetItem(prefix_stat))
-            subs_item = QTableWidgetItem(substats)
-            subs_item.setToolTip(substats)
-            table.setItem(row, 6, subs_item)
-            table.setItem(row, 7, QTableWidgetItem(_gem_grind_status(rune)))
-            table.setItem(row, 8, QTableWidgetItem(f"{float(rune_efficiency(rune)):.2f}%"))
-            table.setItem(row, 9, QTableWidgetItem(f"{float(rune_efficiency_max(rune, 'hero')):.2f}%"))
-            table.setItem(row, 10, QTableWidgetItem(f"{float(rune_efficiency_max(rune, 'legend')):.2f}%"))
+            for sec in (art.sec_effects or []):
+                if not sec:
+                    continue
+                try:
+                    eid = int(sec[0] or 0)
+                    val = sec[1] if len(sec) > 1 else 0
+                except Exception:
+                    continue
+                lbl = QLabel(f"\u2022 {artifact_effect_text(eid, val)}")
+                lbl.setStyleSheet(
+                    f"font-size: 9pt; color: {_theme.C['text']}; border: none;"
+                )
+                v.addWidget(lbl)
 
-            for col in (3, 8, 9, 10):
-                item = table.item(row, col)
-                if item is not None:
-                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            v.addStretch()
+            h.addWidget(frame)
 
-            slot_item.setToolTip(f"{tr('ui.rune_id')}: {int(rune.rune_id or 0)}")
-
-        table.resizeRowsToContents()
-        layout.addWidget(table)
+        h.addStretch()
         return w
 
     @staticmethod
@@ -396,6 +644,14 @@ class _MonsterDetailDialog(QDialog):
             if unit_id in deck:
                 labels.append(f"Arena Off T{idx + 1}")
         return labels
+
+_ELEMENT_COLORS: dict[str, str] = {
+    "fire": "#E74C3C",
+    "water": "#3498DB",
+    "wind": "#2ECC71",
+    "light": "#F1C40F",
+    "dark": "#8E44AD",
+}
 
 
 class _MonsterIcon(QWidget):
@@ -432,24 +688,65 @@ class _MonsterIcon(QWidget):
         self._unit = unit
         self._account = account
 
+        elem = (self._info.element or "").lower() if self._info else ""
+        self._elem_color = _ELEMENT_COLORS.get(elem, _theme.C["accent"])
+
+        self._hovered = False
         size = icon_px + pad_px * 2
         self.setFixedSize(size, size)
-        self.setToolTip(monster_name)
         self.setCursor(Qt.PointingHandCursor)
+        self.setMouseTracking(True)
+
+        # Outer glow via drop-shadow (same as siege cards)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(dp(6))
+        shadow.setOffset(0, 0)
+        shadow.setColor(QColor(0, 0, 0, 55))
+        self.setGraphicsEffect(shadow)
+        self._shadow = shadow
+
+        self._anim_shadow = QPropertyAnimation(shadow, b"blurRadius", self)
+        self._anim_shadow.setDuration(160)
+        self._anim_shadow.setEasingCurve(QEasingCurve.OutCubic)
+
+    def enterEvent(self, event) -> None:
+        self._hovered = True
+        accent = QColor(self._elem_color)
+        accent.setAlpha(180)
+        self._shadow.setColor(accent)
+        self._anim_shadow.stop()
+        self._anim_shadow.setStartValue(int(self._shadow.blurRadius()))
+        self._anim_shadow.setEndValue(dp(28))
+        self._anim_shadow.start()
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hovered = False
+        self._shadow.setColor(QColor(0, 0, 0, 55))
+        self._anim_shadow.stop()
+        self._anim_shadow.setStartValue(int(self._shadow.blurRadius()))
+        self._anim_shadow.setEndValue(dp(6))
+        self._anim_shadow.start()
+        self.update()
+        super().leaveEvent(event)
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
 
+        radius = self._pad_px + 3
+
         # Background
         p.fillRect(self.rect(), QColor("#1e1e2e"))
         p.setPen(QColor("#3a3a5a"))
-        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), self._pad_px, self._pad_px)
+        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
 
-        # Icon
+        # Icon — slightly larger on hover (zoom effect)
         if self._pixmap and not self._pixmap.isNull():
+            zoom_px = int(self._icon_px * 1.12) if self._hovered else self._icon_px
             scaled = self._pixmap.scaled(
-                self._icon_px, self._icon_px,
+                zoom_px, zoom_px,
                 Qt.KeepAspectRatio, Qt.SmoothTransformation,
             )
             x = (self.width() - scaled.width()) // 2
