@@ -60,6 +60,8 @@ def apply_saved_account(window, account, source_label: str) -> None:
     window.overview_widget.set_data(account)
     if hasattr(window, "monster_collection_widget"):
         window.monster_collection_widget.set_context(account, window.monster_db, window.assets_dir)
+    if hasattr(window, "farming_priority_widget"):
+        window.farming_priority_widget.set_context(account, window.monster_db, window.presets, window.assets_dir)
 
     window._on_tab_changed(window.tabs.currentIndex())
 
@@ -332,6 +334,7 @@ def on_tab_changed(window, index: int) -> None:
     elif tab in (
         getattr(window, "tab_rune_sub_runes", None),
         getattr(window, "tab_rune_sub_artifacts", None),
+        getattr(window, "tab_rune_sub_relics", None),
     ) and bool(window._lazy_view_dirty.get("rune_optimization", False)):
         window._refresh_rune_artifacts_only()
         window._lazy_view_dirty["rune_optimization"] = False
@@ -394,3 +397,4 @@ def ensure_unit_dropdowns_populated(window, tab: QWidget | None = None) -> None:
                 _auto_take_siege_if_empty(window)
             except Exception:
                 pass
+

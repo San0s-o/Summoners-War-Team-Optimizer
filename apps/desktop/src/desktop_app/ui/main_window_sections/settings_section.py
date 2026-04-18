@@ -31,6 +31,7 @@ from desktop_app.domain.presets import SET_ID_BY_NAME, SET_NAMES
 _ABOUT_CREATOR = "San0s"
 _ABOUT_DISCORD = "san0s"
 _CLOUD_OPTIN_KEY = "cloud_learning_enabled_full"
+_DESKTOP_MOBILE_SYNC_OPTIN_KEY = "desktop_mobile_sync_enabled_full"
 _COMMUNITY_BUILD_TRENDS_KEY = "community_build_trends_enabled_full"
 _COMMUNITY_SET_LIMIT_KEY = "community_trends_set_combo_limit_full"
 _COMMUNITY_MAINSTAT_LIMIT_KEY = "community_trends_mainstat_limit_full"
@@ -118,6 +119,15 @@ def _cloud_learning_optin(window) -> bool:
 
 def _set_cloud_learning_optin(window, enabled: bool) -> None:
     _save_app_settings(window, {_CLOUD_OPTIN_KEY: bool(enabled)})
+
+
+def _desktop_mobile_sync_optin(window) -> bool:
+    data = _load_app_settings(window)
+    return bool(data.get(_DESKTOP_MOBILE_SYNC_OPTIN_KEY, False))
+
+
+def _set_desktop_mobile_sync_optin(window, enabled: bool) -> None:
+    _save_app_settings(window, {_DESKTOP_MOBILE_SYNC_OPTIN_KEY: bool(enabled)})
 
 
 def _community_build_trends_optin(window) -> bool:
@@ -334,6 +344,18 @@ def init_settings_ui(window) -> None:
     window.lbl_settings_cloud_learning_hint.setWordWrap(True)
     window.lbl_settings_cloud_learning_hint.setContentsMargins(dp(20), 0, 0, dp(4))
     cloud_layout.addWidget(window.lbl_settings_cloud_learning_hint)
+
+    window.chk_settings_desktop_mobile_sync = QCheckBox(tr("settings.desktop_mobile_sync_optin"))
+    window.chk_settings_desktop_mobile_sync.setChecked(_desktop_mobile_sync_optin(window))
+    window.chk_settings_desktop_mobile_sync.toggled.connect(
+        lambda checked: on_settings_desktop_mobile_sync_toggled(window, bool(checked))
+    )
+    cloud_layout.addWidget(window.chk_settings_desktop_mobile_sync)
+
+    window.lbl_settings_desktop_mobile_sync_hint = QLabel("")
+    window.lbl_settings_desktop_mobile_sync_hint.setWordWrap(True)
+    window.lbl_settings_desktop_mobile_sync_hint.setContentsMargins(dp(20), 0, 0, dp(4))
+    cloud_layout.addWidget(window.lbl_settings_desktop_mobile_sync_hint)
 
     window.chk_settings_community_trends = QCheckBox(tr("settings.community_trends_optin"))
     window.chk_settings_community_trends.setChecked(_community_build_trends_optin(window))
@@ -676,6 +698,7 @@ def refresh_settings_license_status(window) -> None:
     if is_full:
         window.grp_settings_cloud.setVisible(True)
         enabled = _cloud_learning_optin(window)
+        desktop_sync_enabled = _desktop_mobile_sync_optin(window)
         trends_enabled = _community_build_trends_optin(window)
         set_limit = _community_set_limit(window)
         main_limit = _community_mainstat_limit(window)
@@ -685,6 +708,12 @@ def refresh_settings_license_status(window) -> None:
         window.chk_settings_cloud_learning.blockSignals(False)
         window.chk_settings_cloud_learning.setEnabled(True)
         window.lbl_settings_cloud_learning_hint.setText(tr("settings.cloud_learning_optin_hint"))
+
+        window.chk_settings_desktop_mobile_sync.blockSignals(True)
+        window.chk_settings_desktop_mobile_sync.setChecked(bool(desktop_sync_enabled))
+        window.chk_settings_desktop_mobile_sync.blockSignals(False)
+        window.chk_settings_desktop_mobile_sync.setEnabled(True)
+        window.lbl_settings_desktop_mobile_sync_hint.setText(tr("settings.desktop_mobile_sync_optin_hint"))
 
         window.chk_settings_community_trends.blockSignals(True)
         window.chk_settings_community_trends.setChecked(bool(trends_enabled))
@@ -786,6 +815,25 @@ def on_settings_cloud_learning_toggled(window, enabled: bool) -> None:
     else:
         window.statusBar().showMessage(tr("settings.cloud_learning_saved_off"), 4000)
         show_toast(window, tr("settings.cloud_learning_saved_off"), "info")
+
+
+def on_settings_desktop_mobile_sync_toggled(window, enabled: bool) -> None:
+    from desktop_app.services.license_service import has_full_access_cached
+
+    if not has_full_access_cached():
+        window.chk_settings_desktop_mobile_sync.blockSignals(True)
+        window.chk_settings_desktop_mobile_sync.setChecked(False)
+        window.chk_settings_desktop_mobile_sync.blockSignals(False)
+        window.statusBar().showMessage(tr("settings.desktop_mobile_sync_optin_unavailable"), 5000)
+        return
+
+    _set_desktop_mobile_sync_optin(window, bool(enabled))
+    if enabled:
+        window.statusBar().showMessage(tr("settings.desktop_mobile_sync_saved_on"), 4000)
+        show_toast(window, tr("settings.desktop_mobile_sync_saved_on"), "success")
+    else:
+        window.statusBar().showMessage(tr("settings.desktop_mobile_sync_saved_off"), 4000)
+        show_toast(window, tr("settings.desktop_mobile_sync_saved_off"), "info")
 
 
 def on_settings_community_trends_toggled(window, enabled: bool) -> None:
@@ -1329,6 +1377,7 @@ def retranslate_settings(window) -> None:
 
     window.grp_settings_cloud.setTitle(tr("settings.group_cloud"))
     window.chk_settings_cloud_learning.setText(tr("settings.cloud_learning_optin"))
+    window.chk_settings_desktop_mobile_sync.setText(tr("settings.desktop_mobile_sync_optin"))
     window.chk_settings_community_trends.setText(tr("settings.community_trends_optin"))
     window.btn_settings_delete_cloud_data.setText(tr("settings.btn_delete_cloud_data"))
     window.lbl_settings_community_set_limit.setText(tr("settings.community_set_limit_label"))

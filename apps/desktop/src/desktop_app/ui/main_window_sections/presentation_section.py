@@ -5,23 +5,30 @@ from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QScrollArea, QVBoxLa
 
 from desktop_app.i18n import tr
 from desktop_app.ui.dpi import dp
-from desktop_app.ui.theme import C as _C
+from desktop_app.ui import theme as _th
 from desktop_app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 
 def apply_tab_style(window) -> None:
-    c = _C
+    c = _th.C
+    is_cp = _th.current_name == "cyberpunk"
+    pane_bg = c["tab_pane"]
+    tab_text = c["tab_text"]
+    tab_sel_text = c["tab_active_text"] if is_cp else "#e8ecf1"
+    tab_accent = c["tab_accent"]
+    tab_border = c["tab_border"]
+    hover_bg = c["tab_hover_accent"] if is_cp else c["bg_mid"]
+    hover_text = c["tab_hover_text"]
+    extra_tab = "text-transform: uppercase; letter-spacing: 1px; font-weight: 500;" if is_cp else ""
+    extra_sel = "font-weight: bold;" if is_cp else ""
     window.tabs.setStyleSheet(
         f"""
-        QTabWidget {{
-            border: none;
-            background: transparent;
-        }}
+        QTabWidget {{ border: none; background: transparent; }}
         QTabWidget::pane {{
-            border: 1px solid {c['tab_border']};
-            border-radius: {dp(10)}px;
-            background: {c['tab_pane']};
-            top: {dp(8)}px;
+            border: 1px solid {tab_border};
+            border-radius: {dp(8)}px;
+            background: {pane_bg};
+            top: {dp(6)}px;
         }}
         QTabBar {{
             qproperty-drawBase: 0;
@@ -33,25 +40,26 @@ def apply_tab_style(window) -> None:
         }}
         QTabBar::tab {{
             background: transparent;
-            color: {c['tab_text']};
+            color: {tab_text};
             border: 1px solid transparent;
-            border-radius: {dp(8)}px;
-            min-width: {dp(108)}px;
-            min-height: {dp(20)}px;
-            padding: {dp(8)}px {dp(16)}px;
-            margin-right: {dp(6)}px;
+            border-bottom: 2px solid transparent;
+            border-radius: {dp(7)}px;
+            min-width: {dp(90)}px;
+            padding: {dp(6)}px {dp(14)}px;
+            margin-right: {dp(5)}px;
+            {extra_tab}
         }}
         QTabBar::tab:selected {{
-            background: {c['bg_mid']};
-            color: {c['tab_active_text']};
-            border-color: {c['tab_border']};
-            border-bottom: 2px solid {c['tab_accent']};
-            font-weight: bold;
+            background: {hover_bg};
+            color: {tab_sel_text};
+            border-color: {tab_border};
+            border-bottom: 2px solid {tab_accent};
+            {extra_sel}
         }}
         QTabBar::tab:hover:!selected {{
-            background: {c['bg_mid']};
-            color: {c['tab_hover_text']};
-            border-color: {c['tab_border']};
+            background: {hover_bg};
+            color: {hover_text};
+            border-color: {tab_border};
         }}
         """
     )
@@ -91,6 +99,8 @@ def on_language_changed(window, index: int) -> None:
 
 def retranslate_ui(window) -> None:
     window.setWindowTitle(tr("main.title"))
+    if hasattr(window, "btn_help"):
+        window.btn_help.setText(tr("help.title"))
     if not window.account:
         window.lbl_status.setText(tr("main.no_import"))
 
@@ -255,6 +265,7 @@ def retranslate_ui(window) -> None:
     if hasattr(window, "rune_art_inner_tabs"):
         window.rune_art_inner_tabs.setTabText(0, tr("rune_opt.subtab_runes"))
         window.rune_art_inner_tabs.setTabText(1, tr("rune_opt.subtab_artifacts"))
+        window.rune_art_inner_tabs.setTabText(2, tr("rune_opt.subtab_relics"))
 
     window.overview_widget.retranslate()
     if hasattr(window, "monster_collection_widget"):
@@ -262,6 +273,8 @@ def retranslate_ui(window) -> None:
     window.rta_overview.retranslate()
     window.rune_optimization_widget.retranslate()
     window.artifact_optimization_widget.retranslate()
+    if hasattr(window, "relic_overview_widget"):
+        window.relic_overview_widget.retranslate()
     if window.account:
         window._render_siege_raw()
         window._refresh_rune_optimization()

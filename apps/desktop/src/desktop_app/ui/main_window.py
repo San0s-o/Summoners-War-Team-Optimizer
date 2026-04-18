@@ -156,6 +156,8 @@ from desktop_app.ui.monster_collection_widget import MonsterCollectionWidget
 from desktop_app.ui.rta_overview_widget import RtaOverviewWidget
 from desktop_app.ui.rune_optimization_widget import RuneOptimizationWidget
 from desktop_app.ui.artifact_optimization_widget import ArtifactOptimizationWidget
+from desktop_app.ui.relic_overview_widget import RelicOverviewWidget
+from desktop_app.ui.farming_priority_widget import FarmingPriorityWidget
 from desktop_app.i18n import tr
 from desktop_app.ui.dpi import dp
 
@@ -240,17 +242,26 @@ class MainWindow(QMainWindow):
 
         top = QHBoxLayout()
         top.addStretch(1)
-        btn_help = QPushButton("?")
-        btn_help.setFixedSize(dp(32), dp(32))
-        btn_help.setStyleSheet(
-            "QPushButton { background: #3a3a3a; color: #ffffff; border: 1px solid #555555;"
-            " border-radius: 16px; font-size: 15pt; font-weight: bold;"
-            " padding: 0px; min-height: 0px; }"
-            "QPushButton:hover { background: #4a90e2; border-color: #4a90e2; }"
-            "QPushButton:pressed { background: #2d6bc4; }"
+        self.btn_help = QPushButton(tr("help.title"))
+        self.btn_help.setMinimumHeight(dp(34))
+        self.btn_help.setMinimumWidth(dp(108))
+        self.btn_help.setStyleSheet(
+            (
+                "QPushButton {{ background: #3a3a3a; color: #ffffff; border: 1px solid #555555;"
+                " border-radius: {radius}px; font-size: {font_size}px; font-weight: 600;"
+                " padding: {pad_v}px {pad_h}px; min-height: {min_h}px; }}"
+                "QPushButton:hover {{ background: #4a90e2; border-color: #4a90e2; }}"
+                "QPushButton:pressed {{ background: #2d6bc4; }}"
+            ).format(
+                radius=dp(8),
+                font_size=dp(11),
+                pad_v=dp(6),
+                pad_h=dp(12),
+                min_h=dp(28),
+            )
         )
-        btn_help.clicked.connect(self._show_help_dialog)
-        top.addWidget(btn_help)
+        self.btn_help.clicked.connect(self._show_help_dialog)
+        top.addWidget(self.btn_help)
         layout.addLayout(top)
 
         self.tabs = QTabWidget()
@@ -413,6 +424,23 @@ class MainWindow(QMainWindow):
             monster_name_fn=self._monster_name_for_unit_id,
         )
         _artifacts_layout.addWidget(self.artifact_optimization_widget)
+
+        self.tab_rune_sub_relics = QWidget()
+        self.rune_art_inner_tabs.addTab(self.tab_rune_sub_relics, tr("rune_opt.subtab_relics"))
+        _relics_layout = QVBoxLayout(self.tab_rune_sub_relics)
+        _relics_layout.setContentsMargins(0, 0, 0, 0)
+        self.relic_overview_widget = RelicOverviewWidget(
+            monster_name_fn=self._monster_name_for_unit_id,
+            monster_icon_fn=self._unit_icon_for_unit_id,
+        )
+        _relics_layout.addWidget(self.relic_overview_widget)
+
+        self.tab_rune_sub_farming = QWidget()
+        self.rune_art_inner_tabs.addTab(self.tab_rune_sub_farming, tr("tab.farming_priority"))
+        _farming_layout = QVBoxLayout(self.tab_rune_sub_farming)
+        _farming_layout.setContentsMargins(0, 0, 0, 0)
+        self.farming_priority_widget = FarmingPriorityWidget()
+        _farming_layout.addWidget(self.farming_priority_widget)
 
         self.rune_art_inner_tabs.currentChanged.connect(
             lambda _: self._on_tab_changed(self.tabs.currentIndex())
@@ -607,10 +635,12 @@ class MainWindow(QMainWindow):
     def _refresh_rune_optimization(self) -> None:
         self.rune_optimization_widget.set_account(self.account)
         self.artifact_optimization_widget.set_account(self.account)
+        self.relic_overview_widget.set_account(self.account)
 
     def _refresh_rune_artifacts_only(self) -> None:
         self.rune_optimization_widget.set_account(self.account)
         self.artifact_optimization_widget.set_account(self.account)
+        self.relic_overview_widget.set_account(self.account)
 
     # ============================================================
     # Custom Builders UI

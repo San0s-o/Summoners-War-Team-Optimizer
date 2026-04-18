@@ -49,12 +49,28 @@ class Artifact:
     sec_effects: List[List] = field(default_factory=list)  # [[eff_id, value, upgrades, ...], ...]
     json_score: float = 0.0   # Vorberechneter Score aus dem JSON-Export (0.0 = nicht vorhanden)
 
+@dataclass(frozen=True)
+class Relic:
+    relic_id: int                    # pri "rid" im JSON-Export
+    main_property_type: int          # pri_effect[0]: 100=ATK%, 101=DEF%, 102=HP%
+    main_property_value: float       # pri_effect[1]
+    unique_property_id: int          # "type" bzw. sec_effect[0] (1..N)
+    unique_property_value: float     # sec_effect[1]
+    unique_property_meta: int = 0    # sec_effect[2] (Bedeutung noch unklar)
+    level: int = 0                   # upgrade_curr 0..15
+    durability: int = 3              # 3 = voll, 0 = erschöpft
+    source: int = 0                  # Herkunft (z.B. 10001/10002)
+    locked: bool = False
+    # unit_ids auf denen das Relic graviert ist (abgeleitet aus unit_list[*].relics)
+    engraved_units: Tuple[int, ...] = ()
+
 @dataclass
 class AccountData:
     # In-memory normalized store
     units_by_id: Dict[int, Unit] = field(default_factory=dict)
     runes: List[Rune] = field(default_factory=list)
     artifacts: List[Artifact] = field(default_factory=list)
+    relics: List[Relic] = field(default_factory=list)
 
     # Raw defense lists
     guildsiege_defense_unit_list: List[int] = field(default_factory=list)

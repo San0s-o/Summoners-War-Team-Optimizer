@@ -195,3 +195,19 @@ Withdrawal only takes effect for the future.
 
 
 ================================================================
+12. DESKTOP-TO-MOBILE SYNC (OPTIONAL)
+--------------------------------------
+Legal basis: Art. 6(1)(a) GDPR (consent)
+Synchronization of saved optimizations from desktop to the mobile app is
+optional and disabled by default.
+Only after explicit activation in desktop settings, the following data is
+stored server-side and made available to the mobile app:
+  - saved optimization data (build results and related metadata)
+  - technical mapping identifiers (e.g. account ID, license reference)
+Important:
+  - Before explicit consent is given, none of this synchronization data is
+    stored.
+  - Synchronization is one-way: desktop -> mobile.
+  - Changes on mobile are not synced back to desktop.
+Consent can be withdrawn at any time in settings.
+Withdrawal stops future synchronizations.

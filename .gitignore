@@ -59,6 +59,7 @@ tests/
 tools/
 screenshots/
 scripts/
+docs/
 
 # Android
 apps/android/

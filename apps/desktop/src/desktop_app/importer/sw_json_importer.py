@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from desktop_app.domain.models import AccountData, Unit, Rune, Artifact
+from desktop_app.domain.models import AccountData, Unit, Rune, Artifact, Relic
 
 
 def _coerce_root_payload(raw: Any) -> Dict[str, Any]:
@@ -169,6 +169,54 @@ def _parse_artifact(a: Dict[str, Any], occupied_id_override: int | None = None) 
     )
 
 
+def _parse_relic(r: Dict[str, Any]) -> Relic | None:
+    """Parst einen Relic-Eintrag aus dem SW JSON-Export.
+
+    Struktur (v9.1.8):
+      {
+        "rid": <int>,
+        "type": <unique_property_id>,
+        "upgrade_curr": <level 0..15>,
+        "durability": <0..3>,
+        "locked": 0|1,
+        "pri_effect": [main_stat_id, value],
+            main_stat_id: 100=ATK%, 101=DEF%, 102=HP%
+        "sec_effect": [unique_property_id, value, meta],
+        "source": <int>,
+      }
+    """
+    rid = _safe_int(r.get("rid") or r.get("relic_id"))
+    if rid == 0:
+        return None
+    pri = r.get("pri_effect") or []
+    sec = r.get("sec_effect") or []
+    main_type = _safe_int(pri[0]) if len(pri) > 0 else 0
+    try:
+        main_value = float(pri[1]) if len(pri) > 1 else 0.0
+    except (TypeError, ValueError):
+        main_value = 0.0
+    unique_id = _safe_int(r.get("type"))
+    if unique_id == 0 and len(sec) > 0:
+        unique_id = _safe_int(sec[0])
+    try:
+        unique_value = float(sec[1]) if len(sec) > 1 else 0.0
+    except (TypeError, ValueError):
+        unique_value = 0.0
+    unique_meta = _safe_int(sec[2]) if len(sec) > 2 else 0
+    return Relic(
+        relic_id=rid,
+        main_property_type=main_type,
+        main_property_value=main_value,
+        unique_property_id=unique_id,
+        unique_property_value=unique_value,
+        unique_property_meta=unique_meta,
+        level=_safe_int(r.get("upgrade_curr", 0)),
+        durability=_safe_int(r.get("durability", 3)),
+        source=_safe_int(r.get("source", 0)),
+        locked=bool(r.get("locked", 0)),
+    )
+
+
 def load_account_json(path: str | Path) -> AccountData:
     """
     Lädt einen Summoners-War-JSON-Export und normalisiert
@@ -202,6 +250,9 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
         icon = str(sm.get("icon_filename") or "").strip()
         if icon:
             acc.skill_icons[skill_id] = icon
+
+    # relic_id -> set of unit_ids that have this relic engraved
+    relic_engraved: Dict[int, set] = {}
 
     # Some exports split owned units between the active box and monster storage.
     # We need both sources so stored monsters (e.g. Shi Hou) appear in the UI.
@@ -278,6 +329,13 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                         acc.artifacts.append(art)
                 except Exception:
                     continue
+
+            for rl in (u.get("relics") or []):
+                if not isinstance(rl, dict):
+                    continue
+                rid = _safe_int(rl.get("rid") or rl.get("relic_id"))
+                if rid > 0:
+                    relic_engraved.setdefault(rid, set()).add(unit_id)
 
     for r in (data.get("runes") or []):
         if not isinstance(r, dict):
@@ -399,6 +457,62 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                 continue
 
     acc.artifacts = list(full_arts_by_id.values())
+
+    # ── Relics ──────────────────────────────────────────────────
+    # Top-level "relics" list enthält alle besessenen Relics. Engravings
+    # werden aus unit_list[*].relics abgeleitet (s. relic_engraved oben).
+    relics_by_id: Dict[int, Relic] = {}
+    for r in (data.get("relics") or data.get("rune_relic_list") or data.get("relic_list") or []):
+        if not isinstance(r, dict):
+            continue
+        try:
+            relic = _parse_relic(r)
+            if relic:
+                relics_by_id[relic.relic_id] = relic
+        except Exception:
+            continue
+
+    # Fallback: falls ein Relic nur auf einer Unit auftaucht aber nicht in der
+    # top-level Liste, trotzdem aufnehmen.
+    if relic_engraved:
+        for units in unit_sources:
+            if not isinstance(units, list):
+                continue
+            for u in units:
+                if not isinstance(u, dict):
+                    continue
+                for rl in (u.get("relics") or []):
+                    if not isinstance(rl, dict):
+                        continue
+                    rid = _safe_int(rl.get("rid") or rl.get("relic_id"))
+                    if rid <= 0 or rid in relics_by_id:
+                        continue
+                    try:
+                        relic = _parse_relic(rl)
+                        if relic:
+                            relics_by_id[relic.relic_id] = relic
+                    except Exception:
+                        continue
+
+    # Engravings in die Relic-Objekte mergen (sortierte, deduplizierte unit_ids).
+    acc.relics = []
+    for rid, relic in relics_by_id.items():
+        engraved = tuple(sorted(relic_engraved.get(rid, set())))
+        if engraved:
+            relic = Relic(
+                relic_id=relic.relic_id,
+                main_property_type=relic.main_property_type,
+                main_property_value=relic.main_property_value,
+                unique_property_id=relic.unique_property_id,
+                unique_property_value=relic.unique_property_value,
+                unique_property_meta=relic.unique_property_meta,
+                level=relic.level,
+                durability=relic.durability,
+                source=relic.source,
+                locked=relic.locked,
+                engraved_units=engraved,
+            )
+        acc.relics.append(relic)
 
     # ── Enchanted gem inventory (craft_stuff) ────────────────────
     # craft_stuff is a list of {"id": N, "quantity": M} objects in the SW JSON.

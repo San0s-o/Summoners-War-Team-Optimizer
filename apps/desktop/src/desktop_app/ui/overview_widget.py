@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCharts import (
     QChart, QChartView, QBarCategoryAxis,
-    QValueAxis, QPieSeries, QLineSeries, QPieSlice, QSplineSeries,
+    QValueAxis, QPieSeries, QLineSeries, QPieSlice,
 )
 
 from desktop_app.domain.models import AccountData, Rune, Artifact
@@ -1391,21 +1391,21 @@ class OverviewWidget(QWidget):
             hero_items.append((hero_eff, payload))
             legend_items.append((legend_eff, payload))
 
-        series_current = QSplineSeries()
+        series_current = QLineSeries()
         series_current.setName(tr("overview.series_current"))
         _pen = QPen(QColor("#f39c12")); _pen.setWidthF(2.5)
         series_current.setPen(_pen)
         for idx, (eff, _) in enumerate(current_items, start=1):
             series_current.append(float(idx), float(eff))
 
-        series_hero = QSplineSeries()
+        series_hero = QLineSeries()
         series_hero.setName(tr("overview.series_hero_max"))
         _pen = QPen(QColor("#4aa3ff")); _pen.setWidthF(1.5)
         series_hero.setPen(_pen)
         for idx, (eff, _) in enumerate(hero_items, start=1):
             series_hero.append(float(idx), float(eff))
 
-        series_legend = QSplineSeries()
+        series_legend = QLineSeries()
         series_legend.setName(tr("overview.series_legend_max"))
         _pen = QPen(QColor("#2ecc71")); _pen.setWidthF(1.5)
         series_legend.setPen(_pen)
@@ -1482,7 +1482,7 @@ class OverviewWidget(QWidget):
             ranked = sorted(by_type[t], key=lambda x: x[0], reverse=True)[:top_n]
             if not ranked:
                 continue
-            s = QSplineSeries()
+            s = QLineSeries()
             s.setName(names[t])
             _pen = QPen(QColor(colors[t])); _pen.setWidthF(2.0)
             s.setPen(_pen)

@@ -196,3 +196,19 @@ Der Widerruf wirkt nur für die Zukunft.
 
 
 ================================================================
+12. DESKTOP-MOBILE-SYNC (OPTIONAL)
+------------------------------------
+Rechtsgrundlage: Art. 6 Abs. 1 lit. a DSGVO (Einwilligung)
+Die Synchronisierung von gespeicherten Optimierungen vom Desktop zur Mobile-App
+ist optional und standardmaessig deaktiviert.
+Nur nach ausdruecklicher Aktivierung in den Desktop-Einstellungen werden
+folgende Daten serverseitig gespeichert und fuer die Mobile-App bereitgestellt:
+  - gespeicherte Optimierungsdaten (Build-Ergebnisse, zugehoerige Metadaten)
+  - technische Zuordnungsschluessel (z. B. Account-ID, Lizenzbezug)
+Wichtig:
+  - Vor der ausdruecklichen Zustimmung findet keine Speicherung dieser
+    Synchronisierungsdaten statt.
+  - Die Synchronisierung ist einseitig: Desktop -> Mobile.
+  - Aenderungen auf Mobile werden nicht zurueck auf Desktop synchronisiert.
+Die Einwilligung kann jederzeit in den Einstellungen widerrufen werden.
+Der Widerruf stoppt zukuenftige Synchronisierungen.

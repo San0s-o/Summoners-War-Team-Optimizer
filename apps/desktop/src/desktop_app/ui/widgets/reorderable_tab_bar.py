@@ -66,18 +66,23 @@ class ReorderableTabBar(QTabBar):
         if self.count() == 0:
             return
         from desktop_app.ui import theme as _theme
+        from desktop_app.ui.dpi import dp
         accent = QColor(_theme.C["tab_accent"])
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(Qt.NoPen)
         p.setBrush(accent)
-        h = 2
+        h = dp(2)
+        inset = dp(7)
+        x = int(self.__ind_x) + inset
+        w = max(0, int(self.__ind_w) - (2 * inset))
+        radius = max(1, h // 2)
         p.drawRoundedRect(
-            int(self.__ind_x),
+            x,
             self.height() - h,
-            int(self.__ind_w),
+            w,
             h,
-            1, 1,
+            radius, radius,
         )
         p.end()
 

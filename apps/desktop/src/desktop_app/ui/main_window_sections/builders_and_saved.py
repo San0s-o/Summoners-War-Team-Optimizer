@@ -32,6 +32,7 @@ from desktop_app.ui.widgets.selection_combos import _UnitSearchComboBox
 from desktop_app.ui.main_window_sections.arena_rush_ui import (
     init_arena_rush_builder_ui as _sec_init_arena_rush_builder_ui,
 )
+from desktop_app.services.cloud_learning_service import delete_saved_optimization
 
 
 def _clear_combo(cmb: _UnitSearchComboBox) -> None:
@@ -624,6 +625,11 @@ def on_delete_saved_opt(window, mode: str) -> None:
     )
     if reply != QMessageBox.Yes:
         return
+    try:
+        delete_saved_optimization(optimization_id=oid)
+    except Exception:
+        # Best-effort cloud tombstone; local delete must still complete.
+        pass
     window.opt_store.remove(oid)
     window.opt_store.save(window.opt_store_path)
     window._refresh_saved_opt_combo(mode)
