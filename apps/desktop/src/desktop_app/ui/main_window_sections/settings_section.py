@@ -357,6 +357,10 @@ def init_settings_ui(window) -> None:
     window.lbl_settings_desktop_mobile_sync_hint.setContentsMargins(dp(20), 0, 0, dp(4))
     cloud_layout.addWidget(window.lbl_settings_desktop_mobile_sync_hint)
 
+    window.btn_settings_release_mobile_device = QPushButton(tr("settings.btn_release_mobile_device"))
+    window.btn_settings_release_mobile_device.clicked.connect(window._on_settings_release_mobile_device)
+    cloud_layout.addWidget(window.btn_settings_release_mobile_device)
+
     window.chk_settings_community_trends = QCheckBox(tr("settings.community_trends_optin"))
     window.chk_settings_community_trends.setChecked(_community_build_trends_optin(window))
     window.chk_settings_community_trends.toggled.connect(
@@ -630,6 +634,7 @@ def init_settings_ui(window) -> None:
     window._settings_license_worker = None
     window._settings_update_worker = None
     window._settings_cloud_delete_worker = None
+    window._settings_release_mobile_worker = None
     refresh_settings_import_status(window)
     refresh_settings_license_status(window)
     _refresh_settings_about(window)
@@ -746,6 +751,7 @@ def refresh_settings_license_status(window) -> None:
             window.lbl_settings_community_limit_hint.setText(tr("settings.community_limits_hint"))
         else:
             window.lbl_settings_community_limit_hint.setText(tr("settings.community_trends_requires_cloud"))
+        window.btn_settings_release_mobile_device.setEnabled(window._settings_release_mobile_worker is None)
         window.btn_settings_delete_cloud_data.setEnabled(window._settings_cloud_delete_worker is None)
     else:
         window.grp_settings_cloud.setVisible(False)
@@ -1218,6 +1224,86 @@ def on_settings_delete_cloud_data(window) -> None:
     QThreadPool.globalInstance().start(worker)
 
 
+def on_settings_release_mobile_device(window) -> None:
+    from desktop_app.services.license_service import has_full_access_cached
+
+    if not has_full_access_cached():
+        window.statusBar().showMessage(tr("settings.release_mobile_unavailable"), 5000)
+        return
+    if window._settings_release_mobile_worker is not None:
+        return
+
+    dlg_1 = QMessageBox(window)
+    dlg_1.setIcon(QMessageBox.Warning)
+    dlg_1.setWindowTitle(tr("settings.confirm_title"))
+    dlg_1.setText(tr("settings.confirm_release_mobile_device"))
+    btn_yes_1 = dlg_1.addButton(tr("btn.yes"), QMessageBox.YesRole)
+    dlg_1.addButton(tr("btn.no"), QMessageBox.NoRole)
+    dlg_1.setDefaultButton(btn_yes_1)
+    dlg_1.exec()
+    if dlg_1.clickedButton() is not btn_yes_1:
+        return
+
+    dlg_2 = QMessageBox(window)
+    dlg_2.setIcon(QMessageBox.Warning)
+    dlg_2.setWindowTitle(tr("settings.confirm_title"))
+    dlg_2.setText(tr("settings.confirm_release_mobile_device_second"))
+    btn_yes_2 = dlg_2.addButton(tr("btn.yes"), QMessageBox.YesRole)
+    dlg_2.addButton(tr("btn.no"), QMessageBox.NoRole)
+    dlg_2.setDefaultButton(btn_yes_2)
+    dlg_2.exec()
+    if dlg_2.clickedButton() is not btn_yes_2:
+        return
+
+    from desktop_app.services.license_service import release_mobile_device_binding
+    from desktop_app.ui.async_worker import _TaskWorker
+
+    window.btn_settings_release_mobile_device.setEnabled(False)
+    window.statusBar().showMessage(tr("settings.release_mobile_in_progress"), 5000)
+
+    worker = _TaskWorker(release_mobile_device_binding)
+    window._settings_release_mobile_worker = worker
+
+    def _on_finished(result_obj: object) -> None:
+        window._settings_release_mobile_worker = None
+        window.btn_settings_release_mobile_device.setEnabled(True)
+        if not isinstance(result_obj, dict):
+            msg = tr("settings.release_mobile_failed")
+            window.statusBar().showMessage(msg, 7000)
+            QMessageBox.warning(window, tr("settings.confirm_title"), msg)
+            return
+        if bool(result_obj.get("ok")):
+            removed_devices = int(result_obj.get("removed_mobile_devices", 0) or 0)
+            removed_acts = int(result_obj.get("removed_mobile_activations", 0) or 0)
+            removed_sessions = int(result_obj.get("removed_mobile_sessions", 0) or 0)
+            if removed_devices <= 0 and removed_acts <= 0 and removed_sessions <= 0:
+                msg = tr("settings.release_mobile_no_device")
+            else:
+                msg = tr(
+                    "settings.release_mobile_success",
+                    devices=removed_devices,
+                    activations=removed_acts,
+                    sessions=removed_sessions,
+                )
+            window.statusBar().showMessage(msg, 8000)
+            show_toast(window, msg, "success")
+            return
+        msg = tr("settings.release_mobile_failed_reason", reason=str(result_obj.get("message") or ""))
+        window.statusBar().showMessage(msg, 8000)
+        QMessageBox.warning(window, tr("settings.confirm_title"), msg)
+
+    def _on_failed(detail: str) -> None:
+        window._settings_release_mobile_worker = None
+        window.btn_settings_release_mobile_device.setEnabled(True)
+        msg = tr("settings.release_mobile_failed")
+        window.statusBar().showMessage(msg, 7000)
+        QMessageBox.warning(window, tr("settings.confirm_title"), msg)
+
+    worker.signals.finished.connect(_on_finished)
+    worker.signals.failed.connect(_on_failed)
+    QThreadPool.globalInstance().start(worker)
+
+
 def on_settings_reset_presets(window) -> None:
     reply = QMessageBox.question(
         window,
@@ -1378,6 +1464,7 @@ def retranslate_settings(window) -> None:
     window.grp_settings_cloud.setTitle(tr("settings.group_cloud"))
     window.chk_settings_cloud_learning.setText(tr("settings.cloud_learning_optin"))
     window.chk_settings_desktop_mobile_sync.setText(tr("settings.desktop_mobile_sync_optin"))
+    window.btn_settings_release_mobile_device.setText(tr("settings.btn_release_mobile_device"))
     window.chk_settings_community_trends.setText(tr("settings.community_trends_optin"))
     window.btn_settings_delete_cloud_data.setText(tr("settings.btn_delete_cloud_data"))
     window.lbl_settings_community_set_limit.setText(tr("settings.community_set_limit_label"))

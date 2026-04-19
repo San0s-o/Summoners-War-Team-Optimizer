@@ -30,9 +30,9 @@ _GRIND_GAIN_PRIORITY = 5.0
 _SET_TARGET_EFF = 85.0
 _ARTIFACT_TARGET_EFF = 72.0
 _SET_MIN_CARD_W = 300
-_DUNGEON_MIN_CARD_W = 300
+_DUNGEON_MIN_CARD_W = 320
 _MAX_SET_COLS = 6
-_MAX_DUNGEON_COLS = 4
+_MAX_DUNGEON_COLS = 5
 _ANCIENT_RUNE_CLASSES = {11, 12, 13, 14, 15, 16}
 _GRINDABLE_EFF_IDS = {1, 2, 3, 4, 5, 6, 8}
 _HERO_GRIND_CAP = {1: 430.0, 2: 7.0, 3: 22.0, 4: 7.0, 5: 22.0, 6: 7.0, 8: 4.0}
@@ -283,7 +283,8 @@ class FarmingPriorityWidget(QWidget):
             gap_px=max(0, self._sets_grid.horizontalSpacing()),
             max_cols=_MAX_SET_COLS,
         )
-        dungeon_cols = _fit_columns(
+        dungeon_cols = _balanced_columns(
+            item_count=len(self._dungeon_reports),
             available_px=dungeon_available,
             min_card_px=dp(_DUNGEON_MIN_CARD_W),
             gap_px=max(0, self._dungeon_grid.horizontalSpacing()),
@@ -374,9 +375,8 @@ class _DungeonRankCard(QFrame):
     def __init__(self, rank: int, report: DungeonFarmReport, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("FarmingDungeonCard")
-        self.setFixedHeight(dp(170))
         self.setMinimumWidth(dp(280))
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         c = _theme.C
         tone = _eff_color(report.quality_pct)
         self.setStyleSheet(
@@ -413,15 +413,18 @@ class _DungeonRankCard(QFrame):
                 )
             )
         )
+        details.setWordWrap(True)
         details.setStyleSheet(f"font-size: {dp(10)}px; color: {c['text_dim']};")
         lay.addWidget(details)
 
         if report.is_raid:
             raid_sub = QLabel(tr("farming.raid_one_missing", count=report.raid_one_grind_missing_count))
+            raid_sub.setWordWrap(True)
             raid_sub.setStyleSheet(f"font-size: {dp(10)}px; color: {c['text_dim']};")
             lay.addWidget(raid_sub)
 
         note = QLabel(report.note)
+        note.setWordWrap(True)
         note.setStyleSheet(f"font-size: {dp(10)}px; color: {c['text_dim']};")
         lay.addWidget(note)
 
@@ -485,6 +488,25 @@ def _fit_columns(available_px: int, min_card_px: int, gap_px: int, max_cols: int
     gap = max(0, int(gap_px))
     cols = (available + gap) // (min_card + gap)
     return max(1, min(int(max_cols), int(cols)))
+
+
+def _balanced_columns(item_count: int, available_px: int, min_card_px: int, gap_px: int, max_cols: int) -> int:
+    count = max(1, int(item_count))
+    cap = min(count, int(max_cols))
+    fit = _fit_columns(available_px=available_px, min_card_px=min_card_px, gap_px=gap_px, max_cols=cap)
+    if count <= fit:
+        return fit
+
+    # Avoid sparse last rows on wide screens (e.g. 7 cards as 4+3 instead of 5+2).
+    min_last_row_fill = 0.60
+    for cols in range(fit, 0, -1):
+        rows = (count + cols - 1) // cols
+        if rows <= 1:
+            return cols
+        last_row_items = count - (rows - 1) * cols
+        if (last_row_items / cols) >= min_last_row_fill:
+            return cols
+    return 1
 
 
 def _compute_set_reports(account: AccountData) -> List[SetFarmReport]:

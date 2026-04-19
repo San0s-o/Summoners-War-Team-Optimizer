@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Tuple
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,7 @@ class MonsterInfo:
     obtainable: bool = True
     family_id: int = 0
     homunculus: bool = False
+    skills: Tuple[int, ...] = ()
 
 
 class MonsterDB:
@@ -60,12 +61,18 @@ class MonsterDB:
         self.skill_max_levels: Dict[int, int] = {}
         self.skill_icons: Dict[int, str] = {}
         self.skill_names: Dict[int, str] = {}
+        self.skill_descriptions: Dict[int, str] = {}
+        self.skill_upgrade_lines: Dict[int, Tuple[str, ...]] = {}
+        self.skill_slots: Dict[int, int] = {}
 
     def load(self) -> None:
         self._by_id = {}
         self.skill_max_levels = {}
         self.skill_icons = {}
         self.skill_names = {}
+        self.skill_descriptions = {}
+        self.skill_upgrade_lines = {}
+        self.skill_slots = {}
         self._load_skill_defs()
         if not self.db_path.exists():
             return
@@ -93,6 +100,7 @@ class MonsterDB:
                     obtainable=self._safe_bool(meta.get("obtainable", m.get("obtainable")), True),
                     family_id=self._safe_int(meta.get("family_id") or m.get("family_id"), 0),
                     homunculus=self._safe_bool(meta.get("homunculus", m.get("homunculus"))),
+                    skills=self._parse_monster_skill_ids(m.get("skills")),
                 )
                 self._by_id[mid] = info
             except Exception:
@@ -120,6 +128,17 @@ class MonsterDB:
                 name = str(entry.get("name") or "").strip()
                 if name:
                     self.skill_names[sw_id] = name
+                description = str(entry.get("description") or "").strip()
+                if description:
+                    self.skill_descriptions[sw_id] = description
+                upgrades_raw = entry.get("level_progress_description")
+                if isinstance(upgrades_raw, list):
+                    upgrades = tuple(str(x).strip() for x in upgrades_raw if str(x).strip())
+                    if upgrades:
+                        self.skill_upgrade_lines[sw_id] = upgrades
+                slot = self._safe_int(entry.get("slot"), 0)
+                if slot > 0:
+                    self.skill_slots[sw_id] = slot
         except Exception:
             pass
 
@@ -172,6 +191,38 @@ class MonsterDB:
 
     def all_monsters(self) -> List[MonsterInfo]:
         return list(self._by_id.values())
+
+    def form_variants_for(self, com2us_id: int) -> List[MonsterInfo]:
+        base = self.get(com2us_id)
+        if not base:
+            return []
+        same_name = str(base.name or "").strip().lower()
+        same_element = str(base.element or "").strip().lower()
+        same_nat = int(base.natural_stars or 0)
+        variants: List[MonsterInfo] = []
+        seen: set[int] = set()
+        for info in self._by_id.values():
+            if int(info.com2us_id or 0) in seen:
+                continue
+            if str(info.name or "").strip().lower() != same_name:
+                continue
+            if str(info.element or "").strip().lower() != same_element:
+                continue
+            if same_nat > 0 and int(info.natural_stars or 0) != same_nat:
+                continue
+            seen.add(int(info.com2us_id))
+            variants.append(info)
+        if len(variants) <= 1:
+            return [base]
+        variants.sort(
+            key=lambda x: (
+                0 if int(x.com2us_id or 0) == int(base.com2us_id or 0) else 1,
+                0 if bool(x.obtainable) else 1,
+                int(x.awaken_level or 0),
+                int(x.com2us_id or 0),
+            )
+        )
+        return variants
 
     def name_for(self, com2us_id: int) -> str:
         info = self.get(com2us_id)
@@ -291,3 +342,21 @@ class MonsterDB:
             "spd_buff_skill_icon": str(data.get("spd_buff_skill_icon", "") or ""),
             "atb_boost_skill_icon": str(data.get("atb_boost_skill_icon", "") or ""),
         }
+
+    @staticmethod
+    def _parse_monster_skill_ids(raw: Any) -> Tuple[int, ...]:
+        out: List[int] = []
+        seen: set[int] = set()
+        for entry in (raw or []):
+            sid = 0
+            if isinstance(entry, dict):
+                sid = MonsterDB._safe_int(entry.get("skill_id"), 0)
+                if sid <= 0:
+                    sid = MonsterDB._safe_int(entry.get("com2us_id"), 0)
+            else:
+                sid = MonsterDB._safe_int(entry, 0)
+            if sid <= 0 or sid in seen:
+                continue
+            seen.add(sid)
+            out.append(sid)
+        return tuple(out)

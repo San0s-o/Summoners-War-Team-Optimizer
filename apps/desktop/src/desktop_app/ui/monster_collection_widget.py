@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
@@ -132,7 +132,7 @@ class _MonsterDetailDialog(QDialog):
     """Full detail dialog opened when clicking a monster icon."""
 
     _ICON_SIZE = 96
-    _SKILL_ICON_SIZE = 52
+    _SKILL_ICON_SIZE = 60
 
     def __init__(
         self,
@@ -142,14 +142,46 @@ class _MonsterDetailDialog(QDialog):
         skill_max_levels: Dict[int, int],
         skill_icons: Dict[int, str],
         skill_names: Dict[int, str],
+        skill_descriptions: Dict[int, str],
+        skill_upgrade_lines: Dict[int, Tuple[str, ...]],
+        skill_slots: Dict[int, int],
+        monster_db: MonsterDB,
         assets_dir: Path,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._assets_dir = assets_dir
+        self._info = info
+        self._unit = unit
+        self._monster_db = monster_db
+        self._skill_max_levels = dict(skill_max_levels or {})
+        self._skill_icons = dict(skill_icons or {})
+        self._skill_names = dict(skill_names or {})
+        self._skill_descriptions = dict(skill_descriptions or {})
+        self._skill_upgrade_lines = dict(skill_upgrade_lines or {})
+        self._skill_slots = dict(skill_slots or {})
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowMinimizeButtonHint
+        )
         self.setWindowTitle(str(info.name or ""))
-        self.setMinimumSize(dp(980), dp(700))
-        self.resize(dp(1100), dp(880))
+        screen = None
+        if parent is not None and parent.window() is not None and parent.window().windowHandle() is not None:
+            screen = parent.window().windowHandle().screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            max_w = max(dp(860), int(avail.width() * 0.98))
+            max_h = max(dp(620), int(avail.height() * 0.96))
+            target_h = max(dp(700), int(avail.height() * 0.90))
+            self.setMaximumSize(max_w, max_h)
+            self.setMinimumSize(min(dp(980), max_w), min(dp(700), max_h))
+            self.resize(min(dp(1100), max_w), min(target_h, max_h))
+        else:
+            self.setMinimumSize(dp(980), dp(700))
+            self.resize(dp(1100), dp(880))
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -258,74 +290,7 @@ class _MonsterDetailDialog(QDialog):
         # ── Skills ────────────────────────────────────────────────────────────────────────────
         self._add_section_title(root, tr("collection.detail_skills"))
 
-        skills_h = QHBoxLayout()
-        skills_h.setSpacing(dp(10))
-        sz = dp(self._SKILL_ICON_SIZE)
-
-        for idx, (skill_id, current_level) in enumerate(unit.skills or ()):
-            max_lvl = skill_max_levels.get(skill_id, 0)
-
-            card = QFrame()
-            card.setObjectName("skillCard")
-            card.setStyleSheet(
-                f"QFrame#skillCard {{ background: {_theme.C['bg_mid']}; "
-                f"border-radius: {dp(10)}px; border: none; }}"
-            )
-            cv = QVBoxLayout(card)
-            cv.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
-            cv.setSpacing(dp(6))
-
-            skill_icon_lbl = QLabel()
-            skill_icon_lbl.setFixedSize(sz, sz)
-            skill_icon_lbl.setAlignment(Qt.AlignCenter)
-            icon_filename = skill_icons.get(skill_id, "")
-            loaded = False
-            if icon_filename and assets_dir:
-                p = assets_dir / "skills" / f"{icon_filename}.png"
-                if p.exists():
-                    skill_icon_lbl.setPixmap(
-                        QPixmap(str(p)).scaled(sz, sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    )
-                    loaded = True
-            if not loaded:
-                skill_icon_lbl.setText(f"S{idx + 1}")
-                skill_icon_lbl.setStyleSheet(
-                    f"background: {_theme.C['card_bg']}; border-radius: {dp(6)}px; "
-                    f"color: {_theme.C['text']}; font-weight: bold; border: none;"
-                )
-            cv.addWidget(skill_icon_lbl, alignment=Qt.AlignHCenter)
-
-            sname = skill_names.get(skill_id, "")
-            nm = QLabel(sname)
-            nm.setAlignment(Qt.AlignCenter)
-            nm.setWordWrap(True)
-            nm.setFixedWidth(max(sz, dp(90)))
-            nm.setStyleSheet(
-                f"font-size: 8pt; color: {_theme.C['text_dim']}; border: none;"
-            )
-            cv.addWidget(nm)
-
-            if max_lvl <= 1:
-                lv_text, lv_color = str(current_level), _theme.C["text_dim"]
-            elif current_level >= max_lvl:
-                lv_text, lv_color = tr("collection.skill_max"), _theme.C["green"]
-            else:
-                lv_text = tr("collection.skill_level", current=current_level, max=max_lvl)
-                lv_color = _theme.C["orange"]
-
-            lv_lbl = QLabel(lv_text)
-            lv_lbl.setAlignment(Qt.AlignCenter)
-            lv_lbl.setStyleSheet(
-                f"font-size: 8pt; font-weight: 700; color: {lv_color}; border: none;"
-            )
-            cv.addWidget(lv_lbl)
-
-            skills_h.addWidget(card)
-
-        skills_h.addStretch()
-        skills_w = QWidget()
-        skills_w.setLayout(skills_h)
-        root.addWidget(skills_w)
+        self._add_skill_forms(root)
 
         # ── Runes (tabs: PvE / Siege / RTA) ──────────────────────────────────────────────────────
         self._add_section_title(root, tr("collection.detail_runes"))
@@ -368,6 +333,191 @@ class _MonsterDetailDialog(QDialog):
         btns.rejected.connect(self.reject)
         btn_h.addWidget(btns)
         outer.addLayout(btn_h)
+
+    def _add_skill_forms(self, root: QVBoxLayout) -> None:
+        forms = self._skill_forms_for_unit()
+        if not forms:
+            return
+        show_form_headers = len(forms) > 1
+        for idx, form in enumerate(forms):
+            if show_form_headers:
+                form_header = QLabel(
+                    tr(
+                        "collection.detail_form_title",
+                        index=idx + 1,
+                    )
+                )
+                form_header.setStyleSheet(
+                    f"font-size: 9pt; font-weight: 700; color: {_theme.C['accent']}; border: none;"
+                )
+                root.addWidget(form_header)
+            skills_w = self._skills_row_widget(list(form.get("skills") or []))
+            root.addWidget(skills_w)
+
+    def _skill_forms_for_unit(self) -> List[Dict[str, Any]]:
+        current_levels_by_skill = {int(sid): int(level) for sid, level in (self._unit.skills or ())}
+        slot_level_fallback: Dict[int, int] = {}
+        if self._info.skills:
+            for sid in self._info.skills:
+                sid_i = int(sid)
+                slot = int(self._skill_slots.get(sid_i, 0) or 0)
+                if slot <= 0:
+                    continue
+                lvl = int(current_levels_by_skill.get(sid_i, 0) or 0)
+                if lvl > 0:
+                    slot_level_fallback[slot] = lvl
+        forms: List[Dict[str, Any]] = []
+        seen_signatures: set[Tuple[Tuple[int, str, str, Tuple[str, ...]], ...]] = set()
+        for variant in (self._monster_db.form_variants_for(self._info.com2us_id) or [self._info]):
+            skill_rows: List[Tuple[int, int]] = []
+            variant_skill_ids = tuple(int(x) for x in (variant.skills or ()))
+            if not variant_skill_ids and variant.com2us_id == self._info.com2us_id:
+                variant_skill_ids = tuple(int(sid) for sid, _ in (self._unit.skills or ()))
+            for sid in variant_skill_ids:
+                sid_i = int(sid)
+                lvl = int(current_levels_by_skill.get(sid_i, 0) or 0)
+                if lvl <= 0:
+                    slot = int(self._skill_slots.get(sid_i, 0) or 0)
+                    if slot > 0 and slot in slot_level_fallback:
+                        lvl = int(slot_level_fallback[slot])
+                if lvl <= 0:
+                    lvl = 1
+                skill_rows.append((sid_i, lvl))
+            if skill_rows:
+                signature: List[Tuple[int, str, str, Tuple[str, ...]]] = []
+                for sid_i, _lvl in skill_rows:
+                    slot = int(self._skill_slots.get(int(sid_i), 0) or 0)
+                    name = str(self._skill_names.get(int(sid_i), "") or "").strip().lower()
+                    desc = str(self._skill_descriptions.get(int(sid_i), "") or "").strip().lower()
+                    upgrades = tuple(self._skill_upgrade_lines.get(int(sid_i), ()) or ())
+                    signature.append((slot, name, desc, upgrades))
+                signature_key = tuple(signature)
+                if signature_key in seen_signatures:
+                    continue
+                seen_signatures.add(signature_key)
+                forms.append(
+                    {
+                        "com2us_id": int(variant.com2us_id or 0),
+                        "skills": skill_rows,
+                    }
+                )
+        return forms
+
+    def _skills_row_widget(self, skills: List[Tuple[int, int]]) -> QWidget:
+        skills_h = QHBoxLayout()
+        skills_h.setSpacing(dp(10))
+        for idx, (skill_id, current_level) in enumerate(skills):
+            skills_h.addWidget(self._build_skill_card(idx, int(skill_id), int(current_level)))
+        skills_h.addStretch()
+        skills_w = QWidget()
+        skills_w.setLayout(skills_h)
+        return skills_w
+
+    def _build_skill_card(self, idx: int, skill_id: int, current_level: int) -> QFrame:
+        sz = dp(self._SKILL_ICON_SIZE)
+        max_lvl = int(self._skill_max_levels.get(skill_id, 0) or 0)
+        card = QFrame()
+        card.setObjectName("skillCard")
+        card.setStyleSheet(
+            f"QFrame#skillCard {{ background: {_theme.C['bg_mid']}; "
+            f"border-radius: {dp(10)}px; border: none; }}"
+        )
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
+        cv.setSpacing(dp(6))
+        card.setMinimumWidth(dp(205))
+
+        skill_icon_lbl = QLabel()
+        skill_icon_lbl.setFixedSize(sz, sz)
+        skill_icon_lbl.setAlignment(Qt.AlignCenter)
+        icon_filename = str(self._skill_icons.get(skill_id, "") or "").strip().removesuffix(".png")
+        loaded = False
+        if icon_filename and self._assets_dir:
+            p = self._assets_dir / "skills" / f"{icon_filename}.png"
+            if p.exists():
+                skill_icon_lbl.setPixmap(
+                    QPixmap(str(p)).scaled(sz, sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
+                loaded = True
+        if not loaded:
+            slot = int(self._skill_slots.get(skill_id, idx + 1) or (idx + 1))
+            skill_icon_lbl.setText(tr("collection.detail_slot", n=slot))
+            skill_icon_lbl.setStyleSheet(
+                f"background: {_theme.C['card_bg']}; border-radius: {dp(6)}px; "
+                f"color: {_theme.C['text']}; font-weight: bold; border: none;"
+            )
+        cv.addWidget(skill_icon_lbl, alignment=Qt.AlignHCenter)
+
+        sname = str(self._skill_names.get(skill_id, "") or "")
+        nm = QLabel(sname)
+        nm.setAlignment(Qt.AlignCenter)
+        nm.setWordWrap(True)
+        nm.setFixedWidth(max(sz, dp(150)))
+        nm.setStyleSheet(
+            f"font-size: 9pt; color: {_theme.C['text_dim']}; border: none;"
+        )
+        cv.addWidget(nm)
+
+        sdesc = str(self._skill_descriptions.get(skill_id, "") or "").strip()
+        if sdesc:
+            desc_lbl = QLabel(sdesc)
+            desc_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setFixedWidth(max(sz, dp(150)))
+            desc_lbl.setStyleSheet(
+                f"font-size: 9pt; color: {_theme.C['text']}; border: none;"
+            )
+            cv.addWidget(desc_lbl)
+
+        if max_lvl <= 1:
+            lv_text, lv_color = str(current_level), _theme.C["text_dim"]
+        elif current_level >= max_lvl:
+            lv_text, lv_color = tr("collection.skill_max"), _theme.C["green"]
+        else:
+            lv_text = tr("collection.skill_level", current=current_level, max=max_lvl)
+            lv_color = _theme.C["orange"]
+        lv_lbl = QLabel(lv_text)
+        lv_lbl.setAlignment(Qt.AlignCenter)
+        lv_lbl.setStyleSheet(
+            f"font-size: 10pt; font-weight: 700; color: {lv_color}; border: none;"
+        )
+        cv.addWidget(lv_lbl)
+
+        upgrades = tuple(self._skill_upgrade_lines.get(skill_id, ()) or ())
+        if upgrades:
+            current_lbl = QLabel(f"Current: Lv.{max(1, int(current_level or 1))}")
+            current_lbl.setAlignment(Qt.AlignCenter)
+            current_lbl.setStyleSheet(
+                f"font-size: 8.5pt; font-weight: 700; color: {_theme.C['accent']}; border: none;"
+            )
+            cv.addWidget(current_lbl)
+
+            upgrades_box = QWidget()
+            upgrades_v = QVBoxLayout(upgrades_box)
+            upgrades_v.setContentsMargins(0, 0, 0, 0)
+            upgrades_v.setSpacing(dp(2))
+            for i, line in enumerate(upgrades):
+                target_level = i + 2
+                row = QLabel(f"Lv.{target_level} {line}")
+                row.setWordWrap(True)
+                if target_level == int(current_level or 0):
+                    row.setStyleSheet(
+                        f"font-size: 8.5pt; font-weight: 700; color: {_theme.C['bg']}; "
+                        f"background: {_theme.C['accent']}; border-radius: {dp(4)}px; "
+                        f"padding: {dp(1)}px {dp(4)}px;"
+                    )
+                elif target_level < int(current_level or 0):
+                    row.setStyleSheet(
+                        f"font-size: 8.5pt; color: {_theme.C['green']}; border: none;"
+                    )
+                else:
+                    row.setStyleSheet(
+                        f"font-size: 8.5pt; color: {_theme.C['text_dim']}; border: none;"
+                    )
+                upgrades_v.addWidget(row)
+            cv.addWidget(upgrades_box)
+
+        return card
 
     def _add_section_title(self, layout: QVBoxLayout, text: str) -> None:
         """Adds a section header with a hairline separator below."""
@@ -667,6 +817,10 @@ class _MonsterIcon(QWidget):
         skill_max_levels: Optional[Dict[int, int]] = None,
         skill_icons: Optional[Dict[int, str]] = None,
         skill_names: Optional[Dict[int, str]] = None,
+        skill_descriptions: Optional[Dict[int, str]] = None,
+        skill_upgrade_lines: Optional[Dict[int, Tuple[str, ...]]] = None,
+        skill_slots: Optional[Dict[int, int]] = None,
+        monster_db: Optional[MonsterDB] = None,
         assets_dir: Optional[Path] = None,
         monster_name: str = "",
         info: Optional["MonsterInfo"] = None,
@@ -682,6 +836,10 @@ class _MonsterIcon(QWidget):
         self._skill_max_levels = skill_max_levels or {}
         self._skill_icons = skill_icons or {}
         self._skill_names = skill_names or {}
+        self._skill_descriptions = skill_descriptions or {}
+        self._skill_upgrade_lines = skill_upgrade_lines or {}
+        self._skill_slots = skill_slots or {}
+        self._monster_db = monster_db
         self._assets_dir = assets_dir
         self._monster_name = monster_name
         self._info = info
@@ -763,7 +921,14 @@ class _MonsterIcon(QWidget):
         p.end()
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton and self._info and self._unit and self._account and self._assets_dir:
+        if (
+            event.button() == Qt.LeftButton
+            and self._info
+            and self._unit
+            and self._account
+            and self._assets_dir
+            and self._monster_db
+        ):
             dlg = _MonsterDetailDialog(
                 info=self._info,
                 unit=self._unit,
@@ -771,6 +936,10 @@ class _MonsterIcon(QWidget):
                 skill_max_levels=self._skill_max_levels,
                 skill_icons=self._skill_icons,
                 skill_names=self._skill_names,
+                skill_descriptions=self._skill_descriptions,
+                skill_upgrade_lines=self._skill_upgrade_lines,
+                skill_slots=self._skill_slots,
+                monster_db=self._monster_db,
                 assets_dir=self._assets_dir,
                 parent=self,
             )
@@ -871,9 +1040,21 @@ class MonsterCollectionWidget(QWidget):
         merged_skill_names: Dict[int, str] = {}
         if self._monster_db:
             merged_skill_names.update(self._monster_db.skill_names)
+        merged_skill_descriptions: Dict[int, str] = {}
+        if self._monster_db:
+            merged_skill_descriptions.update(self._monster_db.skill_descriptions)
+        merged_skill_upgrades: Dict[int, Tuple[str, ...]] = {}
+        if self._monster_db:
+            merged_skill_upgrades.update(self._monster_db.skill_upgrade_lines)
+        merged_skill_slots: Dict[int, int] = {}
+        if self._monster_db:
+            merged_skill_slots.update(self._monster_db.skill_slots)
         self._merged_skill_max = merged_skill_max
         self._merged_skill_icons = merged_skill_icons
         self._merged_skill_names = merged_skill_names
+        self._merged_skill_descriptions = merged_skill_descriptions
+        self._merged_skill_upgrades = merged_skill_upgrades
+        self._merged_skill_slots = merged_skill_slots
 
         # Determine which unit IDs have missing skillups
         self._missing_unit_ids = {
@@ -996,6 +1177,9 @@ class MonsterCollectionWidget(QWidget):
         skill_max_levels = getattr(self, "_merged_skill_max", {})
         skill_icons = getattr(self, "_merged_skill_icons", {})
         skill_names = getattr(self, "_merged_skill_names", {})
+        skill_descriptions = getattr(self, "_merged_skill_descriptions", {})
+        skill_upgrade_lines = getattr(self, "_merged_skill_upgrades", {})
+        skill_slots = getattr(self, "_merged_skill_slots", {})
 
         return _MonsterIcon(
             pixmap=self._monster_pixmap(info),
@@ -1006,6 +1190,10 @@ class MonsterCollectionWidget(QWidget):
             skill_max_levels=skill_max_levels,
             skill_icons=skill_icons,
             skill_names=skill_names,
+            skill_descriptions=skill_descriptions,
+            skill_upgrade_lines=skill_upgrade_lines,
+            skill_slots=skill_slots,
+            monster_db=self._monster_db,
             assets_dir=self._assets_dir,
             monster_name=str(info.name or ""),
             info=info,

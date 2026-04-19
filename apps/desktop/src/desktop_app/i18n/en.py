@@ -560,7 +560,7 @@ STRINGS: dict[str, str] = {
         "</tr>"
         "<tr bgcolor='#242424'>"
         "<td style='padding:4px 10px; font-weight:bold;'>RTA</td>"
-        "<td style='padding:4px 10px;'>up to 15 monsters</td>"
+        "<td style='padding:4px 10px;'>up to 25 monsters</td>"
         "<td style='padding:4px 10px; color:#888;'>Current · Builder · Saved</td>"
         "</tr>"
         "<tr bgcolor='#1c1c1c'>"
@@ -584,7 +584,7 @@ STRINGS: dict[str, str] = {
         "<h3 style='color:#4a90e2;'>3 · Build teams</h3>"
         "<p>Switch to the <b>Builder</b> sub-tab of the desired mode. "
         "<b>Load current …</b> imports your in-game data directly "
-        "(available for Siege and Arena Rush). "
+        "(available for Siege, RTA, and Arena Rush). "
         "RTA: add monsters via the <b>Add</b> button, reorder by Drag &amp; Drop. "
         "In Arena Rush each offense team has an <b>Active</b> checkbox to "
         "include or exclude it from optimization.</p>"
@@ -786,6 +786,7 @@ STRINGS: dict[str, str] = {
     "collection.detail_slot": "S{n}",
     "collection.detail_rune_empty": "empty",
     "collection.detail_team_memberships": "Teams",
+    "collection.detail_form_title": "Form {index}",
 
     # -- RTA overview --------------------------------------------
     "rta.spd_lead": "<b>SPD Lead:</b>",
@@ -841,6 +842,24 @@ STRINGS: dict[str, str] = {
     "settings.desktop_mobile_sync_optin_unavailable": "Desktop-to-mobile sync is available for full licenses only.",
     "settings.desktop_mobile_sync_saved_on": "Desktop-to-mobile sync enabled.",
     "settings.desktop_mobile_sync_saved_off": "Desktop-to-mobile sync disabled.",
+    "settings.btn_release_mobile_device": "Release Mobile Device",
+    "settings.release_mobile_unavailable": "Releasing a mobile device is available for full licenses only.",
+    "settings.release_mobile_in_progress": "Releasing mobile device binding...",
+    "settings.release_mobile_success": (
+        "Mobile devices released (devices: {devices}, activations: {activations}, sessions: {sessions})."
+    ),
+    "settings.release_mobile_no_device": "No additional mobile device found.",
+    "settings.release_mobile_failed": "Mobile device binding could not be released.",
+    "settings.release_mobile_failed_reason": "Mobile device binding could not be released: {reason}",
+    "settings.confirm_release_mobile_device": (
+        "Release the old mobile device for this license?\n\n"
+        "This allows linking a new phone with the same key again."
+    ),
+    "settings.confirm_release_mobile_device_second": (
+        "Final confirmation:\n\n"
+        "Existing mobile activations/sessions for this license will be removed.\n"
+        "Continue?"
+    ),
     "settings.community_trends_optin": "Apply community build trends (load sets/mainstats/artifacts)",
     "settings.community_trends_optin_hint": "Full license only: uses community trends as additional build preselection.",
     "settings.community_trends_requires_cloud": "Community build trends require cloud learning to be enabled.",
@@ -972,6 +991,7 @@ STRINGS: dict[str, str] = {
     "farming.dungeon_component_potential": "Currently grindable potential",
     "farming.raid_breakdown": "Raid check",
     "farming.raid_missing": "missing grinds",
+    "farming.raid_missing_value": "missing grind value",
     "farming.raid_one_missing": "Only 1 grind to Hero max: {count}",
     "farming.dungeon_giants": "Giants",
     "farming.dungeon_dragons": "Dragons",

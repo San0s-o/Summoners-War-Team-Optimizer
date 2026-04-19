@@ -116,6 +116,7 @@ from desktop_app.ui.main_window_sections.settings_section import (
     on_settings_import_json as _sec_on_settings_import_json,
     on_settings_clear_snapshot as _sec_on_settings_clear_snapshot,
     on_settings_activate_license as _sec_on_settings_activate_license,
+    on_settings_release_mobile_device as _sec_on_settings_release_mobile_device,
     on_settings_delete_cloud_data as _sec_on_settings_delete_cloud_data,
     on_settings_reset_presets as _sec_on_settings_reset_presets,
     on_settings_clear_optimizations as _sec_on_settings_clear_optimizations,
@@ -879,6 +880,9 @@ class MainWindow(QMainWindow):
 
     def _on_settings_activate_license(self):
         return _sec_on_settings_activate_license(self)
+
+    def _on_settings_release_mobile_device(self):
+        return _sec_on_settings_release_mobile_device(self)
 
     def _on_settings_delete_cloud_data(self):
         return _sec_on_settings_delete_cloud_data(self)
