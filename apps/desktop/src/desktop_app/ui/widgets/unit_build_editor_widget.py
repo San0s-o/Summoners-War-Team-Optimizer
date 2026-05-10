@@ -222,8 +222,8 @@ class UnitBuildEditorWidget(QScrollArea):
     @staticmethod
     def _make_min_mode_combo(mode: str) -> QComboBox:
         cmb = _NoScrollComboBox()
-        cmb.addItem(tr("min.mode.with_base"), "with_base")
         cmb.addItem(tr("min.mode.without_base"), "without_base")
+        cmb.addItem(tr("min.mode.with_base"), "with_base")
         idx = cmb.findData(str(mode))
         cmb.setCurrentIndex(idx if idx >= 0 else 0)
         cmb.setMinimumWidth(190)

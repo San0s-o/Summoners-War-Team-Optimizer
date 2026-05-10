@@ -27,6 +27,7 @@ from desktop_app.ui.main_window_sections.builders_and_saved import (
     init_saved_wgb_tab as _sec_init_saved_wgb_tab,
     init_saved_rta_tab as _sec_init_saved_rta_tab,
     init_saved_arena_rush_tab as _sec_init_saved_arena_rush_tab,
+    init_saved_off_optimizer_tab as _sec_init_saved_off_optimizer_tab,
     saved_opt_widgets as _sec_saved_opt_widgets,
     refresh_saved_opt_combo as _sec_refresh_saved_opt_combo,
     on_saved_opt_changed as _sec_on_saved_opt_changed,
@@ -35,6 +36,7 @@ from desktop_app.ui.main_window_sections.builders_and_saved import (
     init_wgb_builder_ui as _sec_init_wgb_builder_ui,
     init_rta_builder_ui as _sec_init_rta_builder_ui,
     init_arena_rush_builder_ui as _sec_init_arena_rush_builder_ui,
+    init_off_optimizer_builder_ui as _sec_init_off_optimizer_builder_ui,
 )
 from desktop_app.ui.main_window_sections.mode_actions import (
     on_take_current_siege as _sec_on_take_current_siege,
@@ -212,6 +214,7 @@ class MainWindow(QMainWindow):
         self._unit_combos_by_tab: Dict[str, List[QComboBox]] = {}
         self._unit_combo_registration_tab = ""
         self._loaded_current_runes_compare_by_mode: Dict[str, Dict[str, Dict[int, Dict[int, int]]]] = {}
+        self._off_optimizer_state_restore_pending = False
 
         # paths
         self.project_root = Path(__file__).resolve().parents[1]
@@ -397,6 +400,28 @@ class MainWindow(QMainWindow):
         )
 
         # ── Runen & Artefakte (eigene innere Tabs) ────────────────
+        self.tab_off_optimizer = QWidget()
+        self.tabs.addTab(self.tab_off_optimizer, "Off-Optimierer")
+        _off_layout = QVBoxLayout(self.tab_off_optimizer)
+        _off_layout.setContentsMargins(0, 0, 0, 0)
+        _off_layout.setSpacing(0)
+        self.off_optimizer_inner_tabs = QTabWidget()
+        self.off_optimizer_inner_tabs.setDocumentMode(True)
+        self._apply_inner_tab_style(self.off_optimizer_inner_tabs)
+        _off_layout.addWidget(self.off_optimizer_inner_tabs)
+
+        self.tab_off_optimizer_builder = QWidget()
+        self.off_optimizer_inner_tabs.addTab(self.tab_off_optimizer_builder, tr("tab.subtab_builder"))
+        self._init_off_optimizer_builder_ui()
+
+        self.tab_saved_off_optimizer = QWidget()
+        self.off_optimizer_inner_tabs.addTab(self.tab_saved_off_optimizer, tr("tab.subtab_saved"))
+        self._init_saved_off_optimizer_tab()
+
+        self.off_optimizer_inner_tabs.currentChanged.connect(
+            lambda _: self._on_tab_changed(self.tabs.currentIndex())
+        )
+
         self.tab_rune_optimization = QWidget()
         self.tabs.addTab(self.tab_rune_optimization, tr("tab.rune_optimization"))
         rov = QVBoxLayout(self.tab_rune_optimization)
@@ -613,6 +638,9 @@ class MainWindow(QMainWindow):
     def _init_saved_arena_rush_tab(self):
         return _sec_init_saved_arena_rush_tab(self)
 
+    def _init_saved_off_optimizer_tab(self):
+        return _sec_init_saved_off_optimizer_tab(self)
+
     def _saved_opt_widgets(self, mode: str):
         return _sec_saved_opt_widgets(self, mode)
 
@@ -657,6 +685,9 @@ class MainWindow(QMainWindow):
 
     def _init_arena_rush_builder_ui(self):
         return _sec_init_arena_rush_builder_ui(self)
+
+    def _init_off_optimizer_builder_ui(self):
+        return _sec_init_off_optimizer_builder_ui(self)
 
     def _init_team_tab_ui(self):
         return _sec_init_team_tab_ui(self)

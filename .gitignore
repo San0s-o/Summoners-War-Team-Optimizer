@@ -11,6 +11,7 @@ supabase/
 
 # Internal admin/tooling
 LICENSE_COMMANDS.md
+RELEASE_COMMANDS.md
 
 # Python
 requirements.txt

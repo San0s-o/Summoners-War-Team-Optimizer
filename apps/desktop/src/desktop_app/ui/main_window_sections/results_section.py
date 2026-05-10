@@ -31,7 +31,7 @@ def show_optimize_results(
     rune_lookup: Dict[int, Rune] = {r.rune_id: r for r in window.account.runes}
     artifact_lookup: Dict[int, Artifact] = {int(a.artifact_id): a for a in window.account.artifacts}
     mode_rune_owner: Dict[int, int] = {}
-    if mode in ("siege", "guild", "wgb", "arena_rush"):
+    if mode in ("siege", "guild", "wgb", "arena_rush", "off_optimizer"):
         for uid, rids in window.account.guild_rune_equip.items():
             for rid in rids:
                 mode_rune_owner[rid] = uid

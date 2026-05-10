@@ -54,6 +54,8 @@ def min_mode_for_build(min_cfg: Dict[str, int]) -> str:
     for key in _MIN_BASE_STATS:
         if int(min_cfg.get(f"{key}_NO_BASE", 0) or 0) > 0:
             return "without_base"
+    if not any(int(v or 0) > 0 for v in dict(min_cfg or {}).values()):
+        return "without_base"
     return "with_base"
 
 
@@ -389,14 +391,14 @@ def collect_artifact_substat_options_by_type(account: AccountData | None) -> Dic
 
 def can_load_current_runes(account: AccountData | None, mode: str) -> bool:
     mode_key = str(mode or "").strip().lower()
-    return bool(account) and mode_key in ("siege", "wgb", "rta", "arena_rush")
+    return bool(account) and mode_key in ("siege", "wgb", "rta", "arena_rush", "off_optimizer")
 
 
 def rune_mode_for_mode(mode: str) -> str:
     mode_key = str(mode or "").strip().lower()
     if mode_key == "rta":
         return "rta"
-    if mode_key in ("siege", "wgb"):
+    if mode_key in ("siege", "wgb", "off_optimizer"):
         return "siege"
     if mode_key == "arena_rush":
         return "pve"
@@ -517,7 +519,7 @@ def validate_order_tick_plausibility(
     unit_labels: Dict[int, str],
     order_team_titles: List[str],
 ) -> None:
-    is_arena_rush = str(mode or "").strip().lower() == "arena_rush"
+    is_arena_rush = str(mode or "").strip().lower() in ("arena_rush", "off_optimizer")
     for team_index, team_order in enumerate(team_orders):
         order = [int(uid) for uid in (team_order or []) if int(uid) > 0]
         if len(order) <= 1:

@@ -119,7 +119,7 @@ class SingleTeamOrderEditor(QWidget):
         self._syncing_nav = False
         self._active_team_index: int = 0
         self._tick_combo_width = self._compute_tick_combo_width()
-        self._tick_column_width = self._tick_combo_width + dp(34)
+        self._tick_column_width = self._tick_combo_width + dp(26)
         self._tick_combo_compact_width = max(dp(62), self._tick_combo_width - dp(18))
         self._tick_column_compact_width = self._tick_combo_compact_width + dp(10)
         self._tick_labels: List[QLabel] = []
@@ -452,7 +452,6 @@ class SingleTeamOrderEditor(QWidget):
         def _on_toggle(checked: bool) -> None:
             content.setVisible(bool(checked))
             toggle_btn.setText(("▼  " if checked else "▶  ") + "Erweitert")
-            self._set_tick_compact_mode(bool(checked))
 
         toggle_btn.toggled.connect(_on_toggle)
         return toggle_btn, content
@@ -602,12 +601,12 @@ class SingleTeamOrderEditor(QWidget):
             if str(self.mode).strip().lower() != "rta" and tick_i == int(LEO_LOW_SPD_TICK):
                 low_max = int(max_spd_for_tick(tick_i, self.mode) or 0)
                 threshold = int(low_max + 1) if low_max > 0 else 130
-                label_txt = f"11 (<{threshold})"
+                label_txt = f"Tick 11 (<{threshold})"
                 tick_cmb.addItem(label_txt, tick_i)
                 tick_labels.append(label_txt)
                 continue
             spd_bp = min_spd_for_tick(tick_i, self.mode)
-            label_txt = f"{tick_i} (>={spd_bp})"
+            label_txt = f"Tick {tick_i} (>={spd_bp})"
             tick_cmb.addItem(label_txt, tick_i)
             tick_labels.append(label_txt)
         max_text_px = max((tick_cmb.fontMetrics().horizontalAdvance(tl) for tl in tick_labels), default=0)
@@ -622,6 +621,22 @@ class SingleTeamOrderEditor(QWidget):
         if self._tick_compact_mode:
             tick_cmb.setFixedWidth(int(self._tick_combo_compact_width))
         return tick_cmb
+
+    def _style_effect_checkbox(self, chk: QCheckBox, fallback_text: str) -> None:
+        c = _theme.C
+        chk.setMinimumWidth(dp(54))
+        chk.setStyleSheet(
+            "QCheckBox { spacing: 5px; font-weight: bold; }"
+            f"QCheckBox::indicator {{ width: {dp(18)}px; height: {dp(18)}px; }}"
+            f"QCheckBox::indicator:unchecked {{ border: 1px solid {c['border']}; border-radius: {dp(4)}px; background: {c['bg_input']}; }}"
+            f"QCheckBox::indicator:checked {{ border: 1px solid {c['green']}; border-radius: {dp(4)}px; background: {c['green']}; }}"
+        )
+
+        def _sync_text(checked: bool) -> None:
+            chk.setText(("✓" if checked else "✕") if fallback_text else ("✓" if checked else "✕"))
+
+        _sync_text(bool(chk.isChecked()))
+        chk.toggled.connect(_sync_text)
 
     def _create_turn_effect_controls(
         self,
@@ -644,6 +659,7 @@ class SingleTeamOrderEditor(QWidget):
             else:
                 spd_buff_chk.setText("S")
             spd_buff_chk.setChecked(bool(effect_spd_buff))
+            self._style_effect_checkbox(spd_buff_chk, "S")
             spd_buff_chk.setToolTip(tr("tooltip.effect_spd_buff"))
         else:
             spd_buff_chk = QCheckBox()
@@ -659,6 +675,7 @@ class SingleTeamOrderEditor(QWidget):
             else:
                 atb_boost_chk.setText("A")
             atb_boost_chk.setChecked(bool(effect_atb_boost_pct > 0))
+            self._style_effect_checkbox(atb_boost_chk, "A")
             atb_boost_chk.setToolTip(tr("tooltip.effect_atb_boost"))
             atb_boost_spin = QSpinBox()
             atb_boost_spin.setMinimum(0)
@@ -692,8 +709,8 @@ class SingleTeamOrderEditor(QWidget):
 
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
-        row_layout.setSpacing(dp(10))
+        row_layout.setContentsMargins(dp(8), dp(6), dp(6), dp(6))
+        row_layout.setSpacing(dp(8))
 
         icon_lbl = QLabel()
         icon = self._unit_icon_fn(uid)
@@ -720,7 +737,7 @@ class SingleTeamOrderEditor(QWidget):
 
         info_widget = QWidget()
         info_widget.setLayout(info_col)
-        row_layout.addWidget(info_widget, 1, Qt.AlignVCenter)
+        row_layout.addWidget(info_widget, 0, Qt.AlignVCenter)
 
         tick_widget = QWidget()
         tick_widget.setFixedWidth(int(self._tick_column_width))
@@ -738,6 +755,7 @@ class SingleTeamOrderEditor(QWidget):
         tick_h.addWidget(tick_cmb, 0, Qt.AlignVCenter)
 
         row_layout.addWidget(tick_widget, 0, Qt.AlignVCenter)
+        row_layout.addStretch(1)
 
         row_min_height = max(dp(62), dp(44) + dp(16))
         row_widget.setMinimumHeight(row_min_height)
@@ -795,10 +813,10 @@ class SingleTeamOrderEditor(QWidget):
             if str(self.mode).strip().lower() != "rta" and tick_i == int(LEO_LOW_SPD_TICK):
                 low_max = int(max_spd_for_tick(tick_i, self.mode) or 0)
                 threshold = int(low_max + 1) if low_max > 0 else 130
-                labels.append(f"11 (<{threshold})")
+                labels.append(f"Tick 11 (<{threshold})")
                 continue
             spd_bp = min_spd_for_tick(tick_i, self.mode)
-            labels.append(f"{tick_i} (>={spd_bp})")
+            labels.append(f"Tick {tick_i} (>={spd_bp})")
         max_text_px = max((probe.fontMetrics().horizontalAdvance(lbl) for lbl in labels), default=0)
         return max(dp(46), int(max_text_px + dp(30)))
 

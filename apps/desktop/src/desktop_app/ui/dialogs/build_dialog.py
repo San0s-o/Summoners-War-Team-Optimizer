@@ -1220,7 +1220,7 @@ class BuildDialog(QDialog):
 
     def _read_min_stats_from_editor(self, unit_id: int) -> Dict[str, int]:
         refs = self._editor_refs(int(unit_id))
-        min_mode = str(refs.min_mode.currentData() or "with_base") if refs else "with_base"
+        min_mode = str(refs.min_mode.currentData() or "without_base") if refs else "without_base"
         base_stats = unit_base_stats_for_min(self._account, int(unit_id))
         raw = {
             "SPD": refs.min_spd.value() if refs else 0,

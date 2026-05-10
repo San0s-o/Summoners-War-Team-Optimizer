@@ -32,6 +32,11 @@ from desktop_app.ui.widgets.selection_combos import _UnitSearchComboBox
 from desktop_app.ui.main_window_sections.arena_rush_ui import (
     init_arena_rush_builder_ui as _sec_init_arena_rush_builder_ui,
 )
+from desktop_app.ui.main_window_sections.off_optimizer_actions import (
+    on_edit_presets as _off_on_edit_presets,
+    on_optimize as _off_on_optimize,
+    on_validate as _off_on_validate,
+)
 from desktop_app.services.cloud_learning_service import delete_saved_optimization
 
 
@@ -204,6 +209,24 @@ def init_saved_arena_rush_tab(window) -> None:
     window.saved_arena_rush_cards = SiegeDefCardsWidget()
     v.addWidget(window.saved_arena_rush_cards, 1)
     window._refresh_saved_opt_combo("arena_rush")
+
+
+def init_saved_off_optimizer_tab(window) -> None:
+    v = QVBoxLayout(window.tab_saved_off_optimizer)
+    top = QHBoxLayout()
+    window.lbl_saved_off_optimizer = QLabel(tr("label.saved_opt"))
+    top.addWidget(window.lbl_saved_off_optimizer)
+    window.saved_off_optimizer_combo = QComboBox()
+    window.saved_off_optimizer_combo.currentIndexChanged.connect(lambda: window._on_saved_opt_changed("off_optimizer"))
+    window.saved_off_optimizer_combo.activated.connect(lambda: window._on_saved_opt_changed("off_optimizer"))
+    top.addWidget(window.saved_off_optimizer_combo, 1)
+    window.btn_delete_saved_off_optimizer = QPushButton(tr("btn.delete"))
+    window.btn_delete_saved_off_optimizer.clicked.connect(lambda: window._on_delete_saved_opt("off_optimizer"))
+    top.addWidget(window.btn_delete_saved_off_optimizer)
+    v.addLayout(top)
+    window.saved_off_optimizer_cards = SiegeDefCardsWidget()
+    v.addWidget(window.saved_off_optimizer_cards, 1)
+    window._refresh_saved_opt_combo("off_optimizer")
 
 
 def new_unit_search_combo(window, min_width: int = 300) -> _UnitSearchComboBox:
@@ -557,6 +580,117 @@ def init_arena_rush_builder_ui(window) -> None:
         window._unit_combo_registration_tab = ""
 
 
+def init_off_optimizer_builder_ui(window) -> None:
+    from desktop_app.ui.main_window_sections.off_optimizer_actions import restore_state
+
+    v = QVBoxLayout(window.tab_off_optimizer_builder)
+    v.setContentsMargins(dp(16), dp(14), dp(16), dp(12))
+    v.setSpacing(dp(10))
+    window.off_optimizer_turn_effects = {}
+    window.off_optimizer_speed_lead_uid = 0
+    window.off_optimizer_speed_lead_pct = 0
+
+    c = _theme.C
+    select_panel = QFrame()
+    select_panel.setObjectName("OffOptimizerSelectPanel")
+    select_panel.setFixedHeight(dp(118))
+    select_panel.setStyleSheet(
+        f"QFrame#OffOptimizerSelectPanel {{ background: {c['bg_card']}; border: 1px solid {c['border']}; "
+        f"border-radius: {dp(8)}px; }}"
+        f"QFrame#OffOptimizerSlot {{ background: {c['bg_input']}; border: 1px solid {c['border']}; "
+        f"border-radius: {dp(8)}px; }}"
+        f"QLabel#OffOptimizerSlotTitle {{ color: {c['text_dim']}; font-size: {dp(10)}px; font-weight: 600; }}"
+    )
+    v.addWidget(select_panel)
+    select_layout = QHBoxLayout(select_panel)
+    select_layout.setContentsMargins(dp(14), dp(12), dp(14), dp(12))
+    select_layout.setSpacing(dp(12))
+    window.off_optimizer_combos = []
+    window._unit_combo_registration_tab = "off_optimizer"
+    try:
+        for s in range(3):
+            slot = QFrame()
+            slot.setObjectName("OffOptimizerSlot")
+            slot.setMinimumWidth(dp(310))
+            slot.setMaximumWidth(dp(430))
+            slot_layout = QVBoxLayout(slot)
+            slot_layout.setContentsMargins(dp(10), dp(8), dp(10), dp(10))
+            slot_layout.setSpacing(dp(6))
+
+            title = QLabel(f"Monster {s + 1}")
+            title.setObjectName("OffOptimizerSlotTitle")
+            slot_layout.addWidget(title)
+
+            cmb = new_unit_search_combo(window, min_width=260)
+            le = cmb.lineEdit()
+            if le is not None:
+                act = le.addAction(_get_clear_icon(), QLineEdit.TrailingPosition)
+                act.setToolTip(tr("tooltip.clear_slot"))
+                act.triggered.connect(lambda checked=False, c=cmb: _clear_combo(c))
+            slot_layout.addWidget(cmb)
+            select_layout.addWidget(slot, 1)
+            window.off_optimizer_combos.append(cmb)
+    finally:
+        window._unit_combo_registration_tab = ""
+    select_layout.addStretch(1)
+
+    btn_row = QHBoxLayout()
+    btn_row.setSpacing(dp(8))
+    v.addLayout(btn_row)
+
+    window.btn_validate_off_optimizer = QPushButton(tr("btn.validate_pools"))
+    window.btn_validate_off_optimizer.setEnabled(False)
+    window.btn_validate_off_optimizer.clicked.connect(lambda: _off_on_validate(window))
+    btn_row.addWidget(window.btn_validate_off_optimizer)
+
+    window.btn_edit_presets_off_optimizer = QPushButton(tr("btn.builds"))
+    window.btn_edit_presets_off_optimizer.setEnabled(False)
+    window.btn_edit_presets_off_optimizer.clicked.connect(lambda: _off_on_edit_presets(window))
+    btn_row.addWidget(window.btn_edit_presets_off_optimizer)
+
+    btn_row.addWidget(_vsep())
+
+    window.btn_optimize_off_optimizer = QPushButton(tr("btn.optimize"))
+    window.btn_optimize_off_optimizer.setEnabled(False)
+    window.btn_optimize_off_optimizer.setStyleSheet(_optimize_btn_style())
+    window.btn_optimize_off_optimizer.clicked.connect(lambda: _off_on_optimize(window))
+    btn_row.addWidget(window.btn_optimize_off_optimizer)
+
+    window.combo_off_optimizer_pool = QComboBox()
+    window.combo_off_optimizer_pool.addItem("Siege", "siege")
+    window.combo_off_optimizer_pool.addItem("WGB", "wgb")
+    window.combo_off_optimizer_strategy = QComboBox()
+    window.combo_off_optimizer_strategy.addItem("First Turn / Speed Tune", "first_turn")
+    window.combo_off_optimizer_strategy.addItem("Boosted Damage", "boosted_damage")
+    window.combo_off_optimizer_strategy.addItem("Second Turn", "second_turn")
+    window.combo_workers_off_optimizer = QComboBox()
+    window._populate_worker_combo(window.combo_workers_off_optimizer)
+    window.combo_quality_profile_off_optimizer = QComboBox()
+    window.combo_quality_profile_off_optimizer.addItem(tr("profile.smart"), "gpu_combo")
+    window.combo_quality_profile_off_optimizer.addItem(tr("profile.maximum"), "max_quality")
+    idx_gpu = window.combo_quality_profile_off_optimizer.findData("gpu_combo")
+    window.combo_quality_profile_off_optimizer.setCurrentIndex(idx_gpu if idx_gpu >= 0 else 0)
+    window.combo_quality_profile_off_optimizer.currentIndexChanged.connect(window._sync_worker_controls)
+    btn_row.addWidget(_make_settings_frame(
+        "Pool", window.combo_off_optimizer_pool,
+        "Strategie", window.combo_off_optimizer_strategy,
+        tr("label.workers"), window.combo_workers_off_optimizer,
+        tr("label.mode"), window.combo_quality_profile_off_optimizer,
+    ))
+    window._sync_worker_controls()
+
+    btn_row.addStretch(1)
+    window.lbl_off_optimizer_validate = QLabel("—")
+    window.lbl_off_optimizer_validate.setStyleSheet(_status_lbl_style())
+    btn_row.addWidget(window.lbl_off_optimizer_validate)
+
+    window.off_optimizer_result_cards = SiegeDefCardsWidget()
+    window.off_optimizer_result_cards.setVisible(False)
+    v.addWidget(window.off_optimizer_result_cards)
+    v.addStretch(1)
+    restore_state(window)
+
+
 def saved_opt_widgets(window, mode: str):
     if mode == "siege":
         return window.saved_siege_combo, window.saved_siege_cards
@@ -564,6 +698,8 @@ def saved_opt_widgets(window, mode: str):
         return window.saved_rta_combo, window.saved_rta_cards
     if mode == "arena_rush":
         return window.saved_arena_rush_combo, window.saved_arena_rush_cards
+    if mode == "off_optimizer":
+        return window.saved_off_optimizer_combo, window.saved_off_optimizer_cards
     return window.saved_wgb_combo, window.saved_wgb_cards
 
 
@@ -581,11 +717,14 @@ def refresh_saved_opt_combo(window, mode: str) -> None:
         display_name = display_name.replace("WGB Opt", tr("saved.wgb_opt"))
         display_name = display_name.replace("RTA Opt", tr("saved.rta_opt"))
         display_name = display_name.replace("ARENA_RUSH Opt", tr("saved.arena_rush_opt"))
+        display_name = display_name.replace("OFF_OPTIMIZER Opt", "Off-Optimierer Optimierung")
         display_name = display_name.replace("SIEGE Optimizer", tr("saved.siege_opt"))
         display_name = display_name.replace("WGB Optimizer", tr("saved.wgb_opt"))
         display_name = display_name.replace("RTA Optimizer", tr("saved.rta_opt"))
         display_name = display_name.replace("ARENA_RUSH Optimizer", tr("saved.arena_rush_opt"))
         display_name = display_name.replace("ARENA_RUSH Optimization", tr("saved.arena_rush_opt"))
+        display_name = display_name.replace("OFF_OPTIMIZER Optimizer", "Off-Optimierer Optimierung")
+        display_name = display_name.replace("OFF_OPTIMIZER Optimization", "Off-Optimierer Optimierung")
         combo.addItem(f"{display_name}  ({opt.timestamp})", opt.id)
     if current_id:
         idx = combo.findData(current_id)
