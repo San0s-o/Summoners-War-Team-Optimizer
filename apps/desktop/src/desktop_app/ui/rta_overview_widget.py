@@ -229,20 +229,5 @@ class RtaOverviewWidget(QWidget):
     def _equipped_artifacts_for(self, unit_id: int) -> List[Artifact]:
         if not self._account:
             return []
-        by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in (self._account.artifacts or [])}
-        result: Dict[int, Artifact] = {}
-        for aid in (self._account.rta_artifact_equip.get(int(unit_id), []) or []):
-            art = by_id.get(int(aid))
-            if not art:
-                continue
-            art_type = int(art.type_ or 0)
-            if art_type in (1, 2) and art_type not in result:
-                result[art_type] = art
-        if not result:
-            for art in (self._account.artifacts or []):
-                if int(art.occupied_id or 0) != int(unit_id):
-                    continue
-                art_type = int(art.type_ or 0)
-                if art_type in (1, 2) and art_type not in result:
-                    result[art_type] = art
-        return [result[t] for t in (1, 2) if t in result]
+        arts = self._account.equipped_artifacts_for(int(unit_id), "rta", fill_missing_from_pve=False)
+        return [arts[t] for t in (1, 2) if t in arts]

@@ -6,24 +6,49 @@ from typing import Dict, List
 
 from desktop_app.domain.models import AccountData
 from desktop_app.domain.presets import Build, BuildStore
-from desktop_app.engine.arena_rush_timing import (
-    OpeningTurnEffect,
-    effective_spd_buff_pct_for_unit,
-    spd_buff_increase_pct_by_unit_from_assignments,
+from desktop_app.engine.greedy_optimizer import (
+    DEFAULT_BUILD_PRIORITY_PENALTY,
+    GreedyRequest,
+    GreedyResult,
+    GreedyUnitResult,
+    _run_pass_with_profile,
+    optimize_greedy,
 )
-from desktop_app.engine.greedy_optimizer import GreedyRequest, GreedyResult, GreedyUnitResult, optimize_greedy
 
 
 OFF_OPTIMIZER_MODE = "off_optimizer"
 STRATEGY_FIRST_TURN = "first_turn"
 STRATEGY_BOOSTED_DAMAGE = "boosted_damage"
 STRATEGY_SECOND_TURN = "second_turn"
-OFF_OPTIMIZER_DEFAULT_TEAM_SIZE = 3
-OFF_OPTIMIZER_ARENA_TEAM_SIZE = 4
+# The selection decides the team size: 3 units (Siege/WGB) or 4 units (Arena).
+OFF_OPTIMIZER_MAX_TEAM_SIZE = 4
+# Artifact effect 206: "SPD Increasing Effect +{}%".
+SPD_BUFF_INCREASE_EFFECT_ID = 206
+DEFAULT_SPD_BUFF_PCT = 30.0
 
 
-def off_optimizer_team_size_for_pool(pool_mode: str) -> int:
-    return OFF_OPTIMIZER_ARENA_TEAM_SIZE if str(pool_mode or "").strip().lower() == "arena" else OFF_OPTIMIZER_DEFAULT_TEAM_SIZE
+@dataclass(frozen=True)
+class OpeningTurnEffect:
+    atb_boost_pct: float = 0.0
+    applies_spd_buff: bool = False
+    include_caster: bool = True
+
+
+def effective_spd_buff_pct_for_unit(spd_buff_increase_pct: float, base_spd_buff_pct: float = DEFAULT_SPD_BUFF_PCT) -> float:
+    return float(base_spd_buff_pct) * (1.0 + max(0.0, float(spd_buff_increase_pct or 0.0)) / 100.0)
+
+
+def _spd_buff_increase_pct_by_unit(artifacts_by_unit: Dict[int, Dict[int, int]], artifact_lookup) -> Dict[int, float]:
+    out: Dict[int, float] = {}
+    for uid, by_type in (artifacts_by_unit or {}).items():
+        total = 0.0
+        for aid in (by_type or {}).values():
+            art = artifact_lookup.get(int(aid or 0))
+            for sec in (getattr(art, "sec_effects", None) or []):
+                if sec and len(sec) >= 2 and int(sec[0] or 0) == SPD_BUFF_INCREASE_EFFECT_ID:
+                    total += float(sec[1] or 0.0)
+        out[int(uid)] = total
+    return out
 
 
 @dataclass
@@ -67,17 +92,16 @@ class OffOptimizerResult:
     strategy: str = STRATEGY_FIRST_TURN
 
 
-def _unique_unit_ids(unit_ids: List[int], max_units: int = OFF_OPTIMIZER_DEFAULT_TEAM_SIZE) -> List[int]:
+def _unique_unit_ids(unit_ids: List[int]) -> List[int]:
     out: List[int] = []
     seen: set[int] = set()
-    cap = max(1, int(max_units or OFF_OPTIMIZER_DEFAULT_TEAM_SIZE))
     for uid in unit_ids or []:
         ui = int(uid or 0)
         if ui <= 0 or ui in seen:
             continue
         seen.add(int(ui))
         out.append(int(ui))
-        if len(out) >= cap:
+        if len(out) >= OFF_OPTIMIZER_MAX_TEAM_SIZE:
             break
     return out
 
@@ -217,7 +241,7 @@ def evaluate_mirror_tune(
         for uid in order
         if int(uid) in by_uid
     }
-    buff_inc = spd_buff_increase_pct_by_unit_from_assignments(artifacts_by_unit, dict(artifact_lookup or {}))
+    buff_inc = _spd_buff_increase_pct_by_unit(artifacts_by_unit, dict(artifact_lookup or {}))
     observed = _simulate_mirror_opening(
         expected_order=order,
         speed_by_uid=speed_by_uid,
@@ -270,6 +294,38 @@ def evaluate_mirror_tune(
     )
 
 
+def find_unbuildable_units(
+    account: AccountData,
+    presets: BuildStore,
+    unit_ids: List[int],
+    unit_spd_leader_bonus_flat: Dict[int, int] | None = None,
+    is_cancelled: object | None = None,
+) -> Dict[int, str]:
+    """Quick per-unit check on the full pool without team speed caps: unit_id -> reason it cannot be built."""
+    req = GreedyRequest(
+        mode=OFF_OPTIMIZER_MODE,
+        unit_ids_in_order=[int(uid) for uid in unit_ids],
+        enforce_turn_order=False,
+        unit_spd_leader_bonus_flat=dict(unit_spd_leader_bonus_flat or {}),
+        cloud_build_prior_by_uid={},
+        is_cancelled=is_cancelled,
+    )
+    out: Dict[int, str] = {}
+    for uid in req.unit_ids_in_order:
+        if is_cancelled and is_cancelled():
+            break
+        # One unit per pass so units do not compete for the same runes.
+        for r in _run_pass_with_profile(
+            account, presets, req, [int(uid)],
+            time_limit_per_unit_s=2.0,
+            speed_hard_priority=False,
+            build_priority_penalty=DEFAULT_BUILD_PRIORITY_PENALTY,
+        ):
+            if not r.ok:
+                out[int(r.unit_id)] = str(r.message or "")
+    return out
+
+
 def _team_has_spd_buff_by_uid(order: List[int], effects: Dict[int, OpeningTurnEffect]) -> Dict[int, bool]:
     has_before = False
     out: Dict[int, bool] = {}
@@ -282,8 +338,7 @@ def _team_has_spd_buff_by_uid(order: List[int], effects: Dict[int, OpeningTurnEf
 
 
 def optimize_off_optimizer(account: AccountData, presets: BuildStore, req: OffOptimizerRequest) -> OffOptimizerResult:
-    team_size = off_optimizer_team_size_for_pool(req.pool_mode)
-    unit_ids = _unique_unit_ids(req.unit_ids, team_size)
+    unit_ids = _unique_unit_ids(req.unit_ids)
     if not unit_ids:
         empty = GreedyResult(False, "Off-Optimizer: no units selected.", [])
         return OffOptimizerResult(False, empty.message, empty, MirrorTuneResult(False, empty.message), req.strategy)
@@ -298,6 +353,7 @@ def optimize_off_optimizer(account: AccountData, presets: BuildStore, req: OffOp
     floors: Dict[int, int] = {}
     best_result: GreedyResult | None = None
     best_tune: MirrorTuneResult | None = None
+    best_key: tuple[int, bool] | None = None
     max_attempts = 1 if str(req.strategy).strip().lower() == STRATEGY_SECOND_TURN else 4
     for attempt in range(max_attempts):
         if req.is_cancelled and req.is_cancelled():
@@ -324,18 +380,26 @@ def optimize_off_optimizer(account: AccountData, presets: BuildStore, req: OffOp
             unit_artifact_hints_by_uid=dict(req.unit_artifact_hints_by_uid or {}),
             unit_team_has_spd_buff_by_uid=_team_has_spd_buff_by_uid(order, dict(req.turn_effects_by_unit or {})),
             broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
-            arena_rush_context="offense",
         )
         result = optimize_greedy(account, presets, greedy_req)
         tune = evaluate_mirror_tune(order, result.results, dict(req.turn_effects_by_unit or {}), artifact_lookup, req.strategy)
-        best_result = result
-        best_tune = tune
+        key = (sum(1 for r in (result.results or []) if r.ok), bool(tune.ok))
+        if best_key is not None and key < best_key:
+            # The speed floors made it worse (e.g. a unit cannot reach its floor): keep the previous result.
+            break
+        best_result, best_tune, best_key = result, tune, key
         if tune.ok or str(req.strategy).strip().lower() == STRATEGY_BOOSTED_DAMAGE:
             # Boosted Damage accepts the greedy damage result unless the mirror check
             # can be repaired by cheap speed floors in the first retry.
             if tune.ok or attempt >= 1:
                 break
-        rec = dict(tune.recommended_min_speed_by_uid or {})
+        max_speed_by_uid = {int(r.unit_id): int(getattr(r, "max_speed", 0) or 0) for r in (result.results or [])}
+        rec = {
+            int(uid): int(floor)
+            for uid, floor in dict(tune.recommended_min_speed_by_uid or {}).items()
+            # A floor above the unit's reachable maximum can only fail: skip the whole re-run.
+            if not (0 < max_speed_by_uid.get(int(uid), 0) < int(floor))
+        }
         if not rec:
             break
         changed = False

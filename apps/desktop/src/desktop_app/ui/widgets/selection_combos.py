@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Set
 
-from PySide6.QtCore import Qt, QEvent, QModelIndex, QSortFilterProxyModel, QRegularExpression, QTimer, Signal
+from PySide6.QtCore import Qt, QEvent, QModelIndex, QSize, QSortFilterProxyModel, QRegularExpression, QTimer, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QWidget, QComboBox, QCompleter, QAbstractItemView,
@@ -55,6 +55,14 @@ class _UnitSearchComboBox(_NoScrollComboBox):
             line_edit.setPlaceholderText(tr("main.search_placeholder"))
             line_edit.textChanged.connect(self._on_filter_text_edited)
         self.activated.connect(self._on_item_activated)
+
+    # False when a UnitSlotCard draws the portrait next to the field.
+    show_field_icon: bool = True
+
+    def set_unit_icon_size(self, size: QSize) -> None:
+        """Icon size of the dropdown list; the field itself only shows it when show_field_icon."""
+        self.setIconSize(size if self.show_field_icon else QSize(0, 0))  # also resizes view() icons
+        self.view().setIconSize(size)
 
     def set_filter_suspended(self, suspended: bool) -> None:
         self._suspend_filter = bool(suspended)
@@ -111,6 +119,8 @@ class _UnitSearchComboBox(_NoScrollComboBox):
         current_text = "" if current_uid == 0 else self.currentText()
         line_edit.blockSignals(True)
         line_edit.setText(current_text)
+        # Show the monster name, not the tail ("· Lv40 · 152 SPD") of a long entry.
+        line_edit.setCursorPosition(0)
         line_edit.blockSignals(False)
 
     def _reset_search_field(self, *_args) -> None:

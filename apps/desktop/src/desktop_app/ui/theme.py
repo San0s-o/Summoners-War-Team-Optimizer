@@ -6,47 +6,47 @@ from PySide6.QtWidgets import QApplication
 from desktop_app.ui.dpi import dp
 
 # ================================================================
-# Dual-theme system: "classic" (original dark) & "cyberpunk" (HUD)
+# Dual-theme system: "classic" (Midnight navy, shown as "Midnight") & "cyberpunk" (HUD)
 # ================================================================
 
 _CLASSIC = dict(
-    # backgrounds
-    bg="#1e1e1e", bg_mid="#282828", bg_card="#2b2b2b", bg_input="#252525",
+    # backgrounds ("Midnight"): deep navy; cards clearly lift off the page, inputs sink below it
+    bg="#0d121b", bg_mid="#18202e", bg_card="#1a2332", bg_input="#0a0e15",
     # borders
-    border="#3a3a3a", border_hover="#4a90e2",
+    border="#2a3649", border_hover="#4f8cff",
     # text
-    text="#dddddd", text_dim="#999999", text_disabled="#666666",
+    text="#f2f5fa", text_dim="#93a1b8", text_disabled="#4f5b6e",
     # accents
-    accent="#4a90e2", accent_bg="#1a4a8a", accent_hover="#2260b0", accent_pressed="#143870",
-    highlight_bg="#2d4a7a",
+    accent="#4f8cff", accent_bg="#2f6ff0", accent_hover="#4a84ff", accent_pressed="#2457c4",
+    highlight_bg="#1f3a6b",
     # semantic
-    green="#27ae60", red="#e74c3c", orange="#f39c12", purple="#9b59b6",
+    green="#2fd27f", red="#ff5c6c", orange="#ffb020", purple="#a879ff",
     # tabs
-    tab_bg="#23272e", tab_pane="#1f2126", tab_border="#2e3138",
-    tab_text="#6c7888", tab_active_text="#eef1f5", tab_hover_text="#b0bac8",
-    tab_accent="#4a90e2", tab_hover_accent="#3a4a5e",
+    tab_bg="#0d121b", tab_pane="#111826", tab_border="#243044",
+    tab_text="#8c9ab2", tab_active_text="#ffffff", tab_hover_text="#d6deeb",
+    tab_accent="#4f8cff", tab_hover_accent="#1a2332",
     # progress
-    progress_chunk="background-color: #4a90e2",
+    progress_chunk="background-color: #4f8cff",
     # scrollbar
-    scrollbar_handle="#3a3a3a",
+    scrollbar_handle="#2f3d55",
     # cards
-    card_bg="#2b2b2b", card_border="#3a3a3a",
+    card_bg="#1a2332", card_border="#2a3649",
     # optimize btn
-    opt_bg="#1a6fa8", opt_border="#2980b9", opt_hover="#2980b9", opt_hover_border="#3498db",
+    opt_bg="#2f6ff0", opt_border="#4a84ff", opt_hover="#4a84ff", opt_hover_border="#79a6ff",
     # elements
-    elem_fire="#e74c3c", elem_water="#3498db", elem_wind="#f1c40f",
-    elem_light="#ecf0f1", elem_dark="#8e44ad",
+    elem_fire="#ff5c6c", elem_water="#45a8ff", elem_wind="#ffd23f",
+    elem_light="#f4f6fb", elem_dark="#a879ff",
     # chart
-    chart_bg="#23272e", chart_text="#dddddd", chart_grid="#2e2e2e",
+    chart_bg="#111826", chart_text="#f2f5fa", chart_grid="#243044",
     # settings frame
-    settings_bg="#232323",
+    settings_bg="#18202e",
     # tooltip
-    tooltip_bg="#1f242a", tooltip_border="#3a3f46",
+    tooltip_bg="#0a0e15", tooltip_border="#2f3d55",
     # popup
-    popup_bg="#1f242a", popup_border="#3a3f46",
+    popup_bg="#0a0e15", popup_border="#2f3d55",
     # overview
-    overview_green="#27ae60", overview_red="#e74c3c", overview_accent="#3498db",
-    overview_purple="#9b59b6", overview_orange="#f39c12",
+    overview_green="#2fd27f", overview_red="#ff5c6c", overview_accent="#45a8ff",
+    overview_purple="#a879ff", overview_orange="#ffb020",
     # card title style
     card_title_transform="none",
     card_title_spacing="normal",
@@ -175,10 +175,10 @@ def apply_dark_palette(app: QApplication) -> None:
         )
     else:
         primary_btn = (
-            f"QPushButton[primary=\"true\"] {{ background-color: {c['accent_bg']}; color: #ffffff; font-weight: 700; border: 1px solid #2d6bc4; }}"
+            f"QPushButton[primary=\"true\"] {{ background-color: {c['accent_bg']}; color: #ffffff; font-weight: 700; border: 1px solid {c['accent_hover']}; }}"
             f"QPushButton[primary=\"true\"]:hover {{ background-color: {c['accent_hover']}; }}"
             f"QPushButton[primary=\"true\"]:pressed {{ background-color: {c['accent_pressed']}; }}"
-            f"QPushButton[primary=\"true\"]:disabled {{ background-color: #1a2a3a; color: #4a6080; border-color: #1a2a3a; }}"
+            f"QPushButton[primary=\"true\"]:disabled {{ background-color: {c['bg_input']}; color: {c['text_disabled']}; border-color: {c['border']}; }}"
         )
 
     # cyberpunk-specific extras

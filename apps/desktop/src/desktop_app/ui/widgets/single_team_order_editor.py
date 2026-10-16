@@ -254,8 +254,7 @@ class SingleTeamOrderEditor(QWidget):
                 spd_buff_chk, atb_boost_chk, atb_boost_spin = controls
                 atb_boost_pct = float(atb_boost_spin.value()) if bool(atb_boost_chk.isChecked()) else 0.0
                 applies_spd_buff = bool(spd_buff_chk.isChecked())
-                if not applies_spd_buff and atb_boost_pct <= 0.0:
-                    continue
+                # Explicit "off" entries are kept so callers can tell them apart from "never configured".
                 row_cfg[int(uid)] = {
                     "applies_spd_buff": bool(applies_spd_buff),
                     "atb_boost_pct": float(atb_boost_pct),
@@ -341,6 +340,9 @@ class SingleTeamOrderEditor(QWidget):
             self._switch_active_team(row)
 
     def _team_missing_tick(self, team_index: int) -> bool:
+        # The off optimizer derives speed from its strategy; ticks are optional there.
+        if str(self.mode).strip().lower() == "off_optimizer":
+            return False
         if team_index < 0 or team_index >= len(self._team_order_lists):
             return False
         lw = self._team_order_lists[team_index]
@@ -373,12 +375,12 @@ class SingleTeamOrderEditor(QWidget):
         missing_tick = self._team_missing_tick(team_index)
         missing_lead = self._team_missing_speed_lead(team_index)
         if missing_tick and missing_lead:
-            return "Tick+Lead fehlt"
+            return tr("order.status_tick_lead_missing")
         if missing_tick:
-            return "Tick fehlt"
+            return tr("order.status_tick_missing")
         if missing_lead:
-            return "Lead fehlt"
-        return "OK"
+            return tr("order.status_lead_missing")
+        return tr("order.status_ok")
 
     def _refresh_nav_statuses(self) -> None:
         nav = getattr(self, "_nav_list", None)
@@ -402,7 +404,7 @@ class SingleTeamOrderEditor(QWidget):
 
         for t_idx, team_units in enumerate(teams):
             title = self.team_title(t_idx)
-            item = QListWidgetItem(f"{title} [OK]")
+            item = QListWidgetItem(f"{title} [{tr('order.status_ok')}]")
             # Use first unit's icon as a team icon hint
             if team_units:
                 icon = self._unit_icon_fn(team_units[0][0])

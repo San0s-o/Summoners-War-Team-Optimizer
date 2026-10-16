@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import weakref
+from functools import lru_cache
 from pathlib import Path
 from typing import ClassVar, List, Dict, Optional, Tuple, Any
 
@@ -46,6 +47,15 @@ _DEFAULT_COLOUR = QColor(149, 165, 166)  # grey fallback
 
 # ── element colours for the name label accent ────────────────
 from desktop_app.ui import theme as _theme
+
+
+@lru_cache(maxsize=None)
+def _rune_set_icon_cached(assets_dir: str, set_id: int) -> QIcon:
+    # Cards render dozens of runes each; load every set icon from disk only once.
+    name = SET_NAMES.get(set_id, "")
+    slug = name.lower().replace(" ", "_") if name else str(set_id)
+    icon_path = Path(assets_dir) / "runes" / "sets" / f"{set_id}_{slug}.png"
+    return QIcon(str(icon_path)) if icon_path.exists() else QIcon()
 
 
 def _element_colours() -> Dict[str, str]:
@@ -155,14 +165,14 @@ def _artifact_center_slug(art: Artifact | None) -> str:
         return ""
     t = int(getattr(art, "type_", 0) or 0)
     attr = int(getattr(art, "attribute", 0) or 0)
-    # SW export values usually:
-    # type 1 (attribute artifacts): 1..5 => fire/water/wind/light/dark
-    # type 2 (type artifacts):      6..9 => attack/defense/hp/support
-    # Some exports provide simplified 1..4 for archetypes; support both.
+    # SW export values (checked against the wearers in a real export):
+    # type 1 (attribute artifacts): same codes as monsters, 1..5 => water/fire/wind/light/dark
+    # type 2 (type artifacts):      unit_style 1..4 => attack/defense/hp/support (some exports 6..9)
+    # 98 marks artifacts usable on any element/archetype.
     if t == 1:
         return {
-            1: "fire",
-            2: "water",
+            1: "water",
+            2: "fire",
             3: "wind",
             4: "light",
             5: "dark",
@@ -760,11 +770,7 @@ class MonsterCard(QFrame):
 
     # ── helpers ──────────────────────────────────────────────
     def _rune_set_icon(self, set_id: int) -> QIcon:
-        name = SET_NAMES.get(set_id, "")
-        slug = name.lower().replace(" ", "_") if name else str(set_id)
-        filename = f"{set_id}_{slug}.png"
-        icon_path = self._assets_dir / "runes" / "sets" / filename
-        return QIcon(str(icon_path)) if icon_path.exists() else QIcon()
+        return _rune_set_icon_cached(str(self._assets_dir), int(set_id))
 
 
 # ============================================================
@@ -1182,41 +1188,8 @@ class SiegeDefCardsWidget(QWidget):
         )
 
     def _equipped_artifacts_for(self, account: AccountData, unit_id: int, rune_mode: str) -> List[Artifact]:
-        by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in (account.artifacts or [])}
-        result: Dict[int, Artifact] = {}
-        mode = str(rune_mode or "").strip().lower()
-        if mode in ("siege", "guild"):
-            for aid in (account.guild_artifact_equip.get(int(unit_id), []) or []):
-                art = by_id.get(int(aid))
-                if not art:
-                    continue
-                art_type = int(art.type_ or 0)
-                if art_type in (1, 2) and art_type not in result:
-                    result[art_type] = art
-        elif mode == "arena":
-            for aid in (getattr(account, "arena_artifact_equip", {}).get(int(unit_id), []) or []):
-                art = by_id.get(int(aid))
-                if not art:
-                    continue
-                art_type = int(art.type_ or 0)
-                if art_type in (1, 2) and art_type not in result:
-                    result[art_type] = art
-        elif mode == "rta":
-            for aid in (account.rta_artifact_equip.get(int(unit_id), []) or []):
-                art = by_id.get(int(aid))
-                if not art:
-                    continue
-                art_type = int(art.type_ or 0)
-                if art_type in (1, 2) and art_type not in result:
-                    result[art_type] = art
-        if not result:
-            for art in (account.artifacts or []):
-                if int(art.occupied_id or 0) != int(unit_id):
-                    continue
-                art_type = int(art.type_ or 0)
-                if art_type in (1, 2) and art_type not in result:
-                    result[art_type] = art
-        return [result[t] for t in (1, 2) if t in result]
+        arts = account.equipped_artifacts_for(int(unit_id), rune_mode, fill_missing_from_pve=False)
+        return [arts[t] for t in (1, 2) if t in arts]
 
 
 # ── module-level helper ──────────────────────────────────────

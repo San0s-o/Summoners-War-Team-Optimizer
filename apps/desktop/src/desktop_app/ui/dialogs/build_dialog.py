@@ -202,8 +202,19 @@ class BuildDialog(QDialog):
             self._order_section.unit_selected.connect(self._on_order_section_unit_selected)
             layout.addWidget(self._order_section)
 
-        # Per-unit widget refs (replaces 22 individual dicts)
         self._unit_label_by_id: Dict[int, str] = {uid: lbl for uid, lbl in self._unit_rows}
+        editor_split = self._build_editor_split()
+        layout.addWidget(editor_split, 1)
+        self._load_unit_list()
+        self._initial_snapshot = self._capture_initial_snapshot()
+        layout.addLayout(self._build_footer())
+        self._apply_styles(editor_split)
+
+        # Show only after the full UI is constructed to avoid a brief white flash.
+        self.showMaximized()
+
+    def _build_editor_split(self) -> QSplitter:
+        """Left: collapsible monster list (optimization order). Right: per-unit editor stack."""
         self._unit_editor_stack = QStackedWidget()
         self._unit_list = QListWidget()
         self._unit_list.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -217,7 +228,7 @@ class BuildDialog(QDialog):
         editor_split.setChildrenCollapsible(True)
         editor_split.setHandleWidth(dp(3))
 
-        _list_title = tr("group.build_monster_list")
+        list_title = tr("group.build_monster_list")
         list_panel = QWidget()
         list_panel.setObjectName("buildListPanel")
         list_panel.setMinimumWidth(0)
@@ -225,7 +236,7 @@ class BuildDialog(QDialog):
         list_panel_layout.setContentsMargins(0, 0, 0, 0)
         list_panel_layout.setSpacing(0)
 
-        list_toggle_btn = QPushButton("◀  " + _list_title)
+        list_toggle_btn = QPushButton("◀  " + list_title)
         list_toggle_btn.setObjectName("buildUnitListToggle")
         list_toggle_btn.setCheckable(True)
         list_toggle_btn.setChecked(True)
@@ -247,38 +258,14 @@ class BuildDialog(QDialog):
 
         def _on_unit_list_toggle(checked: bool) -> None:
             list_content.setVisible(bool(checked))
-            list_toggle_btn.setText(("◀  " + _list_title) if checked else "▶")
+            list_toggle_btn.setText(("◀  " + list_title) if checked else "▶")
             total = editor_split.width()
-            if checked:
-                editor_split.setSizes([dp(340), max(0, total - dp(340))])
-            else:
-                editor_split.setSizes([dp(28), max(0, total - dp(28))])
+            width = dp(340) if checked else dp(28)
+            editor_split.setSizes([width, max(0, total - width)])
 
         list_toggle_btn.toggled.connect(_on_unit_list_toggle)
         list_panel_layout.addWidget(list_toggle_btn)
         list_panel_layout.addWidget(list_content, 1)
-        bottom_left_buttons: List[QPushButton] = []
-        if can_load_current_runes(self._account, self.mode):
-            btn_load_runes = QPushButton(tr("btn.load_current_runes"))
-            btn_load_runes.setToolTip(tr("tooltip.load_current_runes"))
-            btn_load_runes.clicked.connect(self._on_load_current_runes)
-            bottom_left_buttons.append(btn_load_runes)
-        btn_load_preferred_all = QPushButton(tr("btn.load_preferred_runes_all"))
-        btn_load_preferred_all.setToolTip(tr("tooltip.load_preferred_runes_all"))
-        btn_load_preferred_all.clicked.connect(self._on_load_preferred_runes_for_all)
-        bottom_left_buttons.append(btn_load_preferred_all)
-        btn_load_preferred_artifacts_all = QPushButton(tr("btn.load_preferred_artifacts_all"))
-        btn_load_preferred_artifacts_all.setToolTip(tr("tooltip.load_preferred_artifacts_all"))
-        btn_load_preferred_artifacts_all.clicked.connect(self._on_load_preferred_artifacts_for_all)
-        bottom_left_buttons.append(btn_load_preferred_artifacts_all)
-        btn_load_community_all = QPushButton(tr("btn.load_community_trends_all"))
-        btn_load_community_all.setToolTip(tr("tooltip.load_community_trends_all"))
-        btn_load_community_all.clicked.connect(self._on_load_community_trends_for_all)
-        bottom_left_buttons.append(btn_load_community_all)
-        btn_restore_saved_preset = QPushButton(tr("btn.restore_saved_preset"))
-        btn_restore_saved_preset.setToolTip(tr("tooltip.restore_saved_preset"))
-        btn_restore_saved_preset.clicked.connect(self._on_restore_saved_preset)
-        bottom_left_buttons.append(btn_restore_saved_preset)
         editor_split.addWidget(list_panel)
 
         detail_box = QGroupBox(tr("group.build_editor"))
@@ -291,17 +278,21 @@ class BuildDialog(QDialog):
         editor_split.setStretchFactor(0, 0)
         editor_split.setStretchFactor(1, 1)
         editor_split.setSizes([340, 1100])
-        layout.addWidget(editor_split, 1)
+        return editor_split
 
-        table_rows = list(self._unit_rows)
-        table_rows.sort(
-            key=lambda x: (
-                int(getattr((self.preset_store.get_unit_builds(self.mode, int(x[0])) or [Build.default_any()])[0], "optimize_order", 0) or 0) <= 0,
-                int(getattr((self.preset_store.get_unit_builds(self.mode, int(x[0])) or [Build.default_any()])[0], "optimize_order", 0) or 0),
-                next((idx for idx, it in enumerate(self._unit_rows) if int(it[0]) == int(x[0])), 10000),
-            )
+    def _load_unit_list(self) -> None:
+        """Fill the monster list in optimization order (explicit order first, then selection order)."""
+        def _optimize_order(uid: int) -> int:
+            b0 = (self.preset_store.get_unit_builds(self.mode, int(uid)) or [Build.default_any()])[0]
+            return int(getattr(b0, "optimize_order", 0) or 0)
+
+        pos_by_uid: Dict[int, int] = {}
+        for idx, (uid, _label) in enumerate(self._unit_rows):
+            pos_by_uid.setdefault(int(uid), idx)
+        table_rows = sorted(
+            self._unit_rows,
+            key=lambda row: (_optimize_order(row[0]) <= 0, _optimize_order(row[0]), pos_by_uid.get(int(row[0]), 10000)),
         )
-
         self._uid_to_stack_index: Dict[int, int] = {}
         for unit_id, label in table_rows:
             item = QListWidgetItem(label)
@@ -311,50 +302,59 @@ class BuildDialog(QDialog):
             item.setData(Qt.UserRole, int(unit_id))
             self._unit_list.addItem(item)
             self._uid_to_stack_index[int(unit_id)] = -1
-
         self._unit_list.currentRowChanged.connect(self._on_unit_row_changed)
         if self._unit_list.count() > 0:
             self._unit_list.setCurrentRow(0)
-        self._initial_snapshot = BuildDialogSnapshot(
+
+    def _capture_initial_snapshot(self) -> BuildDialogSnapshot:
+        """State to return to via "restore saved preset"."""
+        order = self._order_section
+        return BuildDialogSnapshot(
             build_by_unit={
-                int(uid): copy.deepcopy(
-                    (self.preset_store.get_unit_builds(self.mode, int(uid)) or [Build.default_any()])[0]
-                )
+                int(uid): copy.deepcopy((self.preset_store.get_unit_builds(self.mode, int(uid)) or [Build.default_any()])[0])
                 for uid, _label in self._unit_rows
                 if int(uid) > 0
             },
             unit_list_order=self._unit_list_uid_order(),
-            team_speed_lead_by_team=self._order_section.capture_speed_lead_uid_state() if self._order_section else {},
-            team_speed_lead_pct_by_team=self._order_section.capture_speed_lead_pct_state() if self._order_section else {},
-            team_effect_control_state=self._order_section.capture_effect_control_state() if self._order_section else {},
+            team_speed_lead_by_team=order.capture_speed_lead_uid_state() if order else {},
+            team_speed_lead_pct_by_team=order.capture_speed_lead_pct_state() if order else {},
+            team_effect_control_state=order.capture_effect_control_state() if order else {},
         )
 
+    def _build_footer(self) -> QHBoxLayout:
+        """Bulk actions in an "Actions" menu on the left, Save/Cancel on the right."""
+        actions = []
+        if can_load_current_runes(self._account, self.mode):
+            actions.append(("btn.load_current_runes", "tooltip.load_current_runes", self._on_load_current_runes))
+        actions += [
+            ("btn.load_preferred_runes_all", "tooltip.load_preferred_runes_all", self._on_load_preferred_runes_for_all),
+            ("btn.load_preferred_artifacts_all", "tooltip.load_preferred_artifacts_all", self._on_load_preferred_artifacts_for_all),
+            ("btn.load_community_trends_all", "tooltip.load_community_trends_all", self._on_load_community_trends_for_all),
+            ("btn.restore_saved_preset", "tooltip.restore_saved_preset", self._on_restore_saved_preset),
+        ]
+        actions_menu = QMenu(self)
+        actions_menu.setToolTipsVisible(True)
+        for text_key, tip_key, slot in actions:
+            action = actions_menu.addAction(tr(text_key))
+            action.setToolTip(tr(tip_key))
+            action.triggered.connect(lambda _checked=False, _slot=slot: _slot())
+
+        actions_btn = QPushButton(tr("btn.actions") + "  ▲")
+        actions_btn.clicked.connect(
+            lambda: actions_menu.exec_(actions_btn.mapToGlobal(QPoint(0, -actions_menu.sizeHint().height())))
+        )
         footer_row = QHBoxLayout()
         footer_row.setContentsMargins(0, 0, 0, 0)
         footer_row.setSpacing(dp(8))
-
-        actions_menu = QMenu()
-        for btn in bottom_left_buttons:
-            action = actions_menu.addAction(btn.text())
-            action.setToolTip(btn.toolTip())
-            action.triggered.connect(btn.click)
-
-        actions_btn = QPushButton(tr("btn.actions") + "  ▲")
-
-        def _show_actions_menu() -> None:
-            pos = actions_btn.mapToGlobal(QPoint(0, -actions_menu.sizeHint().height()))
-            actions_menu.exec_(pos)
-
-        actions_btn.clicked.connect(_show_actions_menu)
         footer_row.addWidget(actions_btn)
         footer_row.addStretch(1)
-
         btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         footer_row.addWidget(btns, 0, Qt.AlignRight)
-        layout.addLayout(footer_row)
+        return footer_row
 
+    def _apply_styles(self, editor_split: QSplitter) -> None:
         c = _theme.C
         editor_split.setStyleSheet(
             f"""
@@ -418,9 +418,6 @@ class BuildDialog(QDialog):
             }}
             """
         )
-
-        # Show only after the full UI is constructed to avoid a brief white flash.
-        self.showMaximized()
 
     def accept(self) -> None:
         # Commit any in-progress spinbox edits (value may not yet be committed

@@ -10,18 +10,23 @@ from desktop_app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 
 def apply_tab_style(window) -> None:
+    window.tabs.setStyleSheet(tab_stylesheet())
+
+
+def tab_stylesheet() -> str:
+    """Shared look of the main tabs and every inner (sub)tab bar."""
     c = _th.C
     is_cp = _th.current_name == "cyberpunk"
     pane_bg = c["tab_pane"]
     tab_text = c["tab_text"]
-    tab_sel_text = c["tab_active_text"] if is_cp else "#e8ecf1"
+    tab_sel_text = c["tab_active_text"]
     tab_accent = c["tab_accent"]
     tab_border = c["tab_border"]
     hover_bg = c["tab_hover_accent"] if is_cp else c["bg_mid"]
     hover_text = c["tab_hover_text"]
-    extra_tab = "text-transform: uppercase; letter-spacing: 1px; font-weight: 500;" if is_cp else ""
-    extra_sel = "font-weight: bold;" if is_cp else ""
-    window.tabs.setStyleSheet(
+    extra_tab = "text-transform: uppercase; letter-spacing: 1px; font-weight: 500;" if is_cp else "font-weight: 500;"
+    extra_sel = "font-weight: bold;" if is_cp else "font-weight: 600;"
+    return (
         f"""
         QTabWidget {{ border: none; background: transparent; }}
         QTabWidget::pane {{
@@ -124,6 +129,11 @@ def retranslate_ui(window) -> None:
     _set_tab_text("tab_wgb", "tab.wgb_group")
     _set_tab_text("tab_rta", "tab.rta_group")
     _set_tab_text("tab_rune_optimization", "tab.rune_optimization")
+    _set_tab_text("tab_off_optimizer", "tab.off_optimizer")
+    off_strategy = getattr(window, "combo_off_optimizer_strategy", None)
+    if off_strategy is not None:
+        for data, key in (("first_turn", "off.strategy_first_turn"), ("boosted_damage", "off.strategy_boosted"), ("second_turn", "off.strategy_second_turn")):
+            off_strategy.setItemText(off_strategy.findData(data), tr(key))
     _set_tab_text("tab_settings", "tab.settings")
 
     # Siege-Gruppe: Aktuell | Builder | Gespeichert
@@ -170,7 +180,7 @@ def retranslate_ui(window) -> None:
     window.btn_optimize_siege.setText(tr("btn.optimize"))
     window.lbl_siege_passes.setText(tr("label.passes"))
     window.lbl_siege_workers.setText(tr("label.workers"))
-    window.lbl_siege_profile.setText("Profil")
+    window.lbl_siege_profile.setText(tr("label.mode"))
     window.spin_multi_pass_siege.setToolTip(tr("tooltip.passes"))
     window.combo_workers_siege.setToolTip(tr("tooltip.workers"))
 
@@ -196,7 +206,7 @@ def retranslate_ui(window) -> None:
     window.btn_optimize_wgb.setText(tr("btn.optimize"))
     window.lbl_wgb_passes.setText(tr("label.passes"))
     window.lbl_wgb_workers.setText(tr("label.workers"))
-    window.lbl_wgb_profile.setText("Profil")
+    window.lbl_wgb_profile.setText(tr("label.mode"))
     window.spin_multi_pass_wgb.setToolTip(tr("tooltip.passes"))
     window.combo_workers_wgb.setToolTip(tr("tooltip.workers"))
 
@@ -209,7 +219,7 @@ def retranslate_ui(window) -> None:
     window.btn_optimize_rta.setText(tr("btn.optimize"))
     window.lbl_rta_passes.setText(tr("label.passes"))
     window.lbl_rta_workers.setText(tr("label.workers"))
-    window.lbl_rta_profile.setText("Profil")
+    window.lbl_rta_profile.setText(tr("label.mode"))
     window.spin_multi_pass_rta.setToolTip(tr("tooltip.passes"))
     window.combo_workers_rta.setToolTip(tr("tooltip.workers"))
 
@@ -220,7 +230,7 @@ def retranslate_ui(window) -> None:
     window.btn_optimize_team.setText(tr("btn.optimize_team"))
     window.lbl_team_passes.setText(tr("label.passes"))
     window.lbl_team_workers.setText(tr("label.workers"))
-    window.lbl_team_profile.setText("Profil")
+    window.lbl_team_profile.setText(tr("label.mode"))
     window.spin_multi_pass_team.setToolTip(tr("tooltip.passes"))
     window.combo_workers_team.setToolTip(tr("tooltip.workers"))
     window._refresh_team_combo()
@@ -251,7 +261,7 @@ def retranslate_ui(window) -> None:
         window._on_saved_opt_changed("siege")
         window._on_saved_opt_changed("wgb")
         window._on_saved_opt_changed("rta")
-        window._on_saved_opt_changed("arena_rush")
+        window._on_saved_opt_changed("off_optimizer")
 
     from desktop_app.ui.main_window_sections.settings_section import retranslate_settings
     retranslate_settings(window)

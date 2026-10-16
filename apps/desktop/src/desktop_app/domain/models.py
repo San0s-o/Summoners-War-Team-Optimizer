@@ -1,6 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
+
+from desktop_app.domain.presets import SET_SIZES, SET_STAT_BONUS
 
 @dataclass(frozen=True)
 class Unit:
@@ -139,22 +141,55 @@ class AccountData:
         """Fast lookup: rune_id -> Rune."""
         return {r.rune_id: r for r in self.runes}
 
+    def rune_equip_for_mode(self, mode: str) -> Dict[int, List[int]]:
+        """unit_id -> rune ids of the mode's deck: "siege"/"guild", "arena", "rta"; {} for PvE."""
+        key = str(mode or "").strip().lower()
+        if key in ("siege", "guild"):
+            return self.guild_rune_equip
+        if key == "arena":
+            return self.arena_rune_equip
+        if key == "rta":
+            return self.rta_rune_equip
+        return {}
+
+    def artifact_equip_for_mode(self, mode: str) -> Dict[int, List[int]]:
+        """unit_id -> artifact ids of the mode's deck (same modes as rune_equip_for_mode)."""
+        key = str(mode or "").strip().lower()
+        if key in ("siege", "guild"):
+            return self.guild_artifact_equip
+        if key == "arena":
+            return self.arena_artifact_equip
+        if key == "rta":
+            return self.rta_artifact_equip
+        return {}
+
+    def equipped_artifacts_for(self, unit_id: int, mode: str = "pve", fill_missing_from_pve: bool = True) -> Dict[int, "Artifact"]:
+        """artifact type (1/2) -> artifact of *unit_id* in the mode's deck.
+
+        PvE artifacts fill the missing types, or (fill_missing_from_pve=False) are used
+        only when the deck has none at all."""
+        by_id = {int(a.artifact_id): a for a in (self.artifacts or [])}
+        out: Dict[int, Artifact] = {}
+        for aid in (self.artifact_equip_for_mode(mode).get(int(unit_id), []) or []):
+            art = by_id.get(int(aid))
+            art_type = int(getattr(art, "type_", 0) or 0) if art is not None else 0
+            if art_type in (1, 2) and art_type not in out:
+                out[art_type] = art
+        if len(out) >= 2 or (out and not fill_missing_from_pve):
+            return out
+        for art in (self.artifacts or []):
+            art_type = int(getattr(art, "type_", 0) or 0)
+            if int(getattr(art, "occupied_id", 0) or 0) == int(unit_id) and art_type in (1, 2) and int(art.artifact_id or 0) > 0:
+                out.setdefault(art_type, art)
+        return out
+
     def equipped_runes_for(self, unit_id: int, mode: str = "pve") -> List[Rune]:
         """Return the runes equipped on *unit_id* for the given mode.
 
         mode: "pve" (default occupied_id), "siege"/"guild", "arena", "rta"
         Falls back to PVE runes if the mode has no data.
         """
-        if mode in ("siege", "guild"):
-            equip = self.guild_rune_equip
-        elif mode == "arena":
-            equip = self.arena_rune_equip
-        elif mode == "rta":
-            equip = self.rta_rune_equip
-        else:
-            equip = {}
-
-        rune_ids = equip.get(unit_id)
+        rune_ids = self.rune_equip_for_mode(mode).get(unit_id)
         if rune_ids:
             by_id = self.runes_by_id()
             runes = [by_id[rid] for rid in rune_ids if rid in by_id]
@@ -234,6 +269,8 @@ def compute_unit_stats(unit: Unit, equipped_runes: List[Rune],
                 continue
 
     # set bonuses
+    for sid, (eff_id, bonus) in SET_STAT_BONUS.items():
+        _acc(int(eff_id), int(bonus) * (rune_set_ids.count(int(sid)) // int(SET_SIZES.get(int(sid), 2))))
     swift_sets = rune_set_ids.count(3) // 4
     spd_from_swift = int(base_spd * (25 * swift_sets) / 100)
     spd_from_lead = int(base_spd * speed_lead_pct / 100)

@@ -30,19 +30,14 @@ def show_optimize_results(
         return
     rune_lookup: Dict[int, Rune] = {r.rune_id: r for r in window.account.runes}
     artifact_lookup: Dict[int, Artifact] = {int(a.artifact_id): a for a in window.account.artifacts}
-    mode_rune_owner: Dict[int, int] = {}
-    if mode == "off_optimizer" and str(getattr(getattr(window, "combo_off_optimizer_pool", None), "currentData", lambda: "")() or "").strip().lower() == "arena":
-        for uid, rids in getattr(window.account, "arena_rune_equip", {}).items():
-            for rid in rids:
-                mode_rune_owner[rid] = uid
-    elif mode in ("siege", "guild", "wgb", "arena_rush", "off_optimizer"):
-        for uid, rids in window.account.guild_rune_equip.items():
-            for rid in rids:
-                mode_rune_owner[rid] = uid
-    elif mode == "rta":
-        for uid, rids in window.account.rta_rune_equip.items():
-            for rid in rids:
-                mode_rune_owner[rid] = uid
+    deck_mode = "siege" if mode in ("siege", "guild", "wgb", "off_optimizer") else str(mode or "")
+    off_pool = getattr(window, "combo_off_optimizer_pool", None)
+    if mode == "off_optimizer" and off_pool is not None and str(off_pool.currentData() or "").strip().lower() == "arena":
+        deck_mode = "arena"
+    # rune_id -> unit currently wearing it in this mode's deck ("aktuell auf ..." in the result cards)
+    mode_rune_owner: Dict[int, int] = {
+        int(rid): int(uid) for uid, rids in window.account.rune_equip_for_mode(deck_mode).items() for rid in rids
+    }
     prev_result_mode_ctx = getattr(window, "_result_mode_context", "")
     window._result_mode_context = str(mode or "").strip().lower()
     mode_key = str(mode or "").strip().lower()
@@ -74,7 +69,6 @@ def show_optimize_results(
             window._unit_base_stats,
             window._unit_leader_bonus,
             window._unit_totem_bonus,
-            window._unit_spd_buff_bonus,
             unit_team_index=unit_team_index,
             unit_display_order=unit_display_order,
             mode_rune_owner=mode_rune_owner,

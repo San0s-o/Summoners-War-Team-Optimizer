@@ -10,10 +10,12 @@ from PySide6.QtGui import QIcon, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QComboBox, QFileDialog, QMessageBox, QWidget
 
 from desktop_app.importer.sw_json_importer import load_account_from_data
+from desktop_app.domain.models import compute_unit_stats
 from desktop_app.domain.presets import SET_NAMES
 from desktop_app.i18n import tr
 from desktop_app.ui.dpi import dp
 from desktop_app.ui.widgets.selection_combos import _UnitSearchComboBox
+from desktop_app.ui.widgets.unit_slot_card import ELEMENT_ROLE
 
 
 def on_import(window) -> None:
@@ -89,7 +91,7 @@ def apply_saved_account(window, account, source_label: str) -> None:
     window.lbl_siege_validate.setText(tr("status.siege_ready"))
     window.lbl_wgb_validate.setText(tr("status.wgb_ready"))
     if hasattr(window, "lbl_off_optimizer_validate"):
-        window.lbl_off_optimizer_validate.setText("Bereit. Monster wählen -> Builds -> Optimieren.")
+        window.lbl_off_optimizer_validate.setText(tr("off.ready"))
 
     window._ensure_siege_team_defaults()
     window._refresh_team_combo()
@@ -178,11 +180,16 @@ def icon_for_master_id(window, master_id: int) -> QIcon:
 
 
 def rune_set_icon(window, set_id: int) -> QIcon:
-    name = SET_NAMES.get(set_id, "")
-    slug = name.lower().replace(" ", "_") if name else str(set_id)
-    filename = f"{set_id}_{slug}.png"
-    icon_path = window.assets_dir / "runes" / "sets" / filename
-    return QIcon(str(icon_path)) if icon_path.exists() else QIcon()
+    # One icon per set, reused for every rune row (tables ask once per rune).
+    cache = getattr(window, "_rune_set_icon_cache", None)
+    if cache is None:
+        cache = window._rune_set_icon_cache = {}
+    if set_id not in cache:
+        name = SET_NAMES.get(set_id, "")
+        slug = name.lower().replace(" ", "_") if name else str(set_id)
+        icon_path = window.assets_dir / "runes" / "sets" / f"{set_id}_{slug}.png"
+        cache[set_id] = QIcon(str(icon_path)) if icon_path.exists() else QIcon()
+    return cache[set_id]
 
 
 def unit_text(window, unit_id: int) -> str:
@@ -219,7 +226,10 @@ def populate_combo_with_units(window, cmb: QComboBox) -> None:
     else:
         cmb.setModel(model)
     cmb.setModelColumn(0)
-    cmb.setIconSize(QSize(dp(40), dp(40)))
+    if isinstance(cmb, _UnitSearchComboBox):
+        cmb.set_unit_icon_size(QSize(dp(40), dp(40)))
+    else:
+        cmb.setIconSize(QSize(dp(40), dp(40)))
     idx = cmb.findData(prev_uid, role=Qt.UserRole)
     cmb.setCurrentIndex(idx if idx >= 0 else 0)
     if isinstance(cmb, _UnitSearchComboBox):
@@ -238,6 +248,11 @@ def build_unit_combo_model(window) -> QStandardItemModel:
     index_by_uid[0] = 0
 
     if window.account:
+        # PvE speed tells apart duplicates (e.g. two Lushen) in the dropdown.
+        runes_by_owner: Dict[int, List[Any]] = {}
+        for r in window.account.runes:
+            if int(r.occupied_type or 0) == 1 and int(r.occupied_id or 0) > 0:
+                runes_by_owner.setdefault(int(r.occupied_id), []).append(r)
         unit_rows: List[Tuple[str, str, int, Any]] = []
         for uid, u in window.account.units_by_id.items():
             name = window.monster_db.name_for(u.unit_master_id)
@@ -248,9 +263,11 @@ def build_unit_combo_model(window) -> QStandardItemModel:
             name = window.monster_db.name_for(u.unit_master_id)
             elem = window.monster_db.element_for(u.unit_master_id)
             window._unit_text_cache_by_uid[int(uid)] = f"{name} ({elem}) | lvl {u.unit_level}"
-            item = QStandardItem(f"{name} ({elem})")
+            spd = compute_unit_stats(u, runes_by_owner.get(int(uid), []))["SPD"]
+            item = QStandardItem(f"{name} ({elem}) · Lv{u.unit_level} · {spd} SPD")
             item.setIcon(window._icon_for_master_id(u.unit_master_id))
             item.setData(int(uid), Qt.UserRole)
+            item.setData(elem, ELEMENT_ROLE)
             model.appendRow(item)
             index_by_uid[int(uid)] = model.rowCount() - 1
 

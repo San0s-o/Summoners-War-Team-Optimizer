@@ -5,7 +5,7 @@ import time
 from collections import Counter
 from typing import Callable, List, Optional, Tuple, Any
 
-from PySide6.QtCore import Qt, QMargins, QPointF, QPropertyAnimation, QEasingCurve, QVariantAnimation, QEvent, QRectF
+from PySide6.QtCore import Qt, QMargins, QPointF, QPropertyAnimation, QEasingCurve, QVariantAnimation, QEvent
 from PySide6.QtGui import QColor, QFont, QPainter, QFontMetrics, QCursor, QPen
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea, QApplication,
@@ -29,12 +29,7 @@ from desktop_app.domain.rune_quality import (
     rune_quality_class,
     rune_quality_tier_key,
 )
-from desktop_app.engine.efficiency import (
-    rune_efficiencies,
-    rune_efficiency,
-    artifact_efficiency,
-    rune_efficiency_max,
-)
+from desktop_app.engine.efficiency import rune_efficiency_max
 from desktop_app.services.overview_analytics import (
     compute_artifact_overview_stats,
     compute_rune_overview_stats,
@@ -745,10 +740,7 @@ class _RuneSetDrilldownChartView(QChartView):
         )
         self.setMouseTracking(True)
         self._init_overlay_ui()
-
-        app = QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)
+        self._watching_outside_clicks = False
 
         self._rebuild_sets_level()
 
@@ -891,9 +883,7 @@ class _RuneSetDrilldownChartView(QChartView):
         self._layout_overlay_ui()
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        app = QApplication.instance()
-        if app is not None:
-            app.removeEventFilter(self)
+        self._watch_outside_clicks(False)
         super().closeEvent(event)
 
     def eventFilter(self, watched, event) -> bool:  # noqa: ANN001
@@ -995,8 +985,21 @@ class _RuneSetDrilldownChartView(QChartView):
         slc.setLabelVisible(True)
         self._slice_meta[id(slc)] = {"payload": payload, "base_color": base}
 
+    def _watch_outside_clicks(self, enabled: bool) -> None:
+        # An app-wide filter sees every event of the whole UI, so it is only installed
+        # while drilled down (a click outside the donut then returns to the set level).
+        app = QApplication.instance()
+        if app is None or bool(enabled) == self._watching_outside_clicks:
+            return
+        if enabled:
+            app.installEventFilter(self)
+        else:
+            app.removeEventFilter(self)
+        self._watching_outside_clicks = bool(enabled)
+
     def _rebuild_sets_level(self) -> None:
         self._level = self._LEVEL_SETS
+        self._watch_outside_clicks(False)
         self._context_label = ""
         self._active_slot = 0
         self._active_runes = list(self._all_runes)
@@ -1034,6 +1037,7 @@ class _RuneSetDrilldownChartView(QChartView):
 
     def _rebuild_slots_level(self, runes: List[Rune], context_label: str) -> None:
         self._level = self._LEVEL_SLOTS
+        self._watch_outside_clicks(True)
         self._context_label = str(context_label)
         self._active_slot = 0
         self._active_runes = list(runes)
@@ -1058,6 +1062,7 @@ class _RuneSetDrilldownChartView(QChartView):
 
     def _rebuild_mainstat_level(self, runes: List[Rune], context_label: str, slot: int) -> None:
         self._level = self._LEVEL_MAIN
+        self._watch_outside_clicks(True)
         self._context_label = str(context_label)
         self._active_slot = int(slot)
         self._active_runes = list(runes)

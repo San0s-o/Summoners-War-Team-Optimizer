@@ -10,7 +10,7 @@ Fully GPU-native approach (no OR-Tools in the loop):
 3.  For each unit, generate massive batches of random + heuristic-guided
     rune+artifact combinations (evolutionary search).
 4.  Evaluate all combinations in one vectorised pass: set validation, mainstat
-    check, speed tick bounds, min stat thresholds, scoring â€“ on GPU if available.
+    check, speed tick bounds, min stat thresholds, scoring – on GPU if available.
 5.  Build GreedyUnitResult directly from the best GPU-found combination.
 6.  Persist per-account learning data so the scoring weights improve over time.
 """
@@ -20,41 +20,14 @@ import json
 import random
 import hashlib
 import statistics
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-
-try:
-    import os as _os
-    import sys as _sys
-    if _sys.platform == "win32":
-        # On Windows, CuPy needs CUDA DLLs (cublas etc.) in the DLL search path.
-        # If nvidia-*-cu12 wheels are installed, register their bin/ dirs.
-        try:
-            import importlib.util as _ilu
-            _nvidia_root = _ilu.find_spec("nvidia")
-            if _nvidia_root and _nvidia_root.submodule_search_locations:
-                for _nvidia_pkg_dir in _nvidia_root.submodule_search_locations:
-                    for _entry in _os.scandir(_nvidia_pkg_dir):
-                        if not _entry.is_dir():
-                            continue
-                        _bin = _os.path.join(_entry.path, "bin")
-                        if _os.path.isdir(_bin):
-                            try:
-                                _os.add_dll_directory(_bin)
-                            except Exception:
-                                pass
-        except Exception:
-            pass
-    import cupy as _cp
-    _CUPY_AVAILABLE = int(_cp.cuda.runtime.getDeviceCount()) > 0
-except Exception:
-    _cp = None
-    _CUPY_AVAILABLE = False
 
 from desktop_app.domain.models import AccountData, Rune, Artifact
 from desktop_app.domain.presets import (
@@ -62,6 +35,7 @@ from desktop_app.domain.presets import (
     Build,
     SET_SIZES,
     SET_ID_BY_NAME,
+    SET_STAT_BONUS,
     EFFECT_ID_TO_MAINSTAT_KEY,
 )
 from desktop_app.domain.speed_ticks import min_spd_for_tick, max_spd_for_tick
@@ -191,6 +165,8 @@ class _GpuScorer:
         self._provider = provider
         self._session: Optional[Any] = None
         self._available = False
+        # DirectML forbids concurrent Run() on one session (background learning + foreground run).
+        self._lock = threading.Lock()
         try:
             model_bytes = _MATMUL_ONNX_BYTES
             if model_bytes and len(model_bytes) > 0:
@@ -219,17 +195,21 @@ class _GpuScorer:
         if not self._available or self._session is None:
             return combo_stats @ weights.stat_weights
         w2d = weights.stat_weights.reshape(-1, 1).astype(np.float32)
-        result = self._session.run(
-            None,
-            {
-                "combo_stats": combo_stats.astype(np.float32),
-                "stat_weights_2d": w2d,
-            },
-        )
+        with self._lock:
+            result = self._session.run(
+                None,
+                {
+                    "combo_stats": combo_stats.astype(np.float32),
+                    "stat_weights_2d": w2d,
+                },
+            )
         return result[0].reshape(-1)  # (batch, 1) -> (batch,)
 
 
 _gpu_scorer_cache: Dict[str, _GpuScorer] = {}
+# Background learning yields to foreground optimizations and runs one job at a time.
+_foreground_busy = threading.Event()
+_LEARNING_LOCK = threading.Lock()
 
 
 def _get_gpu_scorer(provider: str) -> _GpuScorer:
@@ -287,7 +267,7 @@ def _encode_artifacts(arts: List[Artifact]) -> np.ndarray:
 # ---------------------------------------------------------------------------
 @dataclass
 class ScoringWeights:
-    stat_weights: np.ndarray  # shape (_N_STATS,) â€“ per-stat importance
+    stat_weights: np.ndarray  # shape (_N_STATS,) – per-stat importance
     quality_weight: float
     efficiency_weight: float
     set_bonus_weight: float
@@ -305,7 +285,7 @@ class ScoringWeights:
             6.0,   # ATK%
             0.5,   # DEF flat
             6.0,   # DEF%
-            10.0,  # SPD â€“ moderate (solver handles speed precisely)
+            10.0,  # SPD – moderate (solver handles speed precisely)
             8.0,   # CR
             7.0,   # CD
             3.0,   # RES
@@ -370,7 +350,10 @@ class ScoringWeights:
             contexts = dict(store.get("contexts") or {})
             contexts[ctx] = self.to_json_dict()
             store["contexts"] = contexts
-        _WEIGHTS_PATH.write_text(json.dumps(store, indent=2), encoding="utf-8")
+        # Atomic replace: learning runs in a daemon thread that may die mid-write on app exit.
+        tmp_path = _WEIGHTS_PATH.with_suffix(".tmp")
+        tmp_path.write_text(json.dumps(store, indent=2), encoding="utf-8")
+        tmp_path.replace(_WEIGHTS_PATH)
 
     @classmethod
     def load(cls, context_key: str = _GLOBAL_CONTEXT_KEY) -> "ScoringWeights":
@@ -416,7 +399,7 @@ def _canonical_role_label(archetype: str) -> str:
     raw = str(archetype or "").strip().lower()
     if not raw:
         return "unknown"
-    if "rueckhalt" in raw or "rÃ¼ckhalt" in raw or "support" in raw or "heal" in raw:
+    if "rueckhalt" in raw or "rückhalt" in raw or "support" in raw or "heal" in raw:
         return "support"
     if "tank" in raw or "def" in raw or "schutz" in raw:
         return "defense"
@@ -452,11 +435,10 @@ def _learning_context_key(req: GreedyRequest) -> str:
     else:
         role_sig = "+".join(f"{str(name)}{int(cnt)}" for name, cnt in ordered_roles[:3])
 
-    arena_ctx = str(getattr(req, "arena_rush_context", "") or "").strip().lower()
-    arena_sig = arena_ctx if arena_ctx else "none"
     turn_sig = "to1" if bool(getattr(req, "enforce_turn_order", False)) else "to0"
     bucket = _unit_count_bucket(len(unit_ids))
-    return f"mode={mode}|units={bucket}|{turn_sig}|arena={arena_sig}|roles={role_sig}"
+    # "arena=none" is a leftover segment kept so stored per-context weights stay valid.
+    return f"mode={mode}|units={bucket}|{turn_sig}|arena=none|roles={role_sig}"
 
 
 # ---------------------------------------------------------------------------
@@ -525,157 +507,31 @@ def _extract_build_constraints(
     }
 
 
-def _filter_runes_by_mainstat(
-    runes_by_slot: Dict[int, List[Rune]],
-    allowed_mainstats: Dict[int, Set[int]],
-) -> Dict[int, List[Rune]]:
-    """Pre-filter runes on slots 2/4/6 by allowed mainstat constraints."""
-    filtered: Dict[int, List[Rune]] = {}
-    for slot in range(1, 7):
-        runes = runes_by_slot.get(slot, [])
-        if slot in (2, 4, 6) and allowed_mainstats.get(slot):
-            allowed = allowed_mainstats[slot]
-            kept = [r for r in runes if int(r.pri_eff[0] or 0) in allowed]
-            # If filtering removes everything, fall back to unfiltered
-            filtered[slot] = kept if kept else runes
-        else:
-            filtered[slot] = runes
-    return filtered
-
-
 # ---------------------------------------------------------------------------
 # Vectorised combination scoring with full constraint checking
 # ---------------------------------------------------------------------------
 
-def _score_combinations_cupy(
-    slot_matrices_gpu: Dict[int, Any],
-    combo_indices: np.ndarray,
-    art1_matrix_gpu: Optional[Any],
-    art2_matrix_gpu: Optional[Any],
-    art1_indices: Optional[np.ndarray],
-    art2_indices: Optional[np.ndarray],
-    weights: "ScoringWeights",
-    base_spd: int,
-    min_spd: int,
-    max_spd: int,
-    base_cr: int,
-    base_res: int,
-    base_acc: int,
-    set_options: List[Dict[int, int]],
-    min_stats: Dict[str, int],
-    base_hp: int,
-    base_atk: int,
-    base_def: int,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """CuPy-native batch scoring — all heavy ops run on GPU. Returns numpy."""
-    cp = _cp
-    batch = int(combo_indices.shape[0])
+_SET_BONUS_EFFECT_BY_MIN_STAT = {"CR": 9, "CD": 10, "RES": 11, "ACC": 12}
 
-    combo_gpu = cp.asarray(combo_indices.astype(np.int32))
 
-    total_stats = cp.zeros((batch, _N_STATS), dtype=cp.float32)
-    total_quality = cp.zeros(batch, dtype=cp.float32)
-    total_efficiency = cp.zeros(batch, dtype=cp.float32)
-    set_ids = cp.zeros((batch, 6), dtype=cp.int32)
+def _min_stat_base(stat_key: str, base_cr: int, base_res: int, base_acc: int) -> float:
+    # Every monster has 50% base CRI Dmg; the scorers get no per-unit value for it.
+    return float({"CR": base_cr, "CD": 50, "RES": base_res, "ACC": base_acc}.get(stat_key, 0))
 
-    for col_idx, slot in enumerate(sorted(slot_matrices_gpu.keys())):
-        mat = slot_matrices_gpu[slot]
-        idx = cp.clip(combo_gpu[:, col_idx], 0, len(mat) - 1)
-        selected = mat[idx]
-        total_stats += selected[:, :_N_STATS]
-        total_quality += selected[:, _COL_QUALITY]
-        total_efficiency += selected[:, _COL_EFFICIENCY]
-        set_ids[:, col_idx] = selected[:, _COL_SET_ID].astype(cp.int32)
 
-    if art1_matrix_gpu is not None and art1_indices is not None and len(art1_matrix_gpu) > 0:
-        a1_idx = cp.clip(cp.asarray(art1_indices), 0, len(art1_matrix_gpu) - 1)
-        a1_sel = art1_matrix_gpu[a1_idx]
-        total_quality += a1_sel[:, _ART_COL_QUALITY]
-        total_efficiency += a1_sel[:, _ART_COL_EFFICIENCY]
-    if art2_matrix_gpu is not None and art2_indices is not None and len(art2_matrix_gpu) > 0:
-        a2_idx = cp.clip(cp.asarray(art2_indices), 0, len(art2_matrix_gpu) - 1)
-        a2_sel = art2_matrix_gpu[a2_idx]
-        total_quality += a2_sel[:, _ART_COL_QUALITY]
-        total_efficiency += a2_sel[:, _ART_COL_EFFICIENCY]
-
-    # Set validation
-    if set_options:
-        sets_valid = cp.zeros(batch, dtype=cp.bool_)
-        for option in set_options:
-            option_ok = cp.ones(batch, dtype=cp.bool_)
-            for sid, needed in option.items():
-                count = cp.sum(set_ids == sid, axis=1)
-                option_ok &= count >= needed
-            sets_valid |= option_ok
-    else:
-        sets_valid = cp.ones(batch, dtype=cp.bool_)
-
-    # Swift set bonus
-    swift_count = cp.sum(set_ids == 3, axis=1)
-    swift_bonus = cp.floor(float(base_spd) * 0.25) * (swift_count >= 4).astype(cp.float32)
-
-    final_spd = float(base_spd) + total_stats[:, _COL_SPD] + swift_bonus
-
-    valid = cp.ones(batch, dtype=cp.bool_)
-    valid &= sets_valid
-    if int(min_spd) > 0:
-        valid &= final_spd >= float(min_spd)
-    if int(max_spd) > 0:
-        valid &= final_spd <= float(max_spd)
-
-    _MIN_STAT_COL_GPU = {
-        "CR": _COL_CR, "CD": _COL_CD, "RES": _COL_RES,
-        "ACC": _COL_ACC, "HP%": _COL_HPP, "ATK%": _COL_ATKP, "DEF%": _COL_DEFP,
-    }
-    for stat_key, threshold in (min_stats or {}).items():
-        if int(threshold) <= 0:
-            continue
-        if stat_key == "SPD":
-            valid &= final_spd >= float(threshold)
-        elif stat_key == "SPD_NO_BASE":
-            valid &= total_stats[:, _COL_SPD] + swift_bonus >= float(threshold)
-        elif stat_key in _MIN_STAT_COL_GPU:
-            col = _MIN_STAT_COL_GPU[stat_key]
-            base_val = 0.0
-            if stat_key == "CR":
-                base_val = float(base_cr)
-            elif stat_key == "RES":
-                base_val = float(base_res)
-            elif stat_key == "ACC":
-                base_val = float(base_acc)
-            valid &= (base_val + total_stats[:, col]) >= float(threshold)
-
-    cr_overcap = cp.maximum(0.0, float(base_cr) + total_stats[:, _COL_CR] - 100.0)
-    res_overcap = cp.maximum(0.0, float(base_res) + total_stats[:, _COL_RES] - 100.0)
-    acc_overcap = cp.maximum(0.0, float(base_acc) + total_stats[:, _COL_ACC] - 100.0)
-
-    # Native GPU matmul — faster than ONNX for cupy arrays
-    stat_weights_gpu = cp.asarray(weights.stat_weights)
-    stat_score = total_stats @ stat_weights_gpu
-
-    # Set completion bonus
-    set_bonus = cp.zeros(batch, dtype=cp.float32)
-    for sid, size in SET_SIZES.items():
-        count = cp.sum(set_ids == sid, axis=1)
-        set_bonus += (count // size).astype(cp.float32) * float(size) * 10.0
-
-    scores = (
-        stat_score
-        + float(weights.quality_weight) * total_quality
-        + float(weights.efficiency_weight) * total_efficiency
-        + float(weights.speed_priority) * final_spd
-        + float(weights.set_bonus_weight) * set_bonus
-        - 20.0 * cr_overcap
-        - 16.0 * res_overcap
-        - 16.0 * acc_overcap
-    )
-
-    return cp.asnumpy(scores), cp.asnumpy(valid)
+def _set_stat_bonus(xp: Any, set_ids: Any, stat_key: str) -> Any:
+    """Bonus of completed stat sets (Blade CR, Rage CD, ...) per combination, like the solver."""
+    eff_id = _SET_BONUS_EFFECT_BY_MIN_STAT.get(stat_key)
+    total: Any = 0.0
+    for sid, (eid, bonus) in SET_STAT_BONUS.items():
+        if eff_id is not None and int(eid) == int(eff_id):
+            total = total + float(bonus) * (xp.sum(set_ids == sid, axis=1) // int(SET_SIZES[sid]))
+    return total
 
 
 def _score_combinations_full(
     slot_matrices: Dict[int, np.ndarray],  # slot -> (N_slot, _VEC_LEN)
-    combo_indices: np.ndarray,             # (batch, 6) â€“ indices into slot matrices
+    combo_indices: np.ndarray,             # (batch, 6) – indices into slot matrices
     art1_matrix: Optional[np.ndarray],     # (N_art1, _ART_VEC_LEN) or None
     art2_matrix: Optional[np.ndarray],     # (N_art2, _ART_VEC_LEN) or None
     art1_indices: Optional[np.ndarray],    # (batch,) or None
@@ -791,14 +647,9 @@ def _score_combinations_full(
             valid &= total_stats[:, _COL_SPD] + swift_bonus >= float(threshold)
         elif stat_key in _MIN_STAT_COL and _MIN_STAT_COL[stat_key] is not None:
             col = _MIN_STAT_COL[stat_key]
-            base_val = 0.0
-            if stat_key == "CR":
-                base_val = float(base_cr)
-            elif stat_key == "RES":
-                base_val = float(base_res)
-            elif stat_key == "ACC":
-                base_val = float(base_acc)
-            valid &= (base_val + total_stats[:, col]) >= float(threshold)
+            base_val = _min_stat_base(stat_key, base_cr, base_res, base_acc)
+            set_bonus_stat = _set_stat_bonus(np, set_ids_per_slot, stat_key)
+            valid &= (base_val + total_stats[:, col] + set_bonus_stat) >= float(threshold)
 
     # CR/RES/ACC overcap penalties
     cr_total = float(base_cr) + total_stats[:, _COL_CR]
@@ -1039,50 +890,6 @@ def _generate_set_aware_combos(
     return combos, a1, a2
 
 
-def _generate_elite_mutations(
-    elite_combos: np.ndarray,
-    elite_art1: Optional[np.ndarray],
-    elite_art2: Optional[np.ndarray],
-    slot_sizes: Dict[int, int],
-    n_art1: int,
-    n_art2: int,
-    batch_size: int,
-    rng: np.random.Generator,
-    mutation_rate: float = 0.25,
-) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
-    """Mutate elite combinations by randomly replacing some slots."""
-    if len(elite_combos) == 0:
-        return _generate_random_combos(slot_sizes, n_art1, n_art2, batch_size, rng)
-    slots = sorted(slot_sizes.keys())
-    parent_idx = rng.integers(0, len(elite_combos), size=batch_size)
-    combos = elite_combos[parent_idx].copy()
-    mask = rng.random((batch_size, 6)) < mutation_rate
-    for col, slot in enumerate(slots):
-        n = slot_sizes[slot]
-        if n > 0:
-            new_vals = rng.integers(0, n, size=batch_size)
-            combos[:, col] = np.where(mask[:, col], new_vals, combos[:, col])
-
-    a1 = None
-    if n_art1 > 0:
-        if elite_art1 is not None and len(elite_art1) > 0:
-            a1 = elite_art1[parent_idx].copy()
-            amask = rng.random(batch_size) < mutation_rate
-            a1 = np.where(amask, rng.integers(0, n_art1, size=batch_size), a1)
-        else:
-            a1 = rng.integers(0, n_art1, size=batch_size)
-    a2 = None
-    if n_art2 > 0:
-        if elite_art2 is not None and len(elite_art2) > 0:
-            a2 = elite_art2[parent_idx].copy()
-            amask = rng.random(batch_size) < mutation_rate
-            a2 = np.where(amask, rng.integers(0, n_art2, size=batch_size), a2)
-        else:
-            a2 = rng.integers(0, n_art2, size=batch_size)
-
-    return combos, a1, a2
-
-
 def _generate_greedy_seed_combos(
     slot_matrices: Dict[int, np.ndarray],
     set_options: List[Dict[int, int]],
@@ -1123,269 +930,9 @@ def _generate_greedy_seed_combos(
     return combos, a1, a2
 
 
-def _generate_crossover(
-    elite_combos: np.ndarray,
-    elite_art1: Optional[np.ndarray],
-    elite_art2: Optional[np.ndarray],
-    slot_sizes: Dict[int, int],
-    n_art1: int,
-    n_art2: int,
-    batch_size: int,
-    rng: np.random.Generator,
-) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
-    """Create children by crossing two elite parents."""
-    if len(elite_combos) < 2:
-        return _generate_random_combos(slot_sizes, n_art1, n_art2, batch_size, rng)
-    p1 = rng.integers(0, len(elite_combos), size=batch_size)
-    p2 = rng.integers(0, len(elite_combos), size=batch_size)
-    mask = rng.random((batch_size, 6)) < 0.5
-    combos = np.where(mask, elite_combos[p1], elite_combos[p2])
-
-    a1 = None
-    if n_art1 > 0 and elite_art1 is not None and len(elite_art1) > 0:
-        a1 = np.where(rng.random(batch_size) < 0.5, elite_art1[p1], elite_art1[p2])
-    elif n_art1 > 0:
-        a1 = rng.integers(0, n_art1, size=batch_size)
-    a2 = None
-    if n_art2 > 0 and elite_art2 is not None and len(elite_art2) > 0:
-        a2 = np.where(rng.random(batch_size) < 0.5, elite_art2[p1], elite_art2[p2])
-    elif n_art2 > 0:
-        a2 = rng.integers(0, n_art2, size=batch_size)
-
-    return combos, a1, a2
-
-
 # ---------------------------------------------------------------------------
 # Per-unit GPU-native search
 # ---------------------------------------------------------------------------
-def _search_unit_combos_full(
-    pool: List[Rune],
-    artifact_pool: List[Artifact],
-    base_spd: int,
-    min_spd: int,
-    max_spd: int,
-    base_cr: int,
-    base_res: int,
-    base_acc: int,
-    base_hp: int,
-    base_atk: int,
-    base_def: int,
-    weights: ScoringWeights,
-    constraints: Dict[str, Any],
-    batch_size: int,
-    n_cycles: int,
-    rng: np.random.Generator,
-    gpu_scorer: Optional["_GpuScorer"] = None,
-) -> Tuple[Optional[Dict[int, int]], Optional[Dict[int, int]], float]:
-    """Find the best rune+artifact combination for one unit.
-
-    Returns (runes_by_slot, artifacts_by_type, best_score).
-    runes_by_slot: {slot: rune_id}
-    artifacts_by_type: {1: artifact_id, 2: artifact_id} or None
-    """
-    # Build per-slot rune lists
-    runes_by_slot: Dict[int, List[Rune]] = {s: [] for s in range(1, 7)}
-    for r in pool:
-        if 1 <= r.slot_no <= 6:
-            runes_by_slot[r.slot_no].append(r)
-
-    # Pre-filter by mainstat on slots 2/4/6
-    allowed_mainstats = constraints.get("allowed_mainstats", {})
-    runes_by_slot = _filter_runes_by_mainstat(runes_by_slot, allowed_mainstats)
-
-    # Encode runes
-    slot_matrices: Dict[int, np.ndarray] = {}
-    slot_rune_ids: Dict[int, List[int]] = {}
-    slot_sizes: Dict[int, int] = {}
-    for slot in range(1, 7):
-        runes = runes_by_slot[slot]
-        if not runes:
-            return None, None, -1e9  # infeasible
-        mat = _encode_runes(runes)
-        slot_matrices[slot] = mat
-        slot_rune_ids[slot] = [r.rune_id for r in runes]
-        slot_sizes[slot] = len(runes)
-
-    # Encode artifacts
-    art1_list = [a for a in artifact_pool if int(a.type_ or 0) == 1]
-    art2_list = [a for a in artifact_pool if int(a.type_ or 0) == 2]
-    art1_matrix = _encode_artifacts(art1_list) if art1_list else None
-    art2_matrix = _encode_artifacts(art2_list) if art2_list else None
-    art1_ids = [a.artifact_id for a in art1_list]
-    art2_ids = [a.artifact_id for a in art2_list]
-    n_art1 = len(art1_list)
-    n_art2 = len(art2_list)
-
-    set_options = constraints.get("set_options", [])
-    min_stats_map = constraints.get("min_stats", {})
-
-    # Upload rune/artifact matrices to GPU once if CuPy is available
-    _use_cupy = _CUPY_AVAILABLE and _cp is not None
-    if _use_cupy:
-        _gpu_slot_matrices = {s: _cp.asarray(m) for s, m in slot_matrices.items()}
-        _gpu_art1 = _cp.asarray(art1_matrix) if art1_matrix is not None else None
-        _gpu_art2 = _cp.asarray(art2_matrix) if art2_matrix is not None else None
-    else:
-        _gpu_slot_matrices = slot_matrices
-        _gpu_art1 = art1_matrix
-        _gpu_art2 = art2_matrix
-
-    # Evolutionary search
-    elite_combos: Optional[np.ndarray] = None
-    elite_art1: Optional[np.ndarray] = None
-    elite_art2: Optional[np.ndarray] = None
-    elite_scores: Optional[np.ndarray] = None
-    elite_size = int(max(120, min(_ELITE_SIZE, max(140, batch_size // 1200))))
-
-    for cycle in range(n_cycles):
-        # Divide batch across strategies
-        if cycle == 0:
-            # First cycle: heavier on random + set-aware
-            n_random = batch_size // 3
-            n_biased = batch_size // 3
-            n_set_aware = batch_size - 2 * n_random
-            parts_rune = []
-            parts_a1 = []
-            parts_a2 = []
-
-            c, a1, a2 = _generate_random_combos(slot_sizes, n_art1, n_art2, n_random, rng)
-            parts_rune.append(c)
-            parts_a1.append(a1)
-            parts_a2.append(a2)
-
-            c, a1, a2 = _generate_biased_combos(slot_matrices, art1_matrix, art2_matrix, weights, n_biased, rng)
-            parts_rune.append(c)
-            parts_a1.append(a1)
-            parts_a2.append(a2)
-
-            if set_options:
-                c, a1, a2 = _generate_set_aware_combos(slot_matrices, set_options, n_art1, n_art2, n_set_aware, rng)
-            else:
-                c, a1, a2 = _generate_random_combos(slot_sizes, n_art1, n_art2, n_set_aware, rng)
-            parts_rune.append(c)
-            parts_a1.append(a1)
-            parts_a2.append(a2)
-        else:
-            # Later cycles: mutations + crossover + some fresh random
-            # Later cycles: prioritise exploitative search to reduce runtime.
-            n_mut = batch_size // 2
-            n_cross = batch_size // 3
-            n_fresh = batch_size - n_mut - n_cross
-            parts_rune = []
-            parts_a1 = []
-            parts_a2 = []
-
-            if elite_combos is not None:
-                c, a1, a2 = _generate_elite_mutations(
-                    elite_combos, elite_art1, elite_art2,
-                    slot_sizes, n_art1, n_art2, n_mut, rng,
-                    mutation_rate=max(0.1, 0.3 - cycle * 0.02),
-                )
-            else:
-                c, a1, a2 = _generate_random_combos(slot_sizes, n_art1, n_art2, n_mut, rng)
-            parts_rune.append(c)
-            parts_a1.append(a1)
-            parts_a2.append(a2)
-
-            if elite_combos is not None and len(elite_combos) >= 2:
-                c, a1, a2 = _generate_crossover(
-                    elite_combos, elite_art1, elite_art2,
-                    slot_sizes, n_art1, n_art2, n_cross, rng,
-                )
-            else:
-                c, a1, a2 = _generate_biased_combos(slot_matrices, art1_matrix, art2_matrix, weights, n_cross, rng)
-            parts_rune.append(c)
-            parts_a1.append(a1)
-            parts_a2.append(a2)
-
-            c, a1, a2 = _generate_random_combos(slot_sizes, n_art1, n_art2, n_fresh, rng)
-            parts_rune.append(c)
-            parts_a1.append(a1)
-            parts_a2.append(a2)
-
-        combos = np.concatenate(parts_rune, axis=0)
-        if n_art1 > 0:
-            c_a1 = np.concatenate([x for x in parts_a1 if x is not None], axis=0)
-        else:
-            c_a1 = None
-        if n_art2 > 0:
-            c_a2 = np.concatenate([x for x in parts_a2 if x is not None], axis=0)
-        else:
-            c_a2 = None
-        combos, c_a1, c_a2 = _dedupe_full_combo_batch(combos, c_a1, c_a2)
-
-        if _use_cupy:
-            scores, valid = _score_combinations_cupy(
-                _gpu_slot_matrices, combos,
-                _gpu_art1, _gpu_art2,
-                c_a1, c_a2,
-                weights,
-                base_spd, min_spd, max_spd,
-                base_cr, base_res, base_acc,
-                set_options, min_stats_map,
-                base_hp, base_atk, base_def,
-            )
-        else:
-            scores, valid = _score_combinations_full(
-                slot_matrices, combos,
-                art1_matrix, art2_matrix,
-                c_a1, c_a2,
-                weights,
-                base_spd, min_spd, max_spd,
-                base_cr, base_res, base_acc,
-                set_options, min_stats_map,
-                base_hp, base_atk, base_def,
-                gpu_scorer=gpu_scorer,
-            )
-
-        # Penalise invalid heavily but don't discard (might relax later)
-        scores = np.where(valid, scores, scores - 1e6)
-
-        # Merge with existing elite
-        if elite_combos is not None:
-            combos = np.concatenate([elite_combos, combos], axis=0)
-            scores = np.concatenate([elite_scores, scores], axis=0)
-            if c_a1 is not None and elite_art1 is not None:
-                c_a1 = np.concatenate([elite_art1, c_a1], axis=0)
-            if c_a2 is not None and elite_art2 is not None:
-                c_a2 = np.concatenate([elite_art2, c_a2], axis=0)
-
-        # Select top-K with dedupe to keep elite pool diverse.
-        top_idx = _select_elite_indices(scores, combos, c_a1, c_a2, elite_size)
-        elite_combos = combos[top_idx]
-        elite_scores = scores[top_idx]
-        if c_a1 is not None:
-            elite_art1 = c_a1[top_idx]
-        if c_a2 is not None:
-            elite_art2 = c_a2[top_idx]
-
-    if elite_combos is None or len(elite_combos) == 0:
-        return None, None, -1e9
-
-    # Return the best combination
-    best_combo = elite_combos[0]
-    best_score = float(elite_scores[0])
-
-    # Reject if best is heavily penalised (no valid combo found)
-    if best_score < -1e5:
-        return None, None, best_score
-
-    rune_map: Dict[int, int] = {}
-    for col, slot in enumerate(sorted(slot_rune_ids.keys())):
-        idx = int(best_combo[col])
-        rune_map[slot] = slot_rune_ids[slot][idx]
-
-    art_map: Dict[int, int] = {}
-    if elite_art1 is not None and n_art1 > 0:
-        a1_idx = int(elite_art1[0])
-        art_map[1] = art1_ids[a1_idx]
-    if elite_art2 is not None and n_art2 > 0:
-        a2_idx = int(elite_art2[0])
-        art_map[2] = art2_ids[a2_idx]
-
-    return rune_map, art_map, best_score
-
-
 # ---------------------------------------------------------------------------
 # History tracking for online learning
 # ---------------------------------------------------------------------------
@@ -1403,8 +950,12 @@ def _load_history(max_entries: int = 400) -> List[Dict[str, Any]]:
         with open(_HISTORY_PATH, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line:
+                if not line:
+                    continue
+                try:
                     entries.append(json.loads(line))
+                except ValueError:
+                    continue  # truncated line from an interrupted background write
     except Exception:
         return []
     return entries[-max_entries:]
@@ -1762,7 +1313,6 @@ def _build_replay_payload(req: GreedyRequest) -> Dict[str, Any]:
         "rune_top_per_set": int(getattr(req, "rune_top_per_set", 0) or 0),
         "speed_slack_for_quality": int(getattr(req, "speed_slack_for_quality", 1) or 1),
         "enforce_turn_order": bool(getattr(req, "enforce_turn_order", False)),
-        "arena_rush_context": str(getattr(req, "arena_rush_context", "") or ""),
         "baseline_regression_guard_weight": int(
             getattr(req, "baseline_regression_guard_weight", 0) or 0
         ),
@@ -1809,7 +1359,6 @@ def _request_from_replay_payload(payload: Dict[str, Any]) -> GreedyRequest | Non
         quality_profile="gpu_combo",
         speed_slack_for_quality=max(0, int(_int_or(payload.get("speed_slack_for_quality"), 1))),
         enforce_turn_order=bool(payload.get("enforce_turn_order", False)),
-        arena_rush_context=str(payload.get("arena_rush_context", "") or ""),
         baseline_regression_guard_weight=max(
             0, int(_int_or(payload.get("baseline_regression_guard_weight"), 0))
         ),
@@ -2062,7 +1611,7 @@ def _update_weights_from_history(
         best_cand_idx = int(np.argmax(ei))
         next_vec = candidates[best_cand_idx]
     except Exception:
-        # GP failed â€” fall back to perturbation around best
+        # GP failed — fall back to perturbation around best
         next_vec = best_vec + rng.randn(_BO_NDIM) * (X_std * 0.05)
         np.maximum(next_vec, 0.0, out=next_vec)
 
@@ -2076,27 +1625,6 @@ def _update_weights_from_history(
 # ---------------------------------------------------------------------------
 # Compute final speed for a rune set
 # ---------------------------------------------------------------------------
-def _compute_final_speed(
-    rune_map: Dict[int, int],
-    rune_lookup: Dict[int, Rune],
-    base_spd: int,
-) -> int:
-    """Compute total speed including Swift set bonus."""
-    total_spd = base_spd
-    set_counts: Dict[int, int] = {}
-    for _slot, rid in rune_map.items():
-        r = rune_lookup.get(rid)
-        if r is None:
-            continue
-        total_spd += _rune_flat_spd(r)
-        sid = int(r.set_id or 0)
-        set_counts[sid] = set_counts.get(sid, 0) + 1
-    # Swift bonus: 25% base speed if 4+ Swift runes
-    if set_counts.get(3, 0) >= 4:
-        total_spd += int(base_spd * 0.25)
-    return int(total_spd)
-
-
 # ---------------------------------------------------------------------------
 # Prescreen batch preparation (CPU side)
 # ---------------------------------------------------------------------------
@@ -2636,9 +2164,12 @@ def _validate_candidate_with_replays(
         cand_run = _run_gpu_combo_once(
             account=account,
             presets=presets,
-            req=case.req,
+            req=replace(case.req, is_cancelled=_foreground_busy.is_set),
             weights=candidate_weights,
         )
+        if _foreground_busy.is_set():
+            # A new optimization started: give up instead of competing for CPU/GPU.
+            return False, {"reason": "aborted_foreground_run", "cases": per_case}
         cand_kpis = dict(cand_run.kpis or {})
         cand_obj = _learning_objective_from_kpis(cand_kpis)
         candidate_total += cand_obj
@@ -2698,114 +2229,123 @@ def optimize_gpu_combo(
         cloud_alpha = 0.0
         runtime_weights = local_weights
 
-    run = _run_gpu_combo_once(
-        account=account,
-        presets=presets,
-        req=req,
-        weights=runtime_weights,
-        context_history=context_history_before,
-    )
+    _foreground_busy.set()
+    try:
+        run = _run_gpu_combo_once(
+            account=account,
+            presets=presets,
+            req=req,
+            weights=runtime_weights,
+            context_history=context_history_before,
+        )
+    finally:
+        _foreground_busy.clear()
     result = run.result
 
-    # Learning stage with replay safety gate.
-    try:
-        replay_payload = _build_replay_payload(req)
-        learning_objective = float(_learning_objective_from_kpis(dict(run.kpis or {})))
-        runtime_weights_vec = _weights_to_vector(runtime_weights).tolist()
-        local_weights_vec = _weights_to_vector(local_weights).tolist()
-        history_entry = {
-            "kind": "run",
-            "timestamp": time.time(),
-            "context_key": str(context_key),
-            "mode": str(req.mode or ""),
-            "units": int(len(unit_ids)),
-            "ok_count": int(_int_or((run.kpis or {}).get("ok_units"), 0)),
-            "best_score": int(run.best_score_value),
-            "combos_evaluated": int(run.combos_evaluated),
-            "phase1_ms": round(float(run.phase1_s) * 1000.0, 1),
-            "total_ms": round(float(run.total_s) * 1000.0, 1),
-            "has_gpu": bool(run.has_gpu),
-            "gpu_provider": str(run.provider or ""),
-            "gpu_runes_found": int(run.gpu_runes_found),
-            "merged_pool_size": int(run.merged_pool_size),
-            "passes_planned": int(run.passes_planned),
-            "passes_executed": int(run.passes_executed),
-            "adaptive_batch_size": int(run.adaptive_batch_size),
-            "adaptive_solver_top_per_set": int(run.adaptive_solver_top_per_set),
-            "adaptive_extra_rune_cap": int(run.adaptive_extra_rune_cap),
-            "adaptive_history_runs": int(run.adaptive_history_runs),
-            "weights_context_key": str(context_key),
-            "weights_vector": list(local_weights_vec),
-            "runtime_weights_vector": list(runtime_weights_vec),
-            "cloud_prior_used": bool(cloud_weights is not None),
-            "cloud_alpha": float(cloud_alpha),
-            "cloud_sample_count": int(cloud_samples),
-            "cloud_distinct_licenses": int(cloud_distinct_licenses),
-            "kpis": dict(run.kpis or {}),
-            "learning_objective": float(learning_objective),
-            "replay_payload_hash": str(_replay_payload_hash(replay_payload)),
-            "replay_payload": dict(replay_payload),
-        }
-        _append_history(history_entry)
-        try:
-            upload_learning_run(
-                context_key=str(context_key),
-                optimizer_kind="gpu_combo",
-                mode=str(req.mode or ""),
-                units=len(unit_ids),
-                weights_vector=runtime_weights_vec,
-                kpis=dict(run.kpis or {}),
-                learning_objective=learning_objective,
-                replay_payload_hash=str(_replay_payload_hash(replay_payload)),
-                client_version="",
-            )
-        except Exception:
-            pass
-        # Ensure context-local baseline exists even before the first accepted update.
-        local_weights.save(context_key=context_key)
-
-        context_history = _history_for_context(context_key, max_entries=240)
-        candidate = _update_weights_from_history(local_weights, context_history)
-        if (
-            candidate is not None
-            and len(context_history) >= int(_MIN_HISTORY_FOR_AB)
-            and bool(run.kpis)
-        ):
-            candidate_runtime = candidate
-            if cloud_weights is not None:
-                candidate_runtime = _blend_scoring_weights(candidate, cloud_weights, cloud_alpha)
-            replay_cases = _collect_replay_cases(
-                current_req=req,
-                current_kpis=dict(run.kpis or {}),
-                context_history=context_history,
-            )
-            accepted, detail = _validate_candidate_with_replays(
-                account=account,
-                presets=presets,
-                candidate_weights=candidate_runtime,
-                cases=replay_cases,
-            )
-            if accepted:
-                candidate.save(context_key=context_key)
-            _append_history(
-                {
-                    "kind": "learning_update",
+    def _learn() -> None:
+        # Learning stage with replay safety gate.
+        with _LEARNING_LOCK:
+            try:
+                replay_payload = _build_replay_payload(req)
+                learning_objective = float(_learning_objective_from_kpis(dict(run.kpis or {})))
+                runtime_weights_vec = _weights_to_vector(runtime_weights).tolist()
+                local_weights_vec = _weights_to_vector(local_weights).tolist()
+                history_entry = {
+                    "kind": "run",
                     "timestamp": time.time(),
                     "context_key": str(context_key),
-                    "accepted": bool(accepted),
-                    "reason": str(detail.get("reason", "") or ""),
-                    "baseline_total": float(_float_or(detail.get("baseline_total"), 0.0)),
-                    "candidate_total": float(_float_or(detail.get("candidate_total"), 0.0)),
-                    "cases": list(detail.get("cases", []) or []),
-                    "current_weights_vector": list(local_weights_vec),
-                    "candidate_weights_vector": _weights_to_vector(candidate).tolist(),
-                    "candidate_runtime_weights_vector": _weights_to_vector(candidate_runtime).tolist(),
+                    "mode": str(req.mode or ""),
+                    "units": int(len(unit_ids)),
+                    "ok_count": int(_int_or((run.kpis or {}).get("ok_units"), 0)),
+                    "best_score": int(run.best_score_value),
+                    "combos_evaluated": int(run.combos_evaluated),
+                    "phase1_ms": round(float(run.phase1_s) * 1000.0, 1),
+                    "total_ms": round(float(run.total_s) * 1000.0, 1),
+                    "has_gpu": bool(run.has_gpu),
+                    "gpu_provider": str(run.provider or ""),
+                    "gpu_runes_found": int(run.gpu_runes_found),
+                    "merged_pool_size": int(run.merged_pool_size),
+                    "passes_planned": int(run.passes_planned),
+                    "passes_executed": int(run.passes_executed),
+                    "adaptive_batch_size": int(run.adaptive_batch_size),
+                    "adaptive_solver_top_per_set": int(run.adaptive_solver_top_per_set),
+                    "adaptive_extra_rune_cap": int(run.adaptive_extra_rune_cap),
+                    "adaptive_history_runs": int(run.adaptive_history_runs),
+                    "weights_context_key": str(context_key),
+                    "weights_vector": list(local_weights_vec),
+                    "runtime_weights_vector": list(runtime_weights_vec),
                     "cloud_prior_used": bool(cloud_weights is not None),
                     "cloud_alpha": float(cloud_alpha),
+                    "cloud_sample_count": int(cloud_samples),
+                    "cloud_distinct_licenses": int(cloud_distinct_licenses),
+                    "kpis": dict(run.kpis or {}),
+                    "learning_objective": float(learning_objective),
+                    "replay_payload_hash": str(_replay_payload_hash(replay_payload)),
+                    "replay_payload": dict(replay_payload),
                 }
-            )
-    except Exception:
-        pass
+                _append_history(history_entry)
+                try:
+                    upload_learning_run(
+                        context_key=str(context_key),
+                        optimizer_kind="gpu_combo",
+                        mode=str(req.mode or ""),
+                        units=len(unit_ids),
+                        weights_vector=runtime_weights_vec,
+                        kpis=dict(run.kpis or {}),
+                        learning_objective=learning_objective,
+                        replay_payload_hash=str(_replay_payload_hash(replay_payload)),
+                        client_version="",
+                    )
+                except Exception:
+                    pass
+                # Ensure context-local baseline exists even before the first accepted update.
+                local_weights.save(context_key=context_key)
 
+                context_history = _history_for_context(context_key, max_entries=240)
+                candidate = _update_weights_from_history(local_weights, context_history)
+                if (
+                    candidate is not None
+                    and len(context_history) >= int(_MIN_HISTORY_FOR_AB)
+                    and bool(run.kpis)
+                ):
+                    candidate_runtime = candidate
+                    if cloud_weights is not None:
+                        candidate_runtime = _blend_scoring_weights(candidate, cloud_weights, cloud_alpha)
+                    replay_cases = _collect_replay_cases(
+                        current_req=req,
+                        current_kpis=dict(run.kpis or {}),
+                        context_history=context_history,
+                    )
+                    accepted, detail = _validate_candidate_with_replays(
+                        account=account,
+                        presets=presets,
+                        candidate_weights=candidate_runtime,
+                        cases=replay_cases,
+                    )
+                    if accepted:
+                        candidate.save(context_key=context_key)
+                    _append_history(
+                        {
+                            "kind": "learning_update",
+                            "timestamp": time.time(),
+                            "context_key": str(context_key),
+                            "accepted": bool(accepted),
+                            "reason": str(detail.get("reason", "") or ""),
+                            "baseline_total": float(_float_or(detail.get("baseline_total"), 0.0)),
+                            "candidate_total": float(_float_or(detail.get("candidate_total"), 0.0)),
+                            "cases": list(detail.get("cases", []) or []),
+                            "current_weights_vector": list(local_weights_vec),
+                            "candidate_weights_vector": _weights_to_vector(candidate).tolist(),
+                            "candidate_runtime_weights_vector": _weights_to_vector(candidate_runtime).tolist(),
+                            "cloud_prior_used": bool(cloud_weights is not None),
+                            "cloud_alpha": float(cloud_alpha),
+                        }
+                    )
+            except Exception:
+                pass
+
+    # History, cloud upload and the replay A/B check cost about two extra full runs:
+    # run them in the background so the result shows up right away.
+    threading.Thread(target=_learn, name="gpu-combo-learning", daemon=True).start()
     return result
 

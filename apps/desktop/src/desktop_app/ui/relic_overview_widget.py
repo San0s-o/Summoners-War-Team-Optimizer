@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import sys
 from typing import Callable, Optional
+
+import numpy as np
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QImage, QPainter, QPixmap
@@ -21,6 +24,7 @@ from PySide6.QtWidgets import (
 from desktop_app.domain.models import AccountData, Relic
 from desktop_app.i18n import tr
 from desktop_app.ui.dpi import dp
+from desktop_app.ui.widgets.card_grid import filter_bar
 
 
 # Short textual labels for the 16 known unique properties.
@@ -180,23 +184,10 @@ class RelicOverviewWidget(QWidget):
         layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
         layout.setSpacing(dp(6))
 
-        # ── search bar ───────────────────────────────────────────
-        search_row = QHBoxLayout()
-        search_row.setSpacing(dp(6))
         self._search_box = QLineEdit()
         self._search_box.setPlaceholderText(tr("relic_opt.search_placeholder"))
-        self._search_box.setClearButtonEnabled(True)
-        self._search_box.setMaximumWidth(dp(400))
         self._search_box.textChanged.connect(self._on_search_changed)
-        search_row.addWidget(self._search_box)
-        search_row.addStretch(1)
-        layout.addLayout(search_row)
-
-        # ── filter row ───────────────────────────────────────────
-        top = QHBoxLayout()
-        self.lbl_info = QLabel("")
-        top.addWidget(self.lbl_info)
-        top.addStretch(1)
+        filter_frame, top = filter_bar(self._search_box)
         self.lbl_filter_main = QLabel("")
         top.addWidget(self.lbl_filter_main)
         self.combo_filter_main = QComboBox()
@@ -204,10 +195,14 @@ class RelicOverviewWidget(QWidget):
         self.combo_filter_main.currentIndexChanged.connect(self._on_filters_changed)
         top.addWidget(self.combo_filter_main)
         self.btn_reset_filters = QPushButton("")
+        self.btn_reset_filters.setProperty("ghost", True)
         self.btn_reset_filters.clicked.connect(self._on_reset_filters)
         top.addWidget(self.btn_reset_filters)
         top.addStretch(1)
-        layout.addLayout(top)
+        self.lbl_info = QLabel("")
+        top.addWidget(self.lbl_info)
+        layout.addWidget(filter_frame)
+        layout.setSpacing(dp(8))
 
         # ── table ────────────────────────────────────────────────
         self.table = QTableWidget(0, 5)
@@ -316,23 +311,13 @@ class RelicOverviewWidget(QWidget):
         img = src.toImage().convertToFormat(QImage.Format_ARGB32)
         w = img.width()
         h = img.height()
-        min_x = w
-        min_y = h
-        max_x = -1
-        max_y = -1
-        for y in range(h):
-            for x in range(w):
-                if img.pixelColor(x, y).alpha() > 8:
-                    if x < min_x:
-                        min_x = x
-                    if y < min_y:
-                        min_y = y
-                    if x > max_x:
-                        max_x = x
-                    if y > max_y:
-                        max_y = y
-        if max_x < min_x or max_y < min_y:
+        # ARGB32 pixels are native-endian 0xAARRGGBB words: alpha is byte 3 on little-endian.
+        rows = np.frombuffer(img.constBits(), dtype=np.uint8, count=img.sizeInBytes()).reshape(h, img.bytesPerLine())
+        alpha = rows[:, : w * 4].reshape(h, w, 4)[:, :, 3 if sys.byteorder == "little" else 0]
+        ys, xs = np.nonzero(alpha > 8)
+        if xs.size == 0:
             return src.scaled(size, size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        min_x, max_x, min_y, max_y = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
 
         crop_w = max_x - min_x + 1
         crop_h = max_y - min_y + 1

@@ -16,6 +16,7 @@ from desktop_app.engine.greedy_optimizer import (
 from desktop_app.i18n import tr
 from desktop_app.ui.dialogs.build_dialog import BuildDialog
 from desktop_app.ui.toast import show_toast
+from desktop_app.ui.main_window_sections import optimizer_context as ctx
 
 
 @dataclass
@@ -24,132 +25,86 @@ class TeamSelection:
     unit_ids: List[int]
 
 
-def _user_facing_result_message(window, ok: bool, detailed: str) -> str:
-    if bool(getattr(window, "_show_extra_info_enabled", lambda: False)()):
-        return str(detailed or "")
-    return tr("opt.ok") if bool(ok) else tr("opt.partial_fail")
-
-
-def _store_compare_snapshot_from_build_dialog(window, mode: str, dlg: BuildDialog) -> None:
-    mode_key = str(mode or "").strip().lower()
-    if not mode_key:
-        return
-    store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
-    snap = dlg.loaded_current_runes_snapshot()
-    if not isinstance(snap, dict):
-        store.pop(mode_key, None)
-        window._loaded_current_runes_compare_by_mode = store
-        return
-    runes_raw = dict(snap.get("runes_by_unit") or {})
-    artifacts_raw = dict(snap.get("artifacts_by_unit") or {})
-    runes_by_unit: Dict[int, Dict[int, int]] = {}
-    artifacts_by_unit: Dict[int, Dict[int, int]] = {}
-    for uid, by_slot in runes_raw.items():
-        ui = int(uid or 0)
-        if ui <= 0:
-            continue
-        clean_slots: Dict[int, int] = {}
-        for slot, rid in dict(by_slot or {}).items():
-            s = int(slot or 0)
-            r = int(rid or 0)
-            if 1 <= s <= 6 and r > 0:
-                clean_slots[int(s)] = int(r)
-        if clean_slots:
-            runes_by_unit[int(ui)] = clean_slots
-    for uid, by_type in artifacts_raw.items():
-        ui = int(uid or 0)
-        if ui <= 0:
-            continue
-        clean_types: Dict[int, int] = {}
-        for art_type, aid in dict(by_type or {}).items():
-            t = int(art_type or 0)
-            a = int(aid or 0)
-            if t in (1, 2) and a > 0:
-                clean_types[int(t)] = int(a)
-        if clean_types:
-            artifacts_by_unit[int(ui)] = clean_types
-    if runes_by_unit or artifacts_by_unit:
-        store[mode_key] = {
-            "runes_by_unit": runes_by_unit,
-            "artifacts_by_unit": artifacts_by_unit,
-        }
-    else:
-        store.pop(mode_key, None)
-    window._loaded_current_runes_compare_by_mode = store
-
-
-def _baseline_assignments_for_mode(window, mode: str, unit_ids: List[int]) -> Tuple[Dict[int, Dict[int, int]], Dict[int, Dict[int, int]]]:
-    mode_key = str(mode or "").strip().lower()
-    if not mode_key:
-        return {}, {}
-    unit_set = {int(uid) for uid in (unit_ids or []) if int(uid) > 0}
-    if not unit_set:
-        return {}, {}
-    compare_store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
-    snap = dict(compare_store.get(mode_key, {}) or {})
-    runes_by_unit: Dict[int, Dict[int, int]] = {}
-    for uid, by_slot in dict(snap.get("runes_by_unit") or {}).items():
-        ui = int(uid or 0)
-        if ui <= 0 or ui not in unit_set:
-            continue
-        slots = {
-            int(slot): int(rid)
-            for slot, rid in dict(by_slot or {}).items()
-            if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
-        }
-        if slots:
-            runes_by_unit[int(ui)] = slots
-    arts_by_unit: Dict[int, Dict[int, int]] = {}
-    for uid, by_type in dict(snap.get("artifacts_by_unit") or {}).items():
-        ui = int(uid or 0)
-        if ui <= 0 or ui not in unit_set:
-            continue
-        types = {
-            int(t): int(aid)
-            for t, aid in dict(by_type or {}).items()
-            if int(t or 0) in (1, 2) and int(aid or 0) > 0
-        }
-        if types:
-            arts_by_unit[int(ui)] = types
-    return runes_by_unit, arts_by_unit
-
-
-def _team_has_spd_buff_by_uid(window, teams: List[List[int]]) -> Dict[int, bool]:
-    out: Dict[int, bool] = {}
-    mdb = getattr(window, "monster_db", None)
-    account = getattr(window, "account", None)
-    if mdb is None or account is None:
-        return out
-    units_by_id = dict(getattr(account, "units_by_id", {}) or {})
-    for team in (teams or []):
-        ids = [int(uid) for uid in (team or []) if int(uid or 0) > 0]
-        if not ids:
-            continue
-        has_spd = False
-        for uid in ids:
-            unit = units_by_id.get(int(uid))
-            if unit is None:
-                continue
-            master_id = int(getattr(unit, "unit_master_id", 0) or 0)
-            if master_id <= 0:
-                continue
-            cap = dict(mdb.turn_effect_capability_for(int(master_id)) or {})
-            if bool(cap.get("has_spd_buff", False)):
-                has_spd = True
-                break
-        for uid in ids:
-            out[int(uid)] = bool(has_spd)
+def turn_order_by_uid(window, mode: str, unit_ids: List[int]) -> Dict[int, int]:
+    out: Dict[int, int] = {}
+    for uid in unit_ids:
+        builds = window.presets.get_unit_builds(mode, int(uid))
+        b0 = builds[0] if builds else Build.default_any()
+        out[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
     return out
 
 
-def save_arena_rush_ui_state(window) -> None:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import save_arena_rush_ui_state as _impl
-    return _impl(window)
-
-
-def restore_arena_rush_ui_state(window) -> None:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import restore_arena_rush_ui_state as _impl
-    return _impl(window)
+def run_mode_optimization(
+    window,
+    *,
+    mode: str,
+    running_text: str,
+    profile_combo,
+    workers_combo,
+    pass_spin,
+    unit_ids_in_order: List[int],
+    teams: List[List[int]],
+    team_idx_by_uid: Dict[int, int],
+    team_turn_by_uid: Dict[int, int],
+    leader_spd_bonus_by_uid: Dict[int, int],
+    status_label,
+    result_title: str,
+    result_kwargs: Dict[str, object],
+    toast: bool = True,
+    **extra_request: object,
+) -> None:
+    """Shared run of the team-based greedy modes: build the request, optimize, report, show results."""
+    quality_profile = str(profile_combo.currentData() or "gpu_combo")
+    pass_count = int(pass_spin.value())
+    if quality_profile.strip().lower() in ("max_quality", "ultra_quality"):
+        pass_count = 1
+    workers = window._effective_workers(quality_profile, workers_combo)
+    baseline_runes_by_unit, baseline_arts_by_unit = ctx.baseline_assignments_for_mode(window, mode, unit_ids_in_order)
+    request = dict(
+        mode=mode,
+        unit_ids_in_order=unit_ids_in_order,
+        time_limit_per_unit_s=5.0,
+        workers=workers,
+        multi_pass_enabled=bool(pass_count > 1),
+        multi_pass_count=pass_count,
+        multi_pass_strategy="greedy_refine",
+        quality_profile=quality_profile,
+        enforce_turn_order=True,
+        unit_team_index=team_idx_by_uid,
+        unit_team_turn_order=team_turn_by_uid,
+        unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+        unit_archetype_by_uid=ctx.optimizer_archetype_by_uid(window, unit_ids_in_order),
+        unit_artifact_hints_by_uid=ctx.optimizer_artifact_hints_by_uid(window, unit_ids_in_order),
+        unit_team_has_spd_buff_by_uid=ctx.team_has_spd_buff_by_uid(window, teams),
+        unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
+        unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
+        baseline_regression_guard_weight=(
+            int(BASELINE_REGRESSION_GUARD_WEIGHT) if (baseline_runes_by_unit or baseline_arts_by_unit) else 0
+        ),
+        broken_set_excluded_set_ids=set(window._broken_slot_excluded_set_ids() or set()),
+        **extra_request,
+    )
+    res = window._run_with_busy_progress(
+        running_text,
+        lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
+            window.account,
+            window.presets,
+            GreedyRequest(
+                **request,
+                progress_callback=progress_cb,
+                is_cancelled=is_cancelled,
+                register_solver=register_solver,
+            ),
+        ),
+    )
+    ok = bool(getattr(res, "ok", False))
+    final_msg = ctx.user_facing_result_message(window, ok, str(getattr(res, "message", "")))
+    status_label.setText(final_msg)
+    window.statusBar().showMessage(final_msg, 7000)
+    if toast:
+        show_toast(window, final_msg, "success" if ok else "warning")
+    if res is not None and getattr(res, "results", None):
+        window._show_optimize_results(result_title, final_msg, res.results, mode=mode, teams=teams, **result_kwargs)
 
 
 def on_take_current_siege(window) -> None:
@@ -254,7 +209,7 @@ def on_edit_presets_siege(window) -> None:
         team_size=3,
     )
     if dlg.exec() == QDialog.Accepted:
-        _store_compare_snapshot_from_build_dialog(window, "siege", dlg)
+        ctx.store_compare_snapshot_from_build_dialog(window, "siege", dlg)
         window.presets.save(window.presets_path)
         save_team_selections(window)
         show_toast(window, tr("dlg.builds_saved_title"), "success")
@@ -266,114 +221,50 @@ def on_optimize_siege(window) -> None:
     window._siege_optimization_running = True
     window.btn_optimize_siege.setEnabled(False)
     try:
-        quality_profile = str(window.combo_quality_profile_siege.currentData() or "gpu_combo")
-        pass_count = int(window.spin_multi_pass_siege.value())
-        if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
-            pass_count = 1
-        workers = window._effective_workers(quality_profile, window.combo_workers_siege)
-        running_text = tr("result.opt_running", mode="Siege")
         selections = window._collect_siege_selections()
         ok, msg, all_units = window._validate_team_structure("Siege", selections, must_have_team_size=3)
         if not ok:
             QMessageBox.critical(window, "Siege", tr("dlg.validate_first", msg=msg))
             return
+        teams = [sel.unit_ids for sel in selections if sel.unit_ids]
+        team_idx_by_uid = {int(uid): int(idx) for idx, sel in enumerate(selections) for uid in sel.unit_ids}
 
-        ordered_unit_ids = window._units_by_turn_order("siege", all_units)
-        team_idx_by_uid: Dict[int, int] = {}
-        for idx, sel in enumerate(selections):
-            for uid in sel.unit_ids:
-                team_idx_by_uid[int(uid)] = int(idx)
-        leader_spd_bonus_by_uid = window._leader_spd_bonus_map([sel.unit_ids for sel in selections if sel.unit_ids])
-        team_turn_by_uid: Dict[int, int] = {}
-        for uid in all_units:
-            builds = window.presets.get_unit_builds("siege", int(uid))
-            b0 = builds[0] if builds else Build.default_any()
-            team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
-        baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
-            window, "siege", ordered_unit_ids
-        )
-        from desktop_app.ui.main_window_sections.arena_rush_actions import (
-            optimizer_archetype_by_uid,
-            optimizer_artifact_hints_by_uid,
-        )
-        unit_archetype_by_uid = optimizer_archetype_by_uid(window, ordered_unit_ids)
-        unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ordered_unit_ids)
-        team_spd_buff_by_uid = _team_has_spd_buff_by_uid(
-            window,
-            [sel.unit_ids for sel in selections if sel.unit_ids],
-        )
-
-        # Collect rune/artifact IDs from non-optimized defenses to exclude from the pool
+        # Runes/artifacts of the defenses that are not being optimized stay where they are.
         excluded_rune_ids: Set[int] = set()
         excluded_artifact_ids: Set[int] = set()
         chk_block = getattr(window, "chk_siege_block_excluded", None)
         if chk_block and chk_block.isChecked():
-            excluded_uids = window._collect_siege_excluded_unit_ids()
-            for uid in excluded_uids:
-                for rune in window.account.equipped_runes_for(uid, mode="siege"):
-                    rid = int(rune.rune_id or 0)
-                    if rid > 0:
-                        excluded_rune_ids.add(rid)
-                for art in window.account.artifacts:
-                    if int(art.occupied_id or 0) == int(uid):
-                        aid = int(art.artifact_id or 0)
-                        if aid > 0:
-                            excluded_artifact_ids.add(aid)
+            for uid in window._collect_siege_excluded_unit_ids():
+                excluded_rune_ids.update(
+                    int(rune.rune_id) for rune in window.account.equipped_runes_for(uid, mode="siege") if int(rune.rune_id or 0) > 0
+                )
+                excluded_artifact_ids.update(
+                    int(art.artifact_id)
+                    for art in window.account.artifacts
+                    if int(art.occupied_id or 0) == int(uid) and int(art.artifact_id or 0) > 0
+                )
 
-        res = window._run_with_busy_progress(
-            running_text,
-            lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
-                window.account,
-                window.presets,
-                GreedyRequest(
-                    mode="siege",
-                    unit_ids_in_order=ordered_unit_ids,
-                    time_limit_per_unit_s=5.0,
-                    workers=workers,
-                    multi_pass_enabled=bool(pass_count > 1),
-                    multi_pass_count=pass_count,
-                    multi_pass_strategy="greedy_refine",
-                    quality_profile=quality_profile,
-                    progress_callback=progress_cb,
-                    is_cancelled=is_cancelled,
-                    register_solver=register_solver,
-                    enforce_turn_order=True,
-                    unit_team_index=team_idx_by_uid,
-                    unit_team_turn_order=team_turn_by_uid,
-                    unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
-                    unit_archetype_by_uid=dict(unit_archetype_by_uid),
-                    unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
-                    unit_team_has_spd_buff_by_uid=dict(team_spd_buff_by_uid),
-                    unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
-                    unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
-                    baseline_regression_guard_weight=(
-                        int(BASELINE_REGRESSION_GUARD_WEIGHT)
-                        if (baseline_runes_by_unit or baseline_arts_by_unit)
-                        else 0
-                    ),
-                    excluded_rune_ids=(excluded_rune_ids if excluded_rune_ids else None),
-                    excluded_artifact_ids=(excluded_artifact_ids if excluded_artifact_ids else None),
-                    broken_set_excluded_set_ids=set(window._broken_slot_excluded_set_ids() or set()),
-                ),
-            ),
-        )
-        _ok = bool(getattr(res, "ok", False))
-        final_msg = _user_facing_result_message(window, _ok, str(getattr(res, "message", "")))
-        window.lbl_siege_validate.setText(final_msg)
-        window.statusBar().showMessage(final_msg, 7000)
-        show_toast(window, final_msg, "success" if _ok else "warning")
-        if res is not None and getattr(res, "results", None):
-            unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
-            siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
-            window._show_optimize_results(
-                tr("result.title_siege"),
-                final_msg,
-                res.results,
+        run_mode_optimization(
+            window,
+            mode="siege",
+            running_text=tr("result.opt_running", mode="Siege"),
+            profile_combo=window.combo_quality_profile_siege,
+            workers_combo=window.combo_workers_siege,
+            pass_spin=window.spin_multi_pass_siege,
+            unit_ids_in_order=window._units_by_turn_order("siege", all_units),
+            teams=teams,
+            team_idx_by_uid=team_idx_by_uid,
+            team_turn_by_uid=turn_order_by_uid(window, "siege", all_units),
+            leader_spd_bonus_by_uid=window._leader_spd_bonus_map(teams),
+            status_label=window.lbl_siege_validate,
+            result_title=tr("result.title_siege"),
+            result_kwargs=dict(
                 unit_team_index=team_idx_by_uid,
-                unit_display_order=unit_display_order,
-                mode="siege",
-                teams=siege_teams,
-            )
+                unit_display_order={int(uid): idx for idx, uid in enumerate(all_units)},
+            ),
+            excluded_rune_ids=(excluded_rune_ids or None),
+            excluded_artifact_ids=(excluded_artifact_ids or None),
+        )
     finally:
         window._siege_optimization_running = False
         window.btn_optimize_siege.setEnabled(bool(window.account))
@@ -489,7 +380,7 @@ def on_edit_presets_wgb(window) -> None:
         team_size=3,
     )
     if dlg.exec() == QDialog.Accepted:
-        _store_compare_snapshot_from_build_dialog(window, "wgb", dlg)
+        ctx.store_compare_snapshot_from_build_dialog(window, "wgb", dlg)
         window.presets.save(window.presets_path)
         save_team_selections(window)
         show_toast(window, tr("dlg.builds_saved_title"), "success")
@@ -498,12 +389,6 @@ def on_edit_presets_wgb(window) -> None:
 def on_optimize_wgb(window) -> None:
     if not window.account:
         return
-    quality_profile = str(window.combo_quality_profile_wgb.currentData() or "gpu_combo")
-    pass_count = int(window.spin_multi_pass_wgb.value())
-    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
-        pass_count = 1
-    workers = window._effective_workers(quality_profile, window.combo_workers_wgb)
-    running_text = tr("result.opt_running", mode="WGB")
     selections = window._collect_wgb_selections()
     ok, msg, all_units = window._validate_team_structure("WGB", selections, must_have_team_size=3)
     if not ok:
@@ -513,83 +398,27 @@ def on_optimize_wgb(window) -> None:
     if not ok2:
         QMessageBox.critical(window, "WGB", msg2)
         return
-
-    ordered_unit_ids = window._units_by_turn_order("wgb", all_units)
-    team_idx_by_uid: Dict[int, int] = {}
-    for idx, sel in enumerate(selections):
-        for uid in sel.unit_ids:
-            team_idx_by_uid[int(uid)] = int(idx)
-    leader_spd_bonus_by_uid = window._leader_spd_bonus_map([sel.unit_ids for sel in selections if sel.unit_ids])
-    team_turn_by_uid: Dict[int, int] = {}
-    for uid in all_units:
-        builds = window.presets.get_unit_builds("wgb", int(uid))
-        b0 = builds[0] if builds else Build.default_any()
-        team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
-    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
-        window, "wgb", ordered_unit_ids
-    )
-    from desktop_app.ui.main_window_sections.arena_rush_actions import (
-        optimizer_archetype_by_uid,
-        optimizer_artifact_hints_by_uid,
-    )
-    unit_archetype_by_uid = optimizer_archetype_by_uid(window, ordered_unit_ids)
-    unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ordered_unit_ids)
-    team_spd_buff_by_uid = _team_has_spd_buff_by_uid(
+    teams = [sel.unit_ids for sel in selections if sel.unit_ids]
+    team_idx_by_uid = {int(uid): int(idx) for idx, sel in enumerate(selections) for uid in sel.unit_ids}
+    run_mode_optimization(
         window,
-        [sel.unit_ids for sel in selections if sel.unit_ids],
-    )
-    res = window._run_with_busy_progress(
-        running_text,
-        lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
-            window.account,
-            window.presets,
-            GreedyRequest(
-                mode="wgb",
-                unit_ids_in_order=ordered_unit_ids,
-                time_limit_per_unit_s=5.0,
-                workers=workers,
-                multi_pass_enabled=bool(pass_count > 1),
-                multi_pass_count=pass_count,
-                multi_pass_strategy="greedy_refine",
-                quality_profile=quality_profile,
-                progress_callback=progress_cb,
-                is_cancelled=is_cancelled,
-                register_solver=register_solver,
-                enforce_turn_order=True,
-                unit_team_index=team_idx_by_uid,
-                unit_team_turn_order=team_turn_by_uid,
-                unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
-                unit_archetype_by_uid=dict(unit_archetype_by_uid),
-                unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
-                unit_team_has_spd_buff_by_uid=dict(team_spd_buff_by_uid),
-                unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
-                unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
-                baseline_regression_guard_weight=(
-                    int(BASELINE_REGRESSION_GUARD_WEIGHT)
-                    if (baseline_runes_by_unit or baseline_arts_by_unit)
-                    else 0
-                ),
-                broken_set_excluded_set_ids=set(window._broken_slot_excluded_set_ids() or set()),
-            ),
+        mode="wgb",
+        running_text=tr("result.opt_running", mode="WGB"),
+        profile_combo=window.combo_quality_profile_wgb,
+        workers_combo=window.combo_workers_wgb,
+        pass_spin=window.spin_multi_pass_wgb,
+        unit_ids_in_order=window._units_by_turn_order("wgb", all_units),
+        teams=teams,
+        team_idx_by_uid=team_idx_by_uid,
+        team_turn_by_uid=turn_order_by_uid(window, "wgb", all_units),
+        leader_spd_bonus_by_uid=window._leader_spd_bonus_map(teams),
+        status_label=window.lbl_wgb_validate,
+        result_title=tr("result.title_wgb"),
+        result_kwargs=dict(
+            unit_team_index=team_idx_by_uid,
+            unit_display_order={int(uid): idx for idx, uid in enumerate(all_units)},
         ),
     )
-    _ok = bool(getattr(res, "ok", False))
-    final_msg = _user_facing_result_message(window, _ok, str(getattr(res, "message", "")))
-    window.lbl_wgb_validate.setText(final_msg)
-    window.statusBar().showMessage(final_msg, 7000)
-    show_toast(window, final_msg, "success" if _ok else "warning")
-    if res is not None and getattr(res, "results", None):
-        unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
-        wgb_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
-        window._show_optimize_results(
-            tr("result.title_wgb"),
-            final_msg,
-            res.results,
-            unit_team_index=team_idx_by_uid,
-            unit_display_order=unit_display_order,
-            mode="wgb",
-            teams=wgb_teams,
-        )
 
 
 def render_wgb_preview(window, selections: List[TeamSelection] | None = None) -> None:
@@ -598,6 +427,8 @@ def render_wgb_preview(window, selections: List[TeamSelection] | None = None) ->
     if selections is None:
         selections = window._collect_wgb_selections()
     teams = [sel.unit_ids for sel in selections if sel.unit_ids]
+    # Empty preview stays hidden so the team slots can use the height.
+    window.wgb_preview_cards.setVisible(bool(teams))
     window.wgb_preview_cards.render_from_selections(teams, window.account, window.monster_db, window.assets_dir, rune_mode="siege")
 
 
@@ -698,7 +529,7 @@ def on_edit_presets_rta(window) -> None:
         show_order_sections=False,
     )
     if dlg.exec() == QDialog.Accepted:
-        _store_compare_snapshot_from_build_dialog(window, "rta", dlg)
+        ctx.store_compare_snapshot_from_build_dialog(window, "rta", dlg)
         window.presets.save(window.presets_path)
         show_toast(window, tr("dlg.builds_saved_title"), "success")
 
@@ -706,12 +537,6 @@ def on_edit_presets_rta(window) -> None:
 def on_optimize_rta(window) -> None:
     if not window.account:
         return
-    quality_profile = str(window.combo_quality_profile_rta.currentData() or "gpu_combo")
-    pass_count = int(window.spin_multi_pass_rta.value())
-    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
-        pass_count = 1
-    workers = window._effective_workers(quality_profile, window.combo_workers_rta)
-    running_text = tr("result.opt_running", mode="RTA")
     ids = window._collect_rta_unit_ids()
     if not ids:
         QMessageBox.critical(window, "RTA", tr("dlg.select_monsters_first"))
@@ -719,120 +544,26 @@ def on_optimize_rta(window) -> None:
     if len(ids) != len(set(ids)):
         QMessageBox.critical(window, "RTA", tr("dlg.duplicates_found"))
         return
-
-    team_idx_by_uid: Dict[int, int] = {int(uid): 0 for uid in ids}
-    team_turn_by_uid: Dict[int, int] = {int(uid): pos + 1 for pos, uid in enumerate(ids)}
-    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
-        window, "rta", ids
-    )
-    from desktop_app.ui.main_window_sections.arena_rush_actions import (
-        optimizer_archetype_by_uid,
-        optimizer_artifact_hints_by_uid,
-    )
-    unit_archetype_by_uid = optimizer_archetype_by_uid(window, ids)
-    unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ids)
-    team_spd_buff_by_uid = _team_has_spd_buff_by_uid(window, [ids])
-    res = window._run_with_busy_progress(
-        running_text,
-        lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
-            window.account,
-            window.presets,
-            GreedyRequest(
-                mode="rta",
-                unit_ids_in_order=ids,
-                time_limit_per_unit_s=5.0,
-                workers=workers,
-                multi_pass_enabled=bool(pass_count > 1),
-                multi_pass_count=pass_count,
-                multi_pass_strategy="greedy_refine",
-                quality_profile=quality_profile,
-                progress_callback=progress_cb,
-                is_cancelled=is_cancelled,
-                register_solver=register_solver,
-                enforce_turn_order=True,
-                unit_team_index=team_idx_by_uid,
-                unit_team_turn_order=team_turn_by_uid,
-                unit_spd_leader_bonus_flat={},
-                unit_archetype_by_uid=dict(unit_archetype_by_uid),
-                unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
-                unit_team_has_spd_buff_by_uid=dict(team_spd_buff_by_uid),
-                unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
-                unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
-                baseline_regression_guard_weight=(
-                    int(BASELINE_REGRESSION_GUARD_WEIGHT)
-                    if (baseline_runes_by_unit or baseline_arts_by_unit)
-                    else 0
-                ),
-                broken_set_excluded_set_ids=set(window._broken_slot_excluded_set_ids() or set()),
-            ),
+    team_idx_by_uid = {int(uid): 0 for uid in ids}
+    run_mode_optimization(
+        window,
+        mode="rta",
+        running_text=tr("result.opt_running", mode="RTA"),
+        profile_combo=window.combo_quality_profile_rta,
+        workers_combo=window.combo_workers_rta,
+        pass_spin=window.spin_multi_pass_rta,
+        unit_ids_in_order=ids,
+        teams=[ids],
+        team_idx_by_uid=team_idx_by_uid,
+        team_turn_by_uid={int(uid): pos + 1 for pos, uid in enumerate(ids)},
+        leader_spd_bonus_by_uid={},
+        status_label=window.lbl_rta_validate,
+        result_title=tr("result.title_rta"),
+        result_kwargs=dict(
+            unit_team_index=team_idx_by_uid,
+            unit_display_order={int(uid): idx for idx, uid in enumerate(ids)},
         ),
     )
-    _ok = bool(getattr(res, "ok", False))
-    final_msg = _user_facing_result_message(window, _ok, str(getattr(res, "message", "")))
-    window.lbl_rta_validate.setText(final_msg)
-    window.statusBar().showMessage(final_msg, 7000)
-    show_toast(window, final_msg, "success" if _ok else "warning")
-    if res is not None and getattr(res, "results", None):
-        unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(ids)}
-        window._show_optimize_results(
-            tr("result.title_rta"),
-            final_msg,
-            res.results,
-            unit_team_index=team_idx_by_uid,
-            unit_display_order=unit_display_order,
-            mode="rta",
-            teams=[ids],
-        )
-
-
-def collect_arena_def_selection(window) -> List[int]:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import collect_arena_def_selection as _impl
-    return _impl(window)
-
-
-def collect_arena_offense_selections(window) -> List[TeamSelection]:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import collect_arena_offense_selections as _impl
-    return _impl(window)
-
-
-def on_take_current_arena_def(window) -> None:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import on_take_current_arena_def as _impl
-    return _impl(window)
-
-
-def on_take_current_arena_off(window) -> None:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import on_take_current_arena_off as _impl
-    return _impl(window)
-
-
-def _validate_arena_rush(window) -> Tuple[bool, str, List[int], List[TeamSelection]]:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import _validate_arena_rush as _impl
-    return _impl(window)
-
-
-def on_validate_arena_rush(window) -> None:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import on_validate_arena_rush as _impl
-    return _impl(window)
-
-
-def on_edit_presets_arena_rush(window) -> None:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import on_edit_presets_arena_rush as _impl
-    return _impl(window)
-
-
-def _arena_speed_leader_bonus_map(
-    window,
-    team_unit_ids: List[int],
-    leader_uid: int = 0,
-    lead_pct_override: int = 0,
-) -> Dict[int, int]:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import _arena_speed_leader_bonus_map as _impl
-    return _impl(window, team_unit_ids, leader_uid=leader_uid, lead_pct_override=lead_pct_override)
-
-
-def on_optimize_arena_rush(window) -> None:
-    from desktop_app.ui.main_window_sections.arena_rush_actions import on_optimize_arena_rush as _impl
-    return _impl(window)
 
 
 def save_team_selections(window) -> None:

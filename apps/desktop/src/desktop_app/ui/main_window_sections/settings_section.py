@@ -270,18 +270,38 @@ def broken_slot_excluded_set_ids(window) -> set[int]:
 # Init
 # ================================================================
 
-def init_settings_ui(window) -> None:
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QScrollArea.NoFrame)
+def _hint_label(text: str = "") -> QLabel:
+    lbl = QLabel(text)
+    lbl.setWordWrap(True)
+    lbl.setContentsMargins(dp(20), 0, 0, dp(4))
+    return lbl
 
-    container = QWidget()
-    container.setMaximumWidth(dp(900))
-    main_layout = QVBoxLayout(container)
-    main_layout.setContentsMargins(dp(16), dp(12), dp(16), dp(12))
-    main_layout.setSpacing(dp(16))
 
-    # --- Section 1: Account / JSON Import -----------------------
+def _rich_link_label() -> QLabel:
+    lbl = QLabel("")
+    lbl.setWordWrap(True)
+    lbl.setTextFormat(Qt.RichText)
+    lbl.setOpenExternalLinks(True)
+    lbl.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    return lbl
+
+
+def _add_community_limit_row(window, form: QFormLayout, attr: str, label_key: str, current: int, on_changed, max_n: int = 3) -> None:
+    """Label + top-N combo for one community-trend limit (window.lbl_/combo_settings_community_<attr>)."""
+    lbl = QLabel(tr(label_key))
+    combo = QComboBox()
+    combo.setFixedWidth(dp(110))
+    _populate_top_n_combo(combo, max_n=max_n)
+    idx = combo.findData(current)
+    if idx >= 0:
+        combo.setCurrentIndex(idx)
+    combo.currentIndexChanged.connect(lambda _idx: on_changed(window))
+    form.addRow(lbl, combo)
+    setattr(window, f"lbl_settings_community_{attr}", lbl)
+    setattr(window, f"combo_settings_community_{attr}", combo)
+
+
+def _build_settings_account(window) -> QGroupBox:
     window.grp_settings_account = QGroupBox(tr("settings.group_account"))
     account_layout = QVBoxLayout(window.grp_settings_account)
 
@@ -298,9 +318,10 @@ def init_settings_ui(window) -> None:
     btn_row_account.addWidget(window.btn_settings_clear_snapshot)
     btn_row_account.addStretch(1)
     account_layout.addLayout(btn_row_account)
-    main_layout.addWidget(window.grp_settings_account)
+    return window.grp_settings_account
 
-    # --- Section 2: License Management --------------------------
+
+def _build_settings_license(window) -> QGroupBox:
     window.grp_settings_license = QGroupBox(tr("settings.group_license"))
     license_layout = QVBoxLayout(window.grp_settings_license)
 
@@ -325,10 +346,10 @@ def init_settings_ui(window) -> None:
 
     window.lbl_settings_license_feedback = QLabel("")
     license_layout.addWidget(window.lbl_settings_license_feedback)
+    return window.grp_settings_license
 
-    main_layout.addWidget(window.grp_settings_license)
 
-    # --- Section 2b: Cloud & Community ---------------------------
+def _build_settings_cloud(window) -> QGroupBox:
     window.grp_settings_cloud = QGroupBox(tr("settings.group_cloud"))
     cloud_layout = QVBoxLayout(window.grp_settings_cloud)
     cloud_layout.setSpacing(dp(6))
@@ -340,9 +361,7 @@ def init_settings_ui(window) -> None:
     )
     cloud_layout.addWidget(window.chk_settings_cloud_learning)
 
-    window.lbl_settings_cloud_learning_hint = QLabel("")
-    window.lbl_settings_cloud_learning_hint.setWordWrap(True)
-    window.lbl_settings_cloud_learning_hint.setContentsMargins(dp(20), 0, 0, dp(4))
+    window.lbl_settings_cloud_learning_hint = _hint_label()
     cloud_layout.addWidget(window.lbl_settings_cloud_learning_hint)
 
     window.chk_settings_desktop_mobile_sync = QCheckBox(tr("settings.desktop_mobile_sync_optin"))
@@ -352,9 +371,7 @@ def init_settings_ui(window) -> None:
     )
     cloud_layout.addWidget(window.chk_settings_desktop_mobile_sync)
 
-    window.lbl_settings_desktop_mobile_sync_hint = QLabel("")
-    window.lbl_settings_desktop_mobile_sync_hint.setWordWrap(True)
-    window.lbl_settings_desktop_mobile_sync_hint.setContentsMargins(dp(20), 0, 0, dp(4))
+    window.lbl_settings_desktop_mobile_sync_hint = _hint_label()
     cloud_layout.addWidget(window.lbl_settings_desktop_mobile_sync_hint)
 
     window.btn_settings_release_mobile_device = QPushButton(tr("settings.btn_release_mobile_device"))
@@ -368,9 +385,7 @@ def init_settings_ui(window) -> None:
     )
     cloud_layout.addWidget(window.chk_settings_community_trends)
 
-    window.lbl_settings_community_trends_hint = QLabel("")
-    window.lbl_settings_community_trends_hint.setWordWrap(True)
-    window.lbl_settings_community_trends_hint.setContentsMargins(dp(20), 0, 0, dp(4))
+    window.lbl_settings_community_trends_hint = _hint_label()
     cloud_layout.addWidget(window.lbl_settings_community_trends_hint)
 
     # Community limits in a form layout for proper alignment
@@ -379,41 +394,11 @@ def init_settings_ui(window) -> None:
     limits_form.setHorizontalSpacing(dp(12))
     limits_form.setVerticalSpacing(dp(6))
 
-    window.lbl_settings_community_set_limit = QLabel(tr("settings.community_set_limit_label"))
-    window.combo_settings_community_set_limit = QComboBox()
-    window.combo_settings_community_set_limit.setFixedWidth(dp(110))
-    _populate_top_n_combo(window.combo_settings_community_set_limit)
-    idx_set = window.combo_settings_community_set_limit.findData(_community_set_limit(window))
-    if idx_set >= 0:
-        window.combo_settings_community_set_limit.setCurrentIndex(idx_set)
-    window.combo_settings_community_set_limit.currentIndexChanged.connect(
-        lambda _idx: on_settings_community_set_limit_changed(window)
-    )
-    limits_form.addRow(window.lbl_settings_community_set_limit, window.combo_settings_community_set_limit)
+    _add_community_limit_row(window, limits_form, "set_limit", "settings.community_set_limit_label", _community_set_limit(window), on_settings_community_set_limit_changed, max_n=3)
 
-    window.lbl_settings_community_mainstat_limit = QLabel(tr("settings.community_mainstat_limit_label"))
-    window.combo_settings_community_mainstat_limit = QComboBox()
-    window.combo_settings_community_mainstat_limit.setFixedWidth(dp(110))
-    _populate_top_n_combo(window.combo_settings_community_mainstat_limit)
-    idx_main = window.combo_settings_community_mainstat_limit.findData(_community_mainstat_limit(window))
-    if idx_main >= 0:
-        window.combo_settings_community_mainstat_limit.setCurrentIndex(idx_main)
-    window.combo_settings_community_mainstat_limit.currentIndexChanged.connect(
-        lambda _idx: on_settings_community_mainstat_limit_changed(window)
-    )
-    limits_form.addRow(window.lbl_settings_community_mainstat_limit, window.combo_settings_community_mainstat_limit)
+    _add_community_limit_row(window, limits_form, "mainstat_limit", "settings.community_mainstat_limit_label", _community_mainstat_limit(window), on_settings_community_mainstat_limit_changed, max_n=3)
 
-    window.lbl_settings_community_art_substat_limit = QLabel(tr("settings.community_art_substat_limit_label"))
-    window.combo_settings_community_art_substat_limit = QComboBox()
-    window.combo_settings_community_art_substat_limit.setFixedWidth(dp(110))
-    _populate_top_n_combo(window.combo_settings_community_art_substat_limit, max_n=2)
-    idx_art_sub = window.combo_settings_community_art_substat_limit.findData(_community_artifact_substat_limit(window))
-    if idx_art_sub >= 0:
-        window.combo_settings_community_art_substat_limit.setCurrentIndex(idx_art_sub)
-    window.combo_settings_community_art_substat_limit.currentIndexChanged.connect(
-        lambda _idx: on_settings_community_art_substat_limit_changed(window)
-    )
-    limits_form.addRow(window.lbl_settings_community_art_substat_limit, window.combo_settings_community_art_substat_limit)
+    _add_community_limit_row(window, limits_form, "art_substat_limit", "settings.community_art_substat_limit_label", _community_artifact_substat_limit(window), on_settings_community_art_substat_limit_changed, max_n=2)
 
     cloud_layout.addLayout(limits_form)
 
@@ -425,10 +410,10 @@ def init_settings_ui(window) -> None:
     window.btn_settings_delete_cloud_data = QPushButton(tr("settings.btn_delete_cloud_data"))
     window.btn_settings_delete_cloud_data.clicked.connect(window._on_settings_delete_cloud_data)
     cloud_layout.addWidget(window.btn_settings_delete_cloud_data)
+    return window.grp_settings_cloud
 
-    main_layout.addWidget(window.grp_settings_cloud)
 
-    # --- Section 3: Appearance (Language + Theme) ----------------
+def _build_settings_appearance(window) -> QGroupBox:
     window.grp_settings_appearance = QGroupBox(tr("settings.group_appearance"))
     appearance_form = QFormLayout(window.grp_settings_appearance)
     appearance_form.setHorizontalSpacing(dp(12))
@@ -450,7 +435,7 @@ def init_settings_ui(window) -> None:
     window.lbl_settings_theme = QLabel(tr("settings.label_theme"))
     window.combo_settings_theme = QComboBox()
     window.combo_settings_theme.setFixedWidth(dp(200))
-    window.combo_settings_theme.addItem("Classic Dark", "classic")
+    window.combo_settings_theme.addItem("Midnight", "classic")
     window.combo_settings_theme.addItem("Cyberpunk HUD", "cyberpunk")
     idx_theme = window.combo_settings_theme.findData(_theme.current_name)
     if idx_theme >= 0:
@@ -466,10 +451,10 @@ def init_settings_ui(window) -> None:
         lambda checked: on_settings_extra_info_toggled(window, bool(checked))
     )
     appearance_form.addRow(window.chk_settings_extra_info)
+    return window.grp_settings_appearance
 
-    main_layout.addWidget(window.grp_settings_appearance)
 
-    # --- Section 4: Data Management -----------------------------
+def _build_settings_data(window) -> QGroupBox:
     window.grp_settings_data = QGroupBox(tr("settings.group_data"))
     data_layout = QVBoxLayout(window.grp_settings_data)
     data_layout.setSpacing(dp(6))
@@ -538,9 +523,10 @@ def init_settings_ui(window) -> None:
     window.lbl_settings_broken_set_exclude_hint = QLabel(tr("settings.broken_set_exclude_hint"))
     window.lbl_settings_broken_set_exclude_hint.setWordWrap(True)
     data_layout.addWidget(window.lbl_settings_broken_set_exclude_hint)
-    main_layout.addWidget(window.grp_settings_data)
+    return window.grp_settings_data
 
-    # --- Section 5: Updates -------------------------------------
+
+def _build_settings_updates(window) -> QGroupBox:
     window.grp_settings_updates = QGroupBox(tr("settings.group_updates"))
     update_layout = QVBoxLayout(window.grp_settings_updates)
 
@@ -550,9 +536,10 @@ def init_settings_ui(window) -> None:
     window.btn_settings_check_update = QPushButton(tr("settings.btn_check_update"))
     window.btn_settings_check_update.clicked.connect(window._on_settings_check_update)
     update_layout.addWidget(window.btn_settings_check_update)
-    main_layout.addWidget(window.grp_settings_updates)
+    return window.grp_settings_updates
 
-    # --- Section 6: About --------------------------------------
+
+def _build_settings_about(window) -> QGroupBox:
     window.grp_settings_about = QGroupBox(tr("settings.group_about"))
     about_layout = QVBoxLayout(window.grp_settings_about)
 
@@ -592,25 +579,13 @@ def init_settings_ui(window) -> None:
     window.btn_settings_report_bug.clicked.connect(lambda: _open_bug_report_dialog(window))
     about_layout.addWidget(window.btn_settings_report_bug)
 
-    window.lbl_settings_about_open_source = QLabel("")
-    window.lbl_settings_about_open_source.setWordWrap(True)
-    window.lbl_settings_about_open_source.setTextFormat(Qt.RichText)
-    window.lbl_settings_about_open_source.setOpenExternalLinks(True)
-    window.lbl_settings_about_open_source.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    window.lbl_settings_about_open_source = _rich_link_label()
     about_layout.addWidget(window.lbl_settings_about_open_source)
 
-    window.lbl_settings_about_data_sources = QLabel("")
-    window.lbl_settings_about_data_sources.setWordWrap(True)
-    window.lbl_settings_about_data_sources.setTextFormat(Qt.RichText)
-    window.lbl_settings_about_data_sources.setOpenExternalLinks(True)
-    window.lbl_settings_about_data_sources.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    window.lbl_settings_about_data_sources = _rich_link_label()
     about_layout.addWidget(window.lbl_settings_about_data_sources)
 
-    window.lbl_settings_about_com2us = QLabel("")
-    window.lbl_settings_about_com2us.setWordWrap(True)
-    window.lbl_settings_about_com2us.setTextFormat(Qt.RichText)
-    window.lbl_settings_about_com2us.setOpenExternalLinks(True)
-    window.lbl_settings_about_com2us.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    window.lbl_settings_about_com2us = _rich_link_label()
     about_layout.addWidget(window.lbl_settings_about_com2us)
 
     window.lbl_settings_about_data_dir = QLabel("")
@@ -620,10 +595,30 @@ def init_settings_ui(window) -> None:
     window.btn_settings_about_privacy_policy = QPushButton(tr("settings.about_privacy_policy"))
     window.btn_settings_about_privacy_policy.clicked.connect(_on_open_privacy_policy)
     about_layout.addWidget(window.btn_settings_about_privacy_policy)
+    return window.grp_settings_about
 
-    main_layout.addWidget(window.grp_settings_about)
 
-    main_layout.addStretch(1)
+def init_settings_ui(window) -> None:
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QScrollArea.NoFrame)
+
+    container = QWidget()
+    container.setMaximumWidth(dp(1700))
+    columns = QHBoxLayout(container)
+    columns.setContentsMargins(dp(16), dp(12), dp(16), dp(12))
+    columns.setSpacing(dp(16))
+    # Two columns use wide screens: account/license/cloud left, everything else right.
+    for builders in (
+        (_build_settings_account, _build_settings_license, _build_settings_cloud),
+        (_build_settings_appearance, _build_settings_data, _build_settings_updates, _build_settings_about),
+    ):
+        col = QVBoxLayout()
+        col.setSpacing(dp(16))
+        for build in builders:
+            col.addWidget(build(window))
+        col.addStretch(1)
+        columns.addLayout(col, 1)
     scroll.setWidget(container)
 
     tab_layout = QVBoxLayout(window.tab_settings)
@@ -697,7 +692,7 @@ def refresh_settings_license_status(window) -> None:
     elif license_type:
         type_text = tr("settings.label_license_type_full")
     else:
-        type_text = license_type or "â€”"
+        type_text = license_type or "—"
 
     window.lbl_settings_license_type.setText(tr("settings.label_license_type", type=type_text))
     if is_full:
@@ -775,7 +770,7 @@ def _refresh_settings_about(window) -> None:
     elif license_type:
         about_license_type = tr("settings.label_license_type_full")
     else:
-        about_license_type = "â€”"
+        about_license_type = "—"
     window.lbl_settings_about_license.setText(tr("settings.about_license", type=about_license_type))
     window.lbl_settings_about_creator.setText(tr("settings.about_creator", name=_ABOUT_CREATOR))
     window.lbl_settings_about_discord.setText(tr("settings.about_discord", handle=_ABOUT_DISCORD))
@@ -1091,7 +1086,6 @@ def on_settings_clear_snapshot(window) -> None:
     window._unit_combo_index_by_uid = {}
     window._unit_text_cache_by_uid = {}
     window._lazy_view_dirty = {}
-    window._arena_rush_state_restore_pending = False
     window._off_optimizer_state_restore_pending = False
     window.lbl_status.setText(tr("main.no_import"))
     if hasattr(window, "monster_collection_widget"):

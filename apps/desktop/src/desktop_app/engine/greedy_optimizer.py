@@ -19,6 +19,7 @@ from desktop_app.domain.presets import (
     Build,
     SET_ID_BY_NAME,
     SET_SIZES,
+    SET_STAT_BONUS,
     EFFECT_ID_TO_MAINSTAT_KEY,
 )
 from desktop_app.i18n import tr
@@ -100,14 +101,10 @@ DEFAULT_SPEED_SLACK_FOR_QUALITY = 1
 RUNE_EFFICIENCY_WEIGHT_SOLVER = 6
 ARTIFACT_EFFICIENCY_WEIGHT_SOLVER = 5
 PASS_EFFICIENCY_WEIGHT = 10
-ARENA_RUSH_ATK_EFFICIENCY_SCALE = 45
-ARENA_RUSH_ATK_RUNE_EFF_WEIGHT = 2
-ARENA_RUSH_ATK_ART_EFF_WEIGHT = 2
-ARENA_RUSH_DEF_EFFICIENCY_SCALE = 1
-ARENA_RUSH_DEF_QUALITY_WEIGHT = 4
-ARENA_RUSH_DEF_RUNE_WEIGHT = 3
-ARENA_RUSH_DEF_ART_WEIGHT = 3
-ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT = 2
+# Baseline guard weights for defensive roles (HP/DEF/RES builds).
+DEFENSIVE_RUNE_WEIGHT = 3
+DEFENSIVE_ART_WEIGHT = 3
+DEFENSIVE_OFFSTAT_PENALTY_WEIGHT = 2
 STAT_OVERCAP_LIMIT = 100
 CR_OVERCAP_PENALTY_PER_POINT = 20
 RES_OVERCAP_PENALTY_PER_POINT = 16
@@ -145,8 +142,6 @@ ARTIFACT_DEFENSE_MAINSTAT_MATCH_BONUS = 140
 ARTIFACT_HP_MAINSTAT_MATCH_BONUS = 150
 ARTIFACT_SUPPORT_MAINSTAT_MATCH_BONUS = 130
 ARTIFACT_NON_ATTACK_ATK_MAINSTAT_MISS_PENALTY = 320
-ARTIFACT_HINT_CRITICAL_MATCH_BONUS_BY_RANK = [1400, 950, 700, 520]
-ARTIFACT_HINT_CRITICAL_MISSING_PENALTY_BY_RANK = [26000, 17000, 9000, 5000]
 ARTIFACT_HINT_ADDITIONAL_DAMAGE_VALUE_FACTOR = 0.06
 ARTIFACT_HINT_HIGH_ROLL_MIN = 2
 ARTIFACT_HINT_HIGH_ROLL_BONUS_PER_ROLL = 160
@@ -1086,17 +1081,12 @@ def _arena_role_from_archetype(archetype: str = "") -> str:
     return "unknown"
 
 
-def _is_attack_archetype(archetype: str = "") -> bool:
-    return str(_arena_role_from_archetype(archetype)) == "attack"
-
-
-def _is_defensive_archetype(archetype: str = "") -> bool:
-    return str(_arena_role_from_archetype(archetype)) in ("defense", "hp", "support")
+ARTIFACT_ANY_CODE = 98  # attribute/archetype code of artifacts that fit every monster
 
 
 def _artifact_role_from_attribute_code(attribute_code: int) -> str:
     code = int(attribute_code or 0)
-    if code <= 0:
+    if code <= 0 or code == ARTIFACT_ANY_CODE:
         return ""
     # Common encodings seen in SW exports/tools:
     # - 1..4  => attack/defense/hp/support
@@ -1167,7 +1157,7 @@ def _artifact_compatible_with_unit(
     unit_attr = int(unit_attribute or 0)
 
     # Attribute artifacts must match the monster element if both are known.
-    if art_type == 1 and art_attr > 0 and unit_attr > 0 and art_attr != unit_attr:
+    if art_type == 1 and art_attr > 0 and art_attr != ARTIFACT_ANY_CODE and unit_attr > 0 and art_attr != unit_attr:
         return False
 
     # Type artifacts must match monster archetype if role info is known.
@@ -1633,8 +1623,8 @@ def _baseline_guard_rune_coef(
     if str(role) in ("defense", "hp", "support"):
         return int(
             _rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit)
-            + (int(ARENA_RUSH_DEF_RUNE_WEIGHT) * int(_rune_defensive_score_proxy(r, base_hp, base_def, role)))
-            - (int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(_rune_damage_score_proxy(r, base_atk)))
+            + (int(DEFENSIVE_RUNE_WEIGHT) * int(_rune_defensive_score_proxy(r, base_hp, base_def, role)))
+            - (int(DEFENSIVE_OFFSTAT_PENALTY_WEIGHT) * int(_rune_damage_score_proxy(r, base_atk)))
         )
     if str(role) == "attack":
         return int(_rune_quality_score(r, uid, rta_rune_ids_for_unit) + int(_rune_damage_score_proxy(r, base_atk)))
@@ -1664,7 +1654,7 @@ def _baseline_guard_artifact_coef(
                 base_spd=base_spd,
             )
             + (
-                int(ARENA_RUSH_DEF_ART_WEIGHT)
+                int(DEFENSIVE_ART_WEIGHT)
                 * int(
                     _artifact_defensive_score_proxy(
                         art,
@@ -1677,7 +1667,7 @@ def _baseline_guard_artifact_coef(
                 )
             )
             - (
-                int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT)
+                int(DEFENSIVE_OFFSTAT_PENALTY_WEIGHT)
                 * int(
                     _artifact_damage_score_proxy(
                         art,
@@ -1740,7 +1730,6 @@ class GreedyRequest:
     unit_archetype_by_uid: Dict[int, str] | None = None
     unit_artifact_hints_by_uid: Dict[int, Dict[str, Any]] | None = None
     unit_team_has_spd_buff_by_uid: Dict[int, bool] | None = None
-    arena_rush_context: str = ""  # "", "defense", "offense"
     cloud_build_prior_by_uid: Dict[int, List[Build]] | None = None
 
 @dataclass
@@ -1753,6 +1742,8 @@ class GreedyUnitResult:
     runes_by_slot: Dict[int, int] = None  # slot -> rune_id
     artifacts_by_type: Dict[int, int] = None  # artifact_type (1/2) -> artifact_id
     final_speed: int = 0
+    # Fastest combat SPD the unit could reach under this run's constraints (0 = unknown).
+    max_speed: int = 0
 
 
 @dataclass
@@ -1800,9 +1791,6 @@ def _allowed_runes_for_mode(
     if top_n <= 0:
         return all_runes
 
-    mode_key = str(getattr(req, "mode", "") or "").strip().lower()
-    arena_rush_pool_by_set_size = mode_key == "arena_rush"
-
     by_set: Dict[int, List[Rune]] = {}
     for r in all_runes:
         sid = int(r.set_id or 0)
@@ -1811,12 +1799,6 @@ def _allowed_runes_for_mode(
     pruned: List[Rune] = []
     for sid, runes in by_set.items():
         per_set_cap = int(top_n)
-        if arena_rush_pool_by_set_size:
-            set_size = int(SET_SIZES.get(int(sid), 2) or 2)
-            if int(set_size) == 4:
-                per_set_cap = 500
-            elif int(set_size) == 2:
-                per_set_cap = 300
         ranked = sorted(
             runes,
             key=lambda rr: (_rune_pool_rank_score(rr), int(rr.slot_no or 0), -int(rr.rune_id or 0)),
@@ -2192,6 +2174,31 @@ def _count_required_set_pieces(set_names: List[str]) -> Dict[int, int]:
     return needed
 
 
+def _add_set_stat_bonus_terms(
+    model: cp_model.CpModel,
+    set_piece_vars: Dict[int, List[Any]],
+    terms_by_effect: Dict[int, List[Any]],
+    name: str,
+) -> None:
+    """Completed stat sets (Blade, Rage, ...) count towards min stats, like in-game."""
+    for sid, (eff_id, bonus) in SET_STAT_BONUS.items():
+        pieces = list(set_piece_vars.get(int(sid)) or [])
+        size = int(SET_SIZES.get(int(sid), 2) or 2)
+        if int(eff_id) not in terms_by_effect or len(pieces) < size:
+            continue
+        # Only bounded above: the solver raises it as far as needed to meet a minimum.
+        done = model.NewIntVar(0, 6 // size, f"{name}_setbonus{int(sid)}")
+        model.Add(size * done <= sum(pieces))
+        terms_by_effect[int(eff_id)].append(int(bonus) * done)
+
+
+def _max_set_stat_bonus(eff_id: int) -> int:
+    return max(
+        (int(bonus) * (6 // int(SET_SIZES.get(int(sid), 2) or 2)) for sid, (eid, bonus) in SET_STAT_BONUS.items() if int(eid) == int(eff_id)),
+        default=0,
+    )
+
+
 def _rune_flat_spd(r: Rune) -> int:
     total = 0
     try:
@@ -2450,10 +2457,7 @@ def _diagnose_single_unit_hard_constraint_conflict(
     min_final = int(min_final_speed or 0)
     max_final = int(max_final_speed or 0)
     if min_final > 0 and max_final > 0 and min_final > max_final:
-        return (
-            f"Widerspruch bei Kampf-SPD: Mindestwert {min_final} ist groesser als "
-            f"Maximalwert {max_final}."
-        )
+        return tr("opt.diag_spd_bounds_conflict", min=min_final, max=max_final)
 
     min_slot_spd_sum = 0
     max_slot_spd_sum = 0
@@ -2481,13 +2485,11 @@ def _diagnose_single_unit_hard_constraint_conflict(
 
     if min_final > 0 and max_possible_final < min_final:
         return (
-            f"Min-SPD-Constraint nicht erfuellbar: gefordert >= {min_final}, "
-            f"maximal moeglich {max_possible_final}."
+            tr("opt.diag_min_spd_unreachable", min=min_final, max=max_possible_final)
         )
     if max_final > 0 and min_possible_final > max_final:
         return (
-            f"SPD-Cap nicht erfuellbar: gefordert <= {max_final}, "
-            f"minimal moeglich {min_possible_final}."
+            tr("opt.diag_spd_cap_unreachable", max=max_final, min=min_possible_final)
         )
 
     def _max_sum_for_effect(effect_id: int) -> int:
@@ -2515,13 +2517,13 @@ def _diagnose_single_unit_hard_constraint_conflict(
             total += int(best)
         return int(total)
 
-    hp_bonus_max = _max_primary_bonus(int(base_hp or 0), 1, 2)
-    atk_bonus_max = _max_primary_bonus(int(base_atk or 0), 3, 4)
-    def_bonus_max = _max_primary_bonus(int(base_def or 0), 5, 6)
-    cr_bonus_max = _max_sum_for_effect(9)
-    cd_bonus_max = _max_sum_for_effect(10)
-    res_bonus_max = _max_sum_for_effect(11)
-    acc_bonus_max = _max_sum_for_effect(12)
+    hp_bonus_max = _max_primary_bonus(int(base_hp or 0), 1, 2) + int(int(base_hp or 0) * _max_set_stat_bonus(2) / 100)
+    atk_bonus_max = _max_primary_bonus(int(base_atk or 0), 3, 4) + int(int(base_atk or 0) * _max_set_stat_bonus(4) / 100)
+    def_bonus_max = _max_primary_bonus(int(base_def or 0), 5, 6) + int(int(base_def or 0) * _max_set_stat_bonus(6) / 100)
+    cr_bonus_max = _max_sum_for_effect(9) + _max_set_stat_bonus(9)
+    cd_bonus_max = _max_sum_for_effect(10) + _max_set_stat_bonus(10)
+    res_bonus_max = _max_sum_for_effect(11) + _max_set_stat_bonus(11)
+    acc_bonus_max = _max_sum_for_effect(12) + _max_set_stat_bonus(12)
 
     speed_conflicts: List[str] = []
     has_speed_feasible_build = False
@@ -2531,7 +2533,7 @@ def _diagnose_single_unit_hard_constraint_conflict(
         lo = int(min_final) if min_final > 0 else 0
         hi = int(max_final) if max_final > 0 else 10**9
         tick = int(getattr(b, "spd_tick", 0) or 0)
-        if str(mode or "").strip().lower() != "arena_rush" and tick != 0:
+        if tick != 0:
             tick_min = int(min_spd_for_tick(int(tick), mode) or 0)
             tick_max = int(max_spd_for_tick(int(tick), mode) or 0)
             if tick_min > 0:
@@ -2548,13 +2550,12 @@ def _diagnose_single_unit_hard_constraint_conflict(
 
         if hi < lo:
             speed_conflicts.append(
-                f"Build '{b_name}': SPD-Vorgaben widersprechen sich ({lo}..{hi})."
+                tr("opt.diag_build_spd_conflict", name=b_name, lo=lo, hi=hi)
             )
             continue
         if int(max_possible_final) < int(lo) or int(min_possible_final) > int(hi):
             speed_conflicts.append(
-                f"Build '{b_name}': geforderter SPD-Bereich {lo}..{hi} liegt ausserhalb "
-                f"des moeglichen Bereichs {min_possible_final}..{max_possible_final}."
+                tr("opt.diag_build_spd_out_of_range", name=b_name, lo=lo, hi=hi, min=min_possible_final, max=max_possible_final)
             )
             continue
         has_speed_feasible_build = True
@@ -2598,8 +2599,7 @@ def _diagnose_single_unit_hard_constraint_conflict(
                 continue
             if int(max_possible) < int(target):
                 b_conflict = (
-                    f"Build '{b_name}': Min-Stat {stat_key} >= {target} nicht erfuellbar "
-                    f"(maximal moeglich {int(max_possible)})."
+                    tr("opt.diag_build_min_stat", name=b_name, stat=stat_key, target=target, max=int(max_possible))
                 )
                 break
         if b_conflict:
@@ -2610,6 +2610,426 @@ def _diagnose_single_unit_hard_constraint_conflict(
     if non_spd_conflicts and not has_non_spd_feasible_build:
         return " | ".join(non_spd_conflicts[:3])
 
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# CP-SAT building blocks shared by the per-unit solver (_solve_single_unit_best)
+# and the team-wide solver (global_optimizer). Each block adds the constraints
+# for ONE unit; callers pass that unit's variables keyed (slot, rune_id) and
+# (artifact_type, artifact_id), so every build rule lives in exactly one place.
+# ---------------------------------------------------------------------------
+@dataclass
+class _UnitSpeedModel:
+    final_raw: Any  # base + runes (+Swift): what min-SPD constraints compare against
+    final: Any  # combat SPD incl. tower + leader: turn order, ticks, caps
+    swift_active: Any
+    cr_terms: List[Any]
+    res_terms: List[Any]
+    acc_terms: List[Any]
+
+
+def _add_unit_speed_model(
+    model: cp_model.CpModel,
+    uid: int,
+    runes_by_slot: Dict[int, List[Rune]],
+    xs: Dict[Tuple[int, int], Any],
+    base_spd: int,
+    base_spd_bonus_flat: int,
+    force_swift: bool = False,
+) -> _UnitSpeedModel:
+    speed_terms = []
+    swift_piece_vars = []
+    cr_terms: List[Any] = []
+    res_terms: List[Any] = []
+    acc_terms: List[Any] = []
+    swift_bonus_value = int(int(base_spd or 0) * 25 / 100)
+    for slot in range(1, 7):
+        for r in runes_by_slot[slot]:
+            v = xs[(slot, int(r.rune_id))]
+            spd = _rune_flat_spd(r)
+            if spd:
+                speed_terms.append(spd * v)
+            cr = _rune_stat_total(r, 9)
+            if cr:
+                cr_terms.append(cr * v)
+            res = _rune_stat_total(r, 11)
+            if res:
+                res_terms.append(res * v)
+            acc = _rune_stat_total(r, 12)
+            if acc:
+                acc_terms.append(acc * v)
+            if int(r.set_id or 0) == 3:
+                swift_piece_vars.append(v)
+
+    swift_set_active = model.NewBoolVar(f"swift_set_u{uid}")
+    if swift_piece_vars:
+        swift_count = sum(swift_piece_vars)
+        model.Add(swift_count >= 4).OnlyEnforceIf(swift_set_active)
+        model.Add(swift_count <= 3).OnlyEnforceIf(swift_set_active.Not())
+        # A turn-1 Swift opener commits to Swift right away: this drops the
+        # non-Swift options from the search space so speed-first stays tractable.
+        if force_swift:
+            model.Add(swift_set_active == 1)
+    else:
+        model.Add(swift_set_active == 0)
+    final_raw = int(base_spd or 0) + sum(speed_terms) + (swift_bonus_value * swift_set_active)
+    return _UnitSpeedModel(
+        final_raw=final_raw,
+        final=final_raw + int(base_spd_bonus_flat or 0),
+        swift_active=swift_set_active,
+        cr_terms=cr_terms,
+        res_terms=res_terms,
+        acc_terms=acc_terms,
+    )
+
+
+def _add_overcap_penalty(
+    model: cp_model.CpModel,
+    uid: int,
+    base_cr: int,
+    base_res: int,
+    base_acc: int,
+    sm: _UnitSpeedModel,
+) -> Any:
+    """Penalty for wasted CR/RES/ACC above 100 (slack vars bounded below, minimized by the objective)."""
+    over_vars = []
+    for key, base_value, terms in (("cr", base_cr, sm.cr_terms), ("res", base_res, sm.res_terms), ("acc", base_acc, sm.acc_terms)):
+        total_var = model.NewIntVar(0, 500, f"stat_{key}_total_u{uid}")
+        model.Add(total_var == int(base_value or 0) + (sum(terms) if terms else 0))
+        over_var = model.NewIntVar(0, 400, f"stat_{key}_overcap_u{uid}")
+        model.Add(over_var >= total_var - int(STAT_OVERCAP_LIMIT))
+        over_vars.append(over_var)
+    return (
+        (int(CR_OVERCAP_PENALTY_PER_POINT) * over_vars[0])
+        + (int(RES_OVERCAP_PENALTY_PER_POINT) * over_vars[1])
+        + (int(ACC_OVERCAP_PENALTY_PER_POINT) * over_vars[2])
+    )
+
+
+def _set_choice_vars(runes_by_slot: Dict[int, List[Rune]], xs: Dict[Tuple[int, int], Any]) -> Dict[int, List[Any]]:
+    out: Dict[int, List[Any]] = {}
+    for slot in range(1, 7):
+        for r in runes_by_slot[slot]:
+            out.setdefault(int(r.set_id or 0), []).append(xs[(slot, int(r.rune_id))])
+    return out
+
+
+def _add_build_constraints(
+    model: cp_model.CpModel,
+    *,
+    uid: int,
+    b_idx: int,
+    build: Build,
+    vb: Any,
+    runes_by_slot: Dict[int, List[Rune]],
+    xs: Dict[Tuple[int, int], Any],
+    artifacts_by_type: Dict[int, List[Artifact]],
+    xas: Dict[Tuple[int, int], Any],
+    set_choice_vars: Dict[int, List[Any]],
+    base_hp: int,
+    base_atk: int,
+    base_def: int,
+    base_cr: int,
+    base_cd: int,
+    base_res: int,
+    base_acc: int,
+    excluded_set_ids: Set[int],
+    option_preference: Optional[Tuple[int, int]] = None,
+) -> List[Any]:
+    """Mainstats, artifact filters, set options and min stats of one build, active iff ``vb``.
+
+    Returns objective terms that bias toward the preferred set option (``option_preference``
+    = (offset, bonus), used by refinement passes to explore alternative options)."""
+    b = build
+    option_bias_terms: List[Any] = []
+    intangible_piece_vars = set_choice_vars.get(int(INTANGIBLE_SET_ID), [])
+
+    for slot in (2, 4, 6):
+        allowed = (b.mainstats or {}).get(slot) or []
+        if not allowed:
+            continue
+        for r in runes_by_slot[slot]:
+            key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(r.pri_eff[0] or 0), "")
+            if key and (key not in allowed):
+                model.Add(xs[(slot, int(r.rune_id))] == 0).OnlyEnforceIf(vb)
+
+    artifact_focus_cfg = dict(getattr(b, "artifact_focus", {}) or {})
+    artifact_sub_cfg = dict(getattr(b, "artifact_substats", {}) or {})
+    for art_type, cfg_key in ((1, "attribute"), (2, "type")):
+        allowed_focus = [str(f).upper() for f in (artifact_focus_cfg.get(cfg_key) or []) if str(f)]
+        required_subs = [int(s) for s in (artifact_sub_cfg.get(cfg_key) or []) if int(s) > 0][:2]
+        if not allowed_focus and not required_subs:
+            continue
+        for art in artifacts_by_type[art_type]:
+            av = xas[(art_type, int(art.artifact_id))]
+            if allowed_focus and _artifact_focus_key(art) not in allowed_focus:
+                model.Add(av == 0).OnlyEnforceIf(vb)
+                continue
+            if required_subs:
+                sec_ids = _artifact_substat_ids(art)
+                if any(req_id not in sec_ids for req_id in required_subs):
+                    model.Add(av == 0).OnlyEnforceIf(vb)
+
+    if b.set_options:
+        opt_vars = [model.NewBoolVar(f"use_opt_u{uid}_b{b_idx}_o{o_idx}") for o_idx, _ in enumerate(b.set_options)]
+        model.Add(sum(opt_vars) == 1).OnlyEnforceIf(vb)
+        model.Add(sum(opt_vars) == 0).OnlyEnforceIf(vb.Not())
+        for o_idx, opt in enumerate(b.set_options):
+            vo = opt_vars[o_idx]
+            if option_preference is not None and len(opt_vars) > 1 and int(option_preference[1]) > 0:
+                offset, bonus = option_preference
+                distance = (o_idx - (int(offset) % len(opt_vars))) % len(opt_vars)
+                bias = max(0, int(bonus) - (distance * 12))
+                if bias > 0:
+                    option_bias_terms.append(bias * vo)
+            needed = _count_required_set_pieces([str(s) for s in opt])
+            replacement_vars: List[Any] = []
+            for set_id, pieces in needed.items():
+                sid = int(set_id)
+                chosen_set_vars = set_choice_vars.get(sid, [])
+                set_count_expr = sum(chosen_set_vars) if chosen_set_vars else 0
+                # The Intangible requirement itself cannot be fulfilled via replacement.
+                if sid == int(INTANGIBLE_SET_ID):
+                    if not chosen_set_vars:
+                        model.Add(vo == 0)
+                        continue
+                    model.Add(set_count_expr >= int(pieces)).OnlyEnforceIf(vo)
+                    continue
+                rep = model.NewIntVar(0, 1, f"rep_u{uid}_b{b_idx}_o{o_idx}_s{sid}")
+                replacement_vars.append(rep)
+                model.Add(set_count_expr + rep >= int(pieces)).OnlyEnforceIf(vo)
+            if replacement_vars:
+                model.Add(sum(replacement_vars) <= 1).OnlyEnforceIf(vo)
+                if intangible_piece_vars:
+                    model.Add(sum(replacement_vars) <= sum(intangible_piece_vars)).OnlyEnforceIf(vo)
+                else:
+                    model.Add(sum(replacement_vars) == 0).OnlyEnforceIf(vo)
+            # Excluded sets may fill broken slots only with the pieces the option itself requires.
+            for excluded_sid in sorted(excluded_set_ids):
+                excluded_vars = set_choice_vars.get(int(excluded_sid), [])
+                excluded_count = sum(excluded_vars) if excluded_vars else 0
+                model.Add(excluded_count <= int(needed.get(int(excluded_sid), 0) or 0)).OnlyEnforceIf(vo)
+
+    min_stats = dict(getattr(b, "min_stats", {}) or {})
+    if min_stats:
+        terms: Dict[int, List[Any]] = {eff_id: [] for eff_id in (9, 10, 11, 12, 1, 2, 3, 4, 5, 6)}
+        for slot in range(1, 7):
+            for r in runes_by_slot[slot]:
+                xv = xs[(slot, int(r.rune_id))]
+                for eff_id, eff_terms in terms.items():
+                    value = _rune_stat_total(r, eff_id)
+                    if value:
+                        eff_terms.append(value * xv)
+        _add_set_stat_bonus_terms(model, set_choice_vars, {k: terms[k] for k in (9, 10, 11, 12, 2, 4, 6)}, f"mns_u{uid}_b{b_idx}")
+        for key, base_value, eff_id in (("CR", base_cr, 9), ("CD", base_cd, 10), ("RES", base_res, 11), ("ACC", base_acc, 12)):
+            if int(min_stats.get(key, 0) or 0) > 0:
+                model.Add(base_value + sum(terms[eff_id]) >= int(min_stats[key])).OnlyEnforceIf(vb)
+        for stat_key, base_value, flat_id, pct_id in (("HP", base_hp, 1, 2), ("ATK", base_atk, 3, 4), ("DEF", base_def, 5, 6)):
+            min_with_base = int(min_stats.get(stat_key, 0) or 0)
+            min_without_base = int(min_stats.get(f"{stat_key}_NO_BASE", 0) or 0)
+            if min_with_base <= 0 and min_without_base <= 0:
+                continue
+            flat_terms, pct_terms = terms[flat_id], terms[pct_id]
+            flat_total_expr = sum(flat_terms) if flat_terms else 0
+            pct_bonus_expr: Any = 0
+            if int(base_value or 0) > 0 and pct_terms:
+                # pct bonus = floor(base * pct / 100), modelled exactly via a division constraint.
+                pct_total_var = model.NewIntVar(0, 3000, f"mns_{stat_key}_pct_u{uid}_b{b_idx}")
+                model.Add(pct_total_var == sum(pct_terms))
+                pct_scaled_var = model.NewIntVar(0, int(base_value) * 3000, f"mns_{stat_key}_pct_scaled_u{uid}_b{b_idx}")
+                model.Add(pct_scaled_var == int(base_value) * pct_total_var)
+                pct_bonus_var = model.NewIntVar(0, int(base_value) * 30, f"mns_{stat_key}_pct_bonus_u{uid}_b{b_idx}")
+                model.AddDivisionEquality(pct_bonus_var, pct_scaled_var, 100)
+                pct_bonus_expr = pct_bonus_var
+            if min_with_base > 0:
+                model.Add(int(base_value or 0) + flat_total_expr + pct_bonus_expr >= min_with_base).OnlyEnforceIf(vb)
+            if min_without_base > 0:
+                model.Add(flat_total_expr + pct_bonus_expr >= min_without_base).OnlyEnforceIf(vb)
+    return option_bias_terms
+
+
+def _add_build_speed_constraints(
+    model: cp_model.CpModel,
+    build: Build,
+    vb: Any,
+    mode: str,
+    sm: _UnitSpeedModel,
+    base_spd: int,
+) -> None:
+    """Build-level SPD rules: min SPD (raw), min SPD without base, tick floor/cap (combat SPD)."""
+    min_stats = dict(getattr(build, "min_stats", {}) or {})
+    spd_tick = int(getattr(build, "spd_tick", 0) or 0)
+    min_spd_cfg = int(min_stats.get("SPD", 0) or 0)
+    min_spd_no_base_cfg = int(min_stats.get("SPD_NO_BASE", 0) or 0)
+    min_spd_tick = int(min_spd_for_tick(spd_tick, mode) or 0)
+    if min_spd_cfg > 0:
+        model.Add(sm.final_raw >= min_spd_cfg).OnlyEnforceIf(vb)
+    if min_spd_no_base_cfg > 0:
+        model.Add(sm.final_raw - int(base_spd or 0) >= min_spd_no_base_cfg).OnlyEnforceIf(vb)
+    if min_spd_tick > 0:
+        model.Add(sm.final >= min_spd_tick).OnlyEnforceIf(vb)
+    if spd_tick != 0:
+        max_spd_tick = int(max_spd_for_tick(spd_tick, mode) or 0)
+        if max_spd_tick > 0:
+            model.Add(sm.final <= max_spd_tick).OnlyEnforceIf(vb)
+
+
+def _rune_set_hint_terms(
+    model: cp_model.CpModel,
+    uid: int,
+    preferred_set_ids: List[int],
+    set_choice_vars: Dict[int, List[Any]],
+    name_prefix: str,
+) -> List[Any]:
+    """Soft preference for a monster's usual sets when the build names no set options."""
+    out: List[Any] = []
+    for rank, sid in enumerate(preferred_set_ids[:3]):
+        set_vars = list(set_choice_vars.get(int(sid), []) or [])
+        if not set_vars:
+            continue
+        idx = min(rank, len(_RUNE_SET_HINT_PIECE_BONUS_BY_RANK) - 1)
+        out.append(int(_RUNE_SET_HINT_PIECE_BONUS_BY_RANK[idx]) * sum(set_vars))
+        needed = int(max(1, int(SET_SIZES.get(int(sid), 2) or 2)))
+        count_expr = sum(set_vars)
+        full_var = model.NewBoolVar(f"{name_prefix}_u{uid}_s{int(sid)}_r{int(rank)}")
+        model.Add(count_expr >= needed).OnlyEnforceIf(full_var)
+        model.Add(count_expr <= needed - 1).OnlyEnforceIf(full_var.Not())
+        out.append(int(_RUNE_SET_HINT_FULL_BONUS_BY_RANK[idx]) * full_var)
+    return out
+
+
+def _add_baseline_guard_shortfall(
+    model: cp_model.CpModel,
+    *,
+    uid: int,
+    runes_by_slot: Dict[int, List[Rune]],
+    xs: Dict[Tuple[int, int], Any],
+    artifacts_by_type: Dict[int, List[Artifact]],
+    xas: Dict[Tuple[int, int], Any],
+    baseline_runes_by_slot: Dict[int, int] | None,
+    baseline_artifacts_by_type: Dict[int, int] | None,
+    role: str,
+    base_hp: int,
+    base_atk: int,
+    base_def: int,
+    base_spd: int,
+    base_cr: int,
+    base_res: int,
+    base_acc: int,
+    rta_rune_ids_for_unit: Optional[Set[int]],
+    rta_artifact_ids_for_unit: Optional[Set[int]],
+    overcap_penalty_expr: Any,
+    overcap_scale: int,
+    shortfall_floor: int,
+) -> Optional[Any]:
+    """Shortfall var vs. the unit's current (baseline) build, so loaded runes are not made worse.
+
+    Returns None when the baseline is incomplete or not part of the candidate pool."""
+    baseline_slots = {
+        int(slot): int(rid)
+        for slot, rid in dict(baseline_runes_by_slot or {}).items()
+        if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
+    }
+    baseline_arts = {
+        int(t): int(aid)
+        for t, aid in dict(baseline_artifacts_by_type or {}).items()
+        if int(t or 0) in (1, 2) and int(aid or 0) > 0
+    }
+    if len(baseline_slots) != 6 or len(baseline_arts) != 2:
+        return None
+    baseline_runes: List[Rune] = []
+    for slot in range(1, 7):
+        rid = int(baseline_slots.get(int(slot), 0) or 0)
+        ref = next((rr for rr in runes_by_slot[int(slot)] if int(rr.rune_id or 0) == int(rid)), None)
+        if rid <= 0 or (int(slot), int(rid)) not in xs or ref is None:
+            return None
+        baseline_runes.append(ref)
+    baseline_artifacts: List[Artifact] = []
+    for art_type in (1, 2):
+        aid = int(baseline_arts.get(int(art_type), 0) or 0)
+        aref = next((aa for aa in artifacts_by_type[int(art_type)] if int(aa.artifact_id or 0) == int(aid)), None)
+        if aid <= 0 or (int(art_type), int(aid)) not in xas or aref is None:
+            return None
+        baseline_artifacts.append(aref)
+
+    def _rune_coef(r: Rune) -> int:
+        return int(
+            _baseline_guard_rune_coef(
+                r,
+                uid=uid,
+                base_hp=int(base_hp or 0),
+                base_atk=int(base_atk or 0),
+                base_def=int(base_def or 0),
+                role=str(role),
+                rta_rune_ids_for_unit=rta_rune_ids_for_unit,
+            )
+        )
+
+    def _art_coef(art: Artifact) -> int:
+        return int(
+            _baseline_guard_artifact_coef(
+                art,
+                uid=uid,
+                role=str(role),
+                rta_artifact_ids_for_unit=rta_artifact_ids_for_unit,
+                base_hp=int(base_hp or 0),
+                base_atk=int(base_atk or 0),
+                base_def=int(base_def or 0),
+                base_spd=int(base_spd or 0),
+            )
+        )
+
+    guard_terms: List[Any] = []
+    for slot in range(1, 7):
+        for r in runes_by_slot[slot]:
+            coef = _rune_coef(r)
+            if coef != 0:
+                guard_terms.append(coef * xs[(slot, int(r.rune_id))])
+    for art_type in (1, 2):
+        for art in artifacts_by_type[art_type]:
+            coef = _art_coef(art)
+            if coef != 0:
+                guard_terms.append(coef * xas[(int(art_type), int(art.artifact_id))])
+    guard_expr = (sum(guard_terms) if guard_terms else 0) - (int(overcap_scale) * overcap_penalty_expr)
+
+    baseline_score = sum(_rune_coef(r) for r in baseline_runes) + sum(_art_coef(a) for a in baseline_artifacts)
+    baseline_cr = int(base_cr or 0) + sum(int(_rune_stat_total(r, 9) or 0) for r in baseline_runes)
+    baseline_res = int(base_res or 0) + sum(int(_rune_stat_total(r, 11) or 0) for r in baseline_runes)
+    baseline_acc = int(base_acc or 0) + sum(int(_rune_stat_total(r, 12) or 0) for r in baseline_runes)
+    baseline_over = (
+        (int(CR_OVERCAP_PENALTY_PER_POINT) * max(0, baseline_cr - int(STAT_OVERCAP_LIMIT)))
+        + (int(RES_OVERCAP_PENALTY_PER_POINT) * max(0, baseline_res - int(STAT_OVERCAP_LIMIT)))
+        + (int(ACC_OVERCAP_PENALTY_PER_POINT) * max(0, baseline_acc - int(STAT_OVERCAP_LIMIT)))
+    )
+    baseline_score -= int(overcap_scale) * int(baseline_over)
+    shortfall_cap = max(int(shortfall_floor), abs(int(baseline_score)) + int(shortfall_floor))
+    shortfall = model.NewIntVar(0, int(shortfall_cap), f"baseline_guard_shortfall_u{uid}")
+    model.Add(shortfall >= int(baseline_score) - guard_expr)
+    return shortfall
+
+
+def _diagnose_by_relaxation(call_args: Dict[str, Any]) -> str:
+    """Name the hard constraint that blocks a unit: drop one at a time and re-solve briefly."""
+    builds = list(call_args.get("builds") or [Build.default_any()])
+    trials: List[Tuple[str, Dict[str, Any]]] = []
+    for key in sorted({str(k) for b in builds for k, v in (b.min_stats or {}).items() if int(v or 0) > 0}):
+        if key in ("SPD", "SPD_NO_BASE"):
+            label = tr("opt.constraint_spd_floor", value=max(int((b.min_stats or {}).get(key, 0) or 0) for b in builds))
+        else:
+            label = tr("opt.constraint_min_stat", stat=key, value=max(int((b.min_stats or {}).get(key, 0) or 0) for b in builds))
+        relaxed = [replace(b, min_stats={k: v for k, v in (b.min_stats or {}).items() if str(k) != key}) for b in builds]
+        trials.append((label, {"builds": relaxed}))
+    if any(int(getattr(b, "spd_tick", 0) or 0) for b in builds):
+        trials.append((tr("opt.constraint_spd_tick"), {"builds": [replace(b, spd_tick=0) for b in builds]}))
+    if int(call_args.get("max_final_speed") or 0) > 0:
+        trials.append((tr("opt.constraint_spd_cap", value=int(call_args["max_final_speed"])), {"max_final_speed": None}))
+    if int(call_args.get("min_final_speed") or 0) > 0:
+        trials.append((tr("opt.constraint_spd_floor", value=int(call_args["min_final_speed"])), {"min_final_speed": None}))
+    for label, override in trials:
+        args = {**call_args, **override, "time_limit_s": 1.0, "diagnose": False, "register_solver": None}
+        if _solve_single_unit_best(**args).ok:
+            return tr("opt.blocked_by", constraint=label)
     return ""
 
 
@@ -2652,13 +3072,13 @@ def _solve_single_unit_best(
     speed_slack_for_quality: int = 0,
     objective_mode: str = "balanced",  # balanced | efficiency
     force_speed_priority: bool = False,
-    arena_rush_damage_bias: bool = False,
     unit_archetype: str = "",
     artifact_hints: Optional[Dict[str, Any]] = None,
     broken_set_excluded_set_ids: Optional[Set[int]] = None,
     is_cancelled: Optional[Callable[[], bool]] = None,
     register_solver: Optional[Callable[[object], None]] = None,
     mode: str = "normal",
+    diagnose: bool = True,
 ) -> GreedyUnitResult:
     """
     Solve for ONE unit:
@@ -2668,6 +3088,7 @@ def _solve_single_unit_best(
     - enforce build mainstats (2/4/6) + build set_option + artifact constraints
     - objective: maximize rune weight - priority penalty
     """
+    call_args = dict(locals())
     if is_cancelled and is_cancelled():
         return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
 
@@ -2688,7 +3109,7 @@ def _solve_single_unit_best(
             return GreedyUnitResult(
                 uid,
                 False,
-                f"Lock-Constraint verletzt: Rune {int(rune_id)} ist fuer Slot {int(slot)} nicht verfuegbar.",
+                tr("opt.lock_rune_unavailable", rune=int(rune_id), slot=int(slot)),
                 runes_by_slot={},
             )
         runes_by_slot[int(slot)] = matches
@@ -2718,7 +3139,7 @@ def _solve_single_unit_best(
             return GreedyUnitResult(
                 uid,
                 False,
-                f"Lock-Constraint verletzt: Artefakt {int(art_id)} ist fuer Typ {int(art_type)} nicht verfuegbar.",
+                tr("opt.lock_artifact_unavailable", artifact=int(art_id), type=int(art_type)),
                 runes_by_slot={},
             )
         artifacts_by_type[int(art_type)] = matches
@@ -2770,17 +3191,9 @@ def _solve_single_unit_best(
         use_build[b_idx] = model.NewBoolVar(f"use_build_u{uid}_b{b_idx}")
     model.Add(sum(use_build.values()) == 1)
 
-    set_choice_vars: Dict[int, List[cp_model.IntVar]] = {}
-    for slot in range(1, 7):
-        for r in runes_by_slot[slot]:
-            sid = int(r.set_id or 0)
-            set_choice_vars.setdefault(sid, []).append(x[(slot, r.rune_id)])
-    intangible_piece_vars = set_choice_vars.get(int(INTANGIBLE_SET_ID), [])
-    intangible_piece_count_expr = sum(intangible_piece_vars) if intangible_piece_vars else 0
-
-    # for each build, add constraints only if chosen
-    # set options: if present => choose one option if build chosen
-    option_bias_terms = []
+    set_choice_vars = _set_choice_vars(runes_by_slot, x)
+    excluded_set_ids = {int(sid) for sid in (broken_set_excluded_set_ids or set()) if int(sid or 0) > 0}
+    option_bias_terms: List[Any] = []
     apply_rune_set_fallback = not any(bool(getattr(bb, "set_options", []) or []) for bb in (builds or []))
     fallback_rune_set_ids: List[int] = []
     if apply_rune_set_fallback:
@@ -2788,279 +3201,41 @@ def _solve_single_unit_best(
         master_id = int((unit_obj.unit_master_id if unit_obj else 0) or 0)
         fallback_rune_set_ids = _preferred_rune_set_ids_for_monster(master_id, role=str(unit_archetype or ""))
     for b_idx, b in enumerate(builds):
-        vb = use_build[b_idx]
+        option_bias_terms += _add_build_constraints(
+            model,
+            uid=uid,
+            b_idx=b_idx,
+            build=b,
+            vb=use_build[b_idx],
+            runes_by_slot=runes_by_slot,
+            xs=x,
+            artifacts_by_type=artifacts_by_type,
+            xas=xa,
+            set_choice_vars=set_choice_vars,
+            base_hp=int(base_hp or 0),
+            base_atk=int(base_atk or 0),
+            base_def=int(base_def or 0),
+            base_cr=int(base_cr or 0),
+            base_cd=int(base_cd or 0),
+            base_res=int(base_res or 0),
+            base_acc=int(base_acc or 0),
+            excluded_set_ids=excluded_set_ids,
+            option_preference=(int(set_option_preference_offset), int(set_option_preference_bonus)),
+        )
 
-        # mainstats
-        for slot in (2, 4, 6):
-            allowed = (b.mainstats or {}).get(slot) or []
-            if not allowed:
-                continue
-            for r in runes_by_slot[slot]:
-                key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(r.pri_eff[0] or 0), "")
-                if key and (key not in allowed):
-                    model.Add(x[(slot, r.rune_id)] == 0).OnlyEnforceIf(vb)
-
-        # artifact constraints (separate for attribute/type artifact)
-        artifact_focus_cfg = dict(getattr(b, "artifact_focus", {}) or {})
-        artifact_sub_cfg = dict(getattr(b, "artifact_substats", {}) or {})
-        for art_type, cfg_key in ((1, "attribute"), (2, "type")):
-            allowed_focus = [str(x).upper() for x in (artifact_focus_cfg.get(cfg_key) or []) if str(x)]
-            required_subs = [int(x) for x in (artifact_sub_cfg.get(cfg_key) or []) if int(x) > 0][:2]
-            if not allowed_focus and not required_subs:
-                continue
-            for art in artifacts_by_type[art_type]:
-                av = xa[(art_type, int(art.artifact_id))]
-                if allowed_focus:
-                    if _artifact_focus_key(art) not in allowed_focus:
-                        model.Add(av == 0).OnlyEnforceIf(vb)
-                        continue
-                if required_subs:
-                    sec_ids = _artifact_substat_ids(art)
-                    if any(req_id not in sec_ids for req_id in required_subs):
-                        model.Add(av == 0).OnlyEnforceIf(vb)
-
-        # sets
-        if b.set_options:
-            opt_vars = []
-            for o_idx, _ in enumerate(b.set_options):
-                opt_vars.append(model.NewBoolVar(f"use_opt_u{uid}_b{b_idx}_o{o_idx}"))
-
-            model.Add(sum(opt_vars) == 1).OnlyEnforceIf(vb)
-            model.Add(sum(opt_vars) == 0).OnlyEnforceIf(vb.Not())
-
-            for o_idx, opt in enumerate(b.set_options):
-                vo = opt_vars[o_idx]
-                if len(opt_vars) > 1 and int(set_option_preference_bonus) > 0:
-                    pref_idx = int(set_option_preference_offset) % len(opt_vars)
-                    distance = (o_idx - pref_idx) % len(opt_vars)
-                    bias = max(0, int(set_option_preference_bonus) - (distance * 12))
-                    if bias > 0:
-                        option_bias_terms.append(bias * vo)
-                needed = _count_required_set_pieces([str(s) for s in opt])
-                excluded_set_ids = {
-                    int(sid)
-                    for sid in (broken_set_excluded_set_ids or set())
-                    if int(sid or 0) > 0
-                }
-                replacement_vars: List[cp_model.IntVar] = []
-
-                for set_id, pieces in needed.items():
-                    sid = int(set_id)
-                    needed_pieces = int(pieces)
-                    chosen_set_vars = set_choice_vars.get(sid, [])
-                    set_count_expr = sum(chosen_set_vars) if chosen_set_vars else 0
-
-                    # Intangible set requirement itself cannot be fulfilled via replacement.
-                    if sid == int(INTANGIBLE_SET_ID):
-                        if not chosen_set_vars:
-                            model.Add(vo == 0)
-                            continue
-                        model.Add(set_count_expr >= needed_pieces).OnlyEnforceIf(vo)
-                        continue
-
-                    rep = model.NewIntVar(0, 1, f"rep_u{uid}_b{b_idx}_o{o_idx}_s{sid}")
-                    replacement_vars.append(rep)
-                    model.Add(set_count_expr + rep >= needed_pieces).OnlyEnforceIf(vo)
-
-                if replacement_vars:
-                    model.Add(sum(replacement_vars) <= 1).OnlyEnforceIf(vo)
-                    if intangible_piece_vars:
-                        model.Add(sum(replacement_vars) <= intangible_piece_count_expr).OnlyEnforceIf(vo)
-                    else:
-                        model.Add(sum(replacement_vars) == 0).OnlyEnforceIf(vo)
-
-                # Prevent excluded sets from being consumed in broken slots.
-                # For sets required by the selected option, allow exactly those required pieces.
-                for excluded_sid in sorted(excluded_set_ids):
-                    excluded_needed = int(needed.get(int(excluded_sid), 0) or 0)
-                    excluded_vars = set_choice_vars.get(int(excluded_sid), [])
-                    excluded_count = sum(excluded_vars) if excluded_vars else 0
-                    model.Add(excluded_count <= int(excluded_needed)).OnlyEnforceIf(vo)
-
-        # min stat thresholds
-        min_stats = dict(getattr(b, "min_stats", {}) or {})
-        if min_stats:
-            cr_terms = []
-            cd_terms = []
-            res_terms = []
-            acc_terms = []
-            hp_flat_terms = []
-            hp_pct_terms = []
-            atk_flat_terms = []
-            atk_pct_terms = []
-            def_flat_terms = []
-            def_pct_terms = []
-            for slot in range(1, 7):
-                for r in runes_by_slot[slot]:
-                    xv = x[(slot, r.rune_id)]
-                    cr = _rune_stat_total(r, 9)
-                    cd = _rune_stat_total(r, 10)
-                    res = _rune_stat_total(r, 11)
-                    acc = _rune_stat_total(r, 12)
-                    hp_flat = _rune_stat_total(r, 1)
-                    hp_pct = _rune_stat_total(r, 2)
-                    atk_flat = _rune_stat_total(r, 3)
-                    atk_pct = _rune_stat_total(r, 4)
-                    def_flat = _rune_stat_total(r, 5)
-                    def_pct = _rune_stat_total(r, 6)
-                    if cr:
-                        cr_terms.append(cr * xv)
-                    if cd:
-                        cd_terms.append(cd * xv)
-                    if res:
-                        res_terms.append(res * xv)
-                    if acc:
-                        acc_terms.append(acc * xv)
-                    if hp_flat:
-                        hp_flat_terms.append(hp_flat * xv)
-                    if hp_pct:
-                        hp_pct_terms.append(hp_pct * xv)
-                    if atk_flat:
-                        atk_flat_terms.append(atk_flat * xv)
-                    if atk_pct:
-                        atk_pct_terms.append(atk_pct * xv)
-                    if def_flat:
-                        def_flat_terms.append(def_flat * xv)
-                    if def_pct:
-                        def_pct_terms.append(def_pct * xv)
-
-            if int(min_stats.get("CR", 0) or 0) > 0:
-                model.Add(base_cr + sum(cr_terms) >= int(min_stats["CR"])).OnlyEnforceIf(vb)
-            if int(min_stats.get("CD", 0) or 0) > 0:
-                model.Add(base_cd + sum(cd_terms) >= int(min_stats["CD"])).OnlyEnforceIf(vb)
-            if int(min_stats.get("RES", 0) or 0) > 0:
-                model.Add(base_res + sum(res_terms) >= int(min_stats["RES"])).OnlyEnforceIf(vb)
-            if int(min_stats.get("ACC", 0) or 0) > 0:
-                model.Add(base_acc + sum(acc_terms) >= int(min_stats["ACC"])).OnlyEnforceIf(vb)
-
-            def _add_primary_min_constraints(
-                stat_key: str,
-                stat_no_base_key: str,
-                base_value: int,
-                flat_terms: List[cp_model.LinearExpr],
-                pct_terms: List[cp_model.LinearExpr],
-            ) -> None:
-                min_with_base = int(min_stats.get(stat_key, 0) or 0)
-                min_without_base = int(min_stats.get(stat_no_base_key, 0) or 0)
-                if min_with_base <= 0 and min_without_base <= 0:
-                    return
-                flat_total_expr = sum(flat_terms) if flat_terms else 0
-                pct_total_expr = sum(pct_terms) if pct_terms else 0
-                pct_bonus_expr: cp_model.LinearExpr = 0
-                if int(base_value) > 0 and pct_terms:
-                    pct_total_var = model.NewIntVar(0, 3000, f"mns_{stat_key}_pct_u{uid}_b{b_idx}")
-                    model.Add(pct_total_var == pct_total_expr)
-                    pct_scaled_var = model.NewIntVar(0, int(base_value) * 3000, f"mns_{stat_key}_pct_scaled_u{uid}_b{b_idx}")
-                    model.Add(pct_scaled_var == int(base_value) * pct_total_var)
-                    pct_bonus_var = model.NewIntVar(0, int(base_value) * 30, f"mns_{stat_key}_pct_bonus_u{uid}_b{b_idx}")
-                    model.AddDivisionEquality(pct_bonus_var, pct_scaled_var, 100)
-                    pct_bonus_expr = pct_bonus_var
-                final_with_base_expr = int(base_value) + flat_total_expr + pct_bonus_expr
-                final_without_base_expr = flat_total_expr + pct_bonus_expr
-                if min_with_base > 0:
-                    model.Add(final_with_base_expr >= min_with_base).OnlyEnforceIf(vb)
-                if min_without_base > 0:
-                    model.Add(final_without_base_expr >= min_without_base).OnlyEnforceIf(vb)
-
-            _add_primary_min_constraints("HP", "HP_NO_BASE", int(base_hp or 0), hp_flat_terms, hp_pct_terms)
-            _add_primary_min_constraints("ATK", "ATK_NO_BASE", int(base_atk or 0), atk_flat_terms, atk_pct_terms)
-            _add_primary_min_constraints("DEF", "DEF_NO_BASE", int(base_def or 0), def_flat_terms, def_pct_terms)
-
-    # speed expression (for SPD-first)
-    speed_terms = []
-    swift_piece_vars = []
-    cr_terms_all: List[cp_model.LinearExpr] = []
-    res_terms_all: List[cp_model.LinearExpr] = []
-    acc_terms_all: List[cp_model.LinearExpr] = []
-    swift_bonus_value = int(int(base_spd or 0) * 25 / 100)
-    for slot in range(1, 7):
-        for r in runes_by_slot[slot]:
-            v = x[(slot, r.rune_id)]
-            spd = _rune_flat_spd(r)
-            if spd:
-                speed_terms.append(spd * v)
-            cr = _rune_stat_total(r, 9)
-            if cr:
-                cr_terms_all.append(cr * v)
-            res = _rune_stat_total(r, 11)
-            if res:
-                res_terms_all.append(res * v)
-            acc = _rune_stat_total(r, 12)
-            if acc:
-                acc_terms_all.append(acc * v)
-            if int(r.set_id or 0) == 3:
-                swift_piece_vars.append(v)
-
-    swift_set_active = model.NewBoolVar(f"swift_set_u{uid}")
-    swift_count = sum(swift_piece_vars) if swift_piece_vars else 0
-    if swift_piece_vars:
-        model.Add(swift_count >= 4).OnlyEnforceIf(swift_set_active)
-        model.Add(swift_count <= 3).OnlyEnforceIf(swift_set_active.Not())
-        # When optimizing speed-first for a turn-order position-1 monster with Swift in
-        # the set options, commit to Swift immediately.  This removes non-Swift option
-        # variables from the search space so the two-pass speed→quality solve stays
-        # tractable even when many alternative sets (e.g. Violent) are also configured.
-        if bool(force_speed_priority):
-            model.Add(swift_set_active == 1)
-    else:
-        model.Add(swift_set_active == 0)
-
-    # Raw SPD for min-SPD constraints: base + runes (+swift), no tower, no leader.
-    final_speed_raw_expr = (
-        int(base_spd or 0)
-        + sum(speed_terms)
-        + (swift_bonus_value * swift_set_active)
+    sm = _add_unit_speed_model(
+        model, uid, runes_by_slot, x, base_spd, base_spd_bonus_flat, force_swift=bool(force_speed_priority)
     )
-    # Combat SPD for turn-order/tick/caps: includes tower and leader.
-    final_speed_expr = final_speed_raw_expr + int(base_spd_bonus_flat or 0)
+    final_speed_expr = sm.final
     if min_final_speed is not None and int(min_final_speed) > 0:
         model.Add(final_speed_expr >= int(min_final_speed))
     if max_final_speed is not None and max_final_speed > 0:
         model.Add(final_speed_expr <= int(max_final_speed))
-
     for b_idx, b in enumerate(builds):
-        vb = use_build[b_idx]
-        spd_tick = int(getattr(b, "spd_tick", 0) or 0)
-        min_spd_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD", 0) or 0)
-        min_spd_no_base_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
-        apply_native_spd_tick = str(mode or "").strip().lower() != "arena_rush"
-        min_spd_tick = int(min_spd_for_tick(spd_tick, mode) or 0) if apply_native_spd_tick else 0
-        if min_spd_cfg > 0:
-            model.Add(final_speed_raw_expr >= min_spd_cfg).OnlyEnforceIf(vb)
-        if min_spd_no_base_cfg > 0:
-            model.Add(final_speed_raw_expr - int(base_spd or 0) >= min_spd_no_base_cfg).OnlyEnforceIf(vb)
-        if min_spd_tick > 0:
-            model.Add(final_speed_expr >= min_spd_tick).OnlyEnforceIf(vb)
-        if apply_native_spd_tick and spd_tick != 0:
-            max_spd_tick = int(max_spd_for_tick(spd_tick, mode) or 0)
-            if max_spd_tick > 0:
-                model.Add(final_speed_expr <= max_spd_tick).OnlyEnforceIf(vb)
-
-    # Soft-penalty for wasted capped stats (CR/RES/ACC above 100).
-    # Use slack vars with lower bounds only; objective minimizes them via negative weight.
-    cr_total_var = model.NewIntVar(0, 500, f"stat_cr_total_u{uid}")
-    model.Add(cr_total_var == int(base_cr or 0) + (sum(cr_terms_all) if cr_terms_all else 0))
-    cr_over_var = model.NewIntVar(0, 400, f"stat_cr_overcap_u{uid}")
-    model.Add(cr_over_var >= cr_total_var - int(STAT_OVERCAP_LIMIT))
-
-    res_total_var = model.NewIntVar(0, 500, f"stat_res_total_u{uid}")
-    model.Add(res_total_var == int(base_res or 0) + (sum(res_terms_all) if res_terms_all else 0))
-    res_over_var = model.NewIntVar(0, 400, f"stat_res_overcap_u{uid}")
-    model.Add(res_over_var >= res_total_var - int(STAT_OVERCAP_LIMIT))
-
-    acc_total_var = model.NewIntVar(0, 500, f"stat_acc_total_u{uid}")
-    model.Add(acc_total_var == int(base_acc or 0) + (sum(acc_terms_all) if acc_terms_all else 0))
-    acc_over_var = model.NewIntVar(0, 400, f"stat_acc_overcap_u{uid}")
-    model.Add(acc_over_var >= acc_total_var - int(STAT_OVERCAP_LIMIT))
-
-    overcap_penalty_expr: cp_model.LinearExpr = (
-        (int(CR_OVERCAP_PENALTY_PER_POINT) * cr_over_var)
-        + (int(RES_OVERCAP_PENALTY_PER_POINT) * res_over_var)
-        + (int(ACC_OVERCAP_PENALTY_PER_POINT) * acc_over_var)
-    )
+        _add_build_speed_constraints(model, b, use_build[b_idx], mode, sm, base_spd)
+    overcap_penalty_expr = _add_overcap_penalty(model, uid, base_cr, base_res, base_acc, sm)
 
     # quality objective (2nd phase after speed is pinned)
-    is_arena_rush_mode = str(mode or "").strip().lower() == "arena_rush"
     unit_role = _arena_role_from_archetype(str(unit_archetype or ""))
     artifact_role_for_scoring = str(unit_role)
     if artifact_role_for_scoring == "unknown":
@@ -3069,15 +3244,6 @@ def _solve_single_unit_best(
             if _is_attack_type_unit(base_hp, base_atk, base_def, archetype=str(unit_archetype or ""))
             else "support"
         )
-    favor_damage_for_atk_type = (
-        bool(arena_rush_damage_bias)
-        and is_arena_rush_mode
-        and str(unit_role) == "attack"
-    )
-    favor_defense_for_role = bool(
-        is_arena_rush_mode
-        and str(unit_role) in ("defense", "hp", "support")
-    )
     scaling_stat = _scaling_stat_from_hints(artifact_hints)
 
     # Build per-effect-ID multipliers from the first active build's stat_weights.
@@ -3094,250 +3260,65 @@ def _solve_single_unit_best(
     _stat_muls: Optional[Dict[int, float]] = _stat_multipliers if _stat_multipliers else None
 
     quality_terms = []
+    efficiency_mode = str(objective_mode) == "efficiency"
     for slot in range(1, 7):
         for r in runes_by_slot[slot]:
             v = x[(slot, r.rune_id)]
-            if str(objective_mode) == "efficiency":
-                if favor_damage_for_atk_type:
-                    eff_scale = int(ARENA_RUSH_ATK_EFFICIENCY_SCALE)
-                elif favor_defense_for_role:
-                    eff_scale = int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
-                else:
-                    eff_scale = 100
-                eff_bonus = int(round(float(rune_efficiency(r)) * float(eff_scale)))
+            if efficiency_mode:
+                eff_bonus = int(round(float(rune_efficiency(r)) * 100.0))
                 if eff_bonus:
                     quality_terms.append(eff_bonus * v)
                 if _stat_muls:
                     pref_bonus = _rune_stat_preference_bonus(r, _stat_muls)
                     if pref_bonus:
                         quality_terms.append(pref_bonus * v)
-                if favor_defense_for_role:
-                    def_q = int(_rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit))
-                    if def_q:
-                        quality_terms.append((int(ARENA_RUSH_DEF_QUALITY_WEIGHT) * def_q) * v)
-                if favor_damage_for_atk_type:
-                    dmg_bonus = _rune_damage_score_proxy(r, int(base_atk or 0))
-                    if dmg_bonus:
-                        quality_terms.append(dmg_bonus * v)
-                if favor_defense_for_role:
-                    def_bonus = _rune_defensive_score_proxy(
-                        r,
-                        int(base_hp or 0),
-                        int(base_def or 0),
-                        str(unit_archetype or ""),
-                    )
-                    if def_bonus:
-                        quality_terms.append((int(ARENA_RUSH_DEF_RUNE_WEIGHT) * def_bonus) * v)
-                    dmg_penalty = _rune_damage_score_proxy(r, int(base_atk or 0))
-                    if dmg_penalty:
-                        quality_terms.append(
-                            (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * v
-                        )
-                scaling_bonus = int(
-                    _rune_scaling_score_proxy(
-                        r,
-                        scaling_stat=str(scaling_stat),
-                        base_hp=int(base_hp or 0),
-                        base_atk=int(base_atk or 0),
-                        base_def=int(base_def or 0),
-                    )
-                )
-                if scaling_bonus:
-                    quality_terms.append((int(RUNE_SCALING_BONUS_WEIGHT) * scaling_bonus) * v)
             else:
-                if favor_defense_for_role:
-                    w = _rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit, _stat_muls)
-                else:
-                    w = _rune_quality_score(r, uid, rta_rune_ids_for_unit, _stat_muls)
-                quality_terms.append(w * v)
-                if favor_damage_for_atk_type:
-                    eff_weight = int(ARENA_RUSH_ATK_RUNE_EFF_WEIGHT)
-                elif favor_defense_for_role:
-                    eff_weight = int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
-                else:
-                    eff_weight = int(RUNE_EFFICIENCY_WEIGHT_SOLVER)
-                eff_bonus = int(round(float(rune_efficiency(r)) * float(eff_weight)))
+                quality_terms.append(_rune_quality_score(r, uid, rta_rune_ids_for_unit, _stat_muls) * v)
+                eff_bonus = int(round(float(rune_efficiency(r)) * float(RUNE_EFFICIENCY_WEIGHT_SOLVER)))
                 if eff_bonus:
                     quality_terms.append(eff_bonus * v)
-                if favor_damage_for_atk_type:
-                    dmg_bonus = _rune_damage_score_proxy(r, int(base_atk or 0))
-                    if dmg_bonus:
-                        quality_terms.append(dmg_bonus * v)
-                if favor_defense_for_role:
-                    def_bonus = _rune_defensive_score_proxy(
-                        r,
-                        int(base_hp or 0),
-                        int(base_def or 0),
-                        str(unit_archetype or ""),
-                    )
-                    if def_bonus:
-                        quality_terms.append((int(ARENA_RUSH_DEF_RUNE_WEIGHT) * def_bonus) * v)
-                    dmg_penalty = _rune_damage_score_proxy(r, int(base_atk or 0))
-                    if dmg_penalty:
-                        quality_terms.append(
-                            (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * v
-                        )
-                scaling_bonus = int(
-                    _rune_scaling_score_proxy(
-                        r,
-                        scaling_stat=str(scaling_stat),
-                        base_hp=int(base_hp or 0),
-                        base_atk=int(base_atk or 0),
-                        base_def=int(base_def or 0),
-                    )
+            scaling_bonus = int(
+                _rune_scaling_score_proxy(
+                    r,
+                    scaling_stat=str(scaling_stat),
+                    base_hp=int(base_hp or 0),
+                    base_atk=int(base_atk or 0),
+                    base_def=int(base_def or 0),
                 )
-                if scaling_bonus:
-                    quality_terms.append((int(RUNE_SCALING_BONUS_WEIGHT) * scaling_bonus) * v)
+            )
+            if scaling_bonus:
+                quality_terms.append((int(RUNE_SCALING_BONUS_WEIGHT) * scaling_bonus) * v)
     for art_type in (1, 2):
         for art in artifacts_by_type[art_type]:
             av = xa[(art_type, int(art.artifact_id))]
-            if str(objective_mode) == "efficiency":
-                if favor_damage_for_atk_type:
-                    eff_scale = int(ARENA_RUSH_ATK_EFFICIENCY_SCALE)
-                elif favor_defense_for_role:
-                    eff_scale = int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
-                else:
-                    eff_scale = 100
-                art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(eff_scale)))
+            context_bonus = int(
+                _artifact_context_score_proxy(
+                    art,
+                    role=str(artifact_role_for_scoring),
+                    base_hp=int(base_hp or 0),
+                    base_atk=int(base_atk or 0),
+                    base_def=int(base_def or 0),
+                    base_spd=int(base_spd or 0),
+                )
+            )
+            art_pref_bonus = _artifact_stat_preference_bonus(art, _stat_muls) if _stat_muls else 0
+            if efficiency_mode:
+                art_eff_bonus = int(round(float(artifact_efficiency(art)) * 100.0))
                 if art_eff_bonus:
                     quality_terms.append(art_eff_bonus * av)
-                if favor_defense_for_role:
-                    def_q = int(
-                        _artifact_quality_score_defensive(
-                            art,
-                            uid,
-                            rta_artifact_ids_for_unit,
-                            archetype=str(unit_archetype or ""),
-                            base_hp=int(base_hp or 0),
-                            base_atk=int(base_atk or 0),
-                            base_def=int(base_def or 0),
-                            base_spd=int(base_spd or 0),
-                        )
-                    )
-                    if def_q:
-                        quality_terms.append((int(ARENA_RUSH_DEF_QUALITY_WEIGHT) * def_q) * av)
-                if favor_damage_for_atk_type:
-                    dmg_bonus = _artifact_damage_score_proxy(
-                        art,
-                        base_hp=int(base_hp or 0),
-                        base_atk=int(base_atk or 0),
-                        base_def=int(base_def or 0),
-                        base_spd=int(base_spd or 0),
-                    )
-                    if dmg_bonus:
-                        quality_terms.append(dmg_bonus * av)
-                if favor_defense_for_role:
-                    def_bonus = _artifact_defensive_score_proxy(
-                        art,
-                        str(unit_archetype or ""),
-                        base_hp=int(base_hp or 0),
-                        base_atk=int(base_atk or 0),
-                        base_def=int(base_def or 0),
-                        base_spd=int(base_spd or 0),
-                    )
-                    if def_bonus:
-                        quality_terms.append((int(ARENA_RUSH_DEF_ART_WEIGHT) * def_bonus) * av)
-                    dmg_penalty = _artifact_damage_score_proxy(
-                        art,
-                        base_hp=int(base_hp or 0),
-                        base_atk=int(base_atk or 0),
-                        base_def=int(base_def or 0),
-                        base_spd=int(base_spd or 0),
-                    )
-                    if dmg_penalty:
-                        quality_terms.append(
-                            (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * av
-                        )
-                if not favor_damage_for_atk_type and not favor_defense_for_role:
-                    context_bonus = int(
-                        _artifact_context_score_proxy(
-                            art,
-                            role=str(artifact_role_for_scoring),
-                            base_hp=int(base_hp or 0),
-                            base_atk=int(base_atk or 0),
-                            base_def=int(base_def or 0),
-                            base_spd=int(base_spd or 0),
-                        )
-                    )
-                    if context_bonus:
-                        quality_terms.append((int(ARTIFACT_ROLE_CONTEXT_WEIGHT) * context_bonus) * av)
-                if _stat_muls:
-                    art_pref_bonus = _artifact_stat_preference_bonus(art, _stat_muls)
-                    if art_pref_bonus:
-                        quality_terms.append(art_pref_bonus * av)
+                if context_bonus:
+                    quality_terms.append((int(ARTIFACT_ROLE_CONTEXT_WEIGHT) * context_bonus) * av)
+                if art_pref_bonus:
+                    quality_terms.append(art_pref_bonus * av)
             else:
-                if favor_defense_for_role:
-                    aw = _artifact_quality_score_defensive(
-                        art,
-                        uid,
-                        rta_artifact_ids_for_unit,
-                        archetype=str(unit_archetype or ""),
-                        base_hp=int(base_hp or 0),
-                        base_atk=int(base_atk or 0),
-                        base_def=int(base_def or 0),
-                        base_spd=int(base_spd or 0),
-                    )
-                else:
-                    aw = _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
-                quality_terms.append(aw * av)
-                if favor_damage_for_atk_type:
-                    eff_weight = int(ARENA_RUSH_ATK_ART_EFF_WEIGHT)
-                elif favor_defense_for_role:
-                    eff_weight = int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
-                else:
-                    eff_weight = int(ARTIFACT_EFFICIENCY_WEIGHT_SOLVER)
-                art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(eff_weight)))
+                quality_terms.append(_artifact_quality_score(art, uid, rta_artifact_ids_for_unit) * av)
+                art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(ARTIFACT_EFFICIENCY_WEIGHT_SOLVER)))
                 if art_eff_bonus:
                     quality_terms.append(art_eff_bonus * av)
-                if _stat_muls:
-                    art_pref_bonus = _artifact_stat_preference_bonus(art, _stat_muls)
-                    if art_pref_bonus:
-                        quality_terms.append(art_pref_bonus * av)
-                if favor_damage_for_atk_type:
-                    dmg_bonus = _artifact_damage_score_proxy(
-                        art,
-                        base_hp=int(base_hp or 0),
-                        base_atk=int(base_atk or 0),
-                        base_def=int(base_def or 0),
-                        base_spd=int(base_spd or 0),
-                    )
-                    if dmg_bonus:
-                        quality_terms.append(dmg_bonus * av)
-                if favor_defense_for_role:
-                    def_bonus = _artifact_defensive_score_proxy(
-                        art,
-                        str(unit_archetype or ""),
-                        base_hp=int(base_hp or 0),
-                        base_atk=int(base_atk or 0),
-                        base_def=int(base_def or 0),
-                        base_spd=int(base_spd or 0),
-                    )
-                    if def_bonus:
-                        quality_terms.append((int(ARENA_RUSH_DEF_ART_WEIGHT) * def_bonus) * av)
-                    dmg_penalty = _artifact_damage_score_proxy(
-                        art,
-                        base_hp=int(base_hp or 0),
-                        base_atk=int(base_atk or 0),
-                        base_def=int(base_def or 0),
-                        base_spd=int(base_spd or 0),
-                    )
-                    if dmg_penalty:
-                        quality_terms.append(
-                            (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * av
-                        )
-                if not favor_damage_for_atk_type and not favor_defense_for_role:
-                    context_bonus = int(
-                        _artifact_context_score_proxy(
-                            art,
-                            role=str(artifact_role_for_scoring),
-                            base_hp=int(base_hp or 0),
-                            base_atk=int(base_atk or 0),
-                            base_def=int(base_def or 0),
-                            base_spd=int(base_spd or 0),
-                        )
-                    )
-                    if context_bonus:
-                        quality_terms.append((int(ARTIFACT_ROLE_CONTEXT_WEIGHT) * context_bonus) * av)
+                if art_pref_bonus:
+                    quality_terms.append(art_pref_bonus * av)
+                if context_bonus:
+                    quality_terms.append((int(ARTIFACT_ROLE_CONTEXT_WEIGHT) * context_bonus) * av)
             hint_bonus = int(_artifact_hint_score(art, artifact_hints))
             if hint_bonus:
                 quality_terms.append(hint_bonus * av)
@@ -3346,21 +3327,7 @@ def _solve_single_unit_best(
                 quality_terms.append((int(ARTIFACT_SCALING_BONUS_WEIGHT) * scaling_bonus) * av)
 
     if apply_rune_set_fallback and fallback_rune_set_ids:
-        for rank, sid in enumerate(fallback_rune_set_ids[:3]):
-            set_vars = list(set_choice_vars.get(int(sid), []) or [])
-            if not set_vars:
-                continue
-            piece_bonus = int(_RUNE_SET_HINT_PIECE_BONUS_BY_RANK[min(rank, len(_RUNE_SET_HINT_PIECE_BONUS_BY_RANK) - 1)])
-            full_bonus = int(_RUNE_SET_HINT_FULL_BONUS_BY_RANK[min(rank, len(_RUNE_SET_HINT_FULL_BONUS_BY_RANK) - 1)])
-            if piece_bonus > 0:
-                quality_terms.append(int(piece_bonus) * sum(set_vars))
-            needed = int(SET_SIZES.get(int(sid), 2) or 2)
-            if full_bonus > 0 and needed > 0:
-                count_expr = sum(set_vars)
-                full_var = model.NewBoolVar(f"hint_set_full_u{uid}_s{int(sid)}_r{int(rank)}")
-                model.Add(count_expr >= int(needed)).OnlyEnforceIf(full_var)
-                model.Add(count_expr <= int(max(0, int(needed) - 1))).OnlyEnforceIf(full_var.Not())
-                quality_terms.append(int(full_bonus) * full_var)
+        quality_terms.extend(_rune_set_hint_terms(model, uid, fallback_rune_set_ids, set_choice_vars, "hint_set_full"))
 
     # Unit-level critical hint satisfaction:
     # reward selecting at least one artifact carrying each critical effect
@@ -3460,131 +3427,38 @@ def _solve_single_unit_best(
 
     guard_weight = int(max(0, int(baseline_regression_guard_weight or 0)))
     if guard_weight > 0:
-        baseline_slots = {
-            int(slot): int(rid)
-            for slot, rid in dict(baseline_runes_by_slot or {}).items()
-            if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
-        }
-        baseline_arts = {
-            int(t): int(aid)
-            for t, aid in dict(baseline_artifacts_by_type or {}).items()
-            if int(t or 0) in (1, 2) and int(aid or 0) > 0
-        }
-        if len(baseline_slots) == 6 and len(baseline_arts) == 2:
-            guard_role = str(unit_role)
-            if guard_role == "unknown":
-                guard_role = (
-                    "attack"
-                    if _is_attack_type_unit(base_hp, base_atk, base_def, archetype=str(unit_archetype or ""))
-                    else "support"
-                )
-            baseline_runes: List[Rune] = []
-            baseline_ok = True
-            for slot in range(1, 7):
-                rid = int(baseline_slots.get(int(slot), 0) or 0)
-                key = (int(slot), int(rid))
-                if rid <= 0 or key not in x:
-                    baseline_ok = False
-                    break
-                ref = next((rr for rr in runes_by_slot[int(slot)] if int(rr.rune_id or 0) == int(rid)), None)
-                if ref is None:
-                    baseline_ok = False
-                    break
-                baseline_runes.append(ref)
-            baseline_artifacts: List[Artifact] = []
-            if baseline_ok:
-                for art_type in (1, 2):
-                    aid = int(baseline_arts.get(int(art_type), 0) or 0)
-                    akey = (int(art_type), int(aid))
-                    if aid <= 0 or akey not in xa:
-                        baseline_ok = False
-                        break
-                    aref = next(
-                        (aa for aa in artifacts_by_type[int(art_type)] if int(aa.artifact_id or 0) == int(aid)),
-                        None,
-                    )
-                    if aref is None:
-                        baseline_ok = False
-                        break
-                    baseline_artifacts.append(aref)
-            if baseline_ok:
-                guard_terms: List[cp_model.LinearExpr] = []
-                for slot in range(1, 7):
-                    for r in runes_by_slot[slot]:
-                        coef = int(
-                            _baseline_guard_rune_coef(
-                                r,
-                                uid=uid,
-                                base_hp=int(base_hp or 0),
-                                base_atk=int(base_atk or 0),
-                                base_def=int(base_def or 0),
-                                role=str(guard_role),
-                                rta_rune_ids_for_unit=rta_rune_ids_for_unit,
-                            )
-                        )
-                        if coef != 0:
-                            guard_terms.append(coef * x[(slot, int(r.rune_id))])
-                for art_type in (1, 2):
-                    for art in artifacts_by_type[art_type]:
-                        coef = int(
-                            _baseline_guard_artifact_coef(
-                                art,
-                                uid=uid,
-                                role=str(guard_role),
-                                rta_artifact_ids_for_unit=rta_artifact_ids_for_unit,
-                                base_hp=int(base_hp or 0),
-                                base_atk=int(base_atk or 0),
-                                base_def=int(base_def or 0),
-                                base_spd=int(base_spd or 0),
-                            )
-                        )
-                        if coef != 0:
-                            guard_terms.append(coef * xa[(int(art_type), int(art.artifact_id))])
-                guard_expr = (sum(guard_terms) if guard_terms else 0) - (
-                    int(SINGLE_SOLVER_OVERCAP_PENALTY_SCALE) * overcap_penalty_expr
-                )
-                baseline_guard_score = 0
-                baseline_cr_total = int(base_cr or 0)
-                baseline_res_total = int(base_res or 0)
-                baseline_acc_total = int(base_acc or 0)
-                for r in baseline_runes:
-                    baseline_guard_score += int(
-                        _baseline_guard_rune_coef(
-                            r,
-                            uid=uid,
-                            base_hp=int(base_hp or 0),
-                            base_atk=int(base_atk or 0),
-                            base_def=int(base_def or 0),
-                            role=str(guard_role),
-                            rta_rune_ids_for_unit=rta_rune_ids_for_unit,
-                        )
-                    )
-                    baseline_cr_total += int(_rune_stat_total(r, 9) or 0)
-                    baseline_res_total += int(_rune_stat_total(r, 11) or 0)
-                    baseline_acc_total += int(_rune_stat_total(r, 12) or 0)
-                for art in baseline_artifacts:
-                    baseline_guard_score += int(
-                        _baseline_guard_artifact_coef(
-                            art,
-                            uid=uid,
-                            role=str(guard_role),
-                            rta_artifact_ids_for_unit=rta_artifact_ids_for_unit,
-                            base_hp=int(base_hp or 0),
-                            base_atk=int(base_atk or 0),
-                            base_def=int(base_def or 0),
-                            base_spd=int(base_spd or 0),
-                        )
-                    )
-                baseline_over = (
-                    (int(CR_OVERCAP_PENALTY_PER_POINT) * max(0, int(baseline_cr_total) - int(STAT_OVERCAP_LIMIT)))
-                    + (int(RES_OVERCAP_PENALTY_PER_POINT) * max(0, int(baseline_res_total) - int(STAT_OVERCAP_LIMIT)))
-                    + (int(ACC_OVERCAP_PENALTY_PER_POINT) * max(0, int(baseline_acc_total) - int(STAT_OVERCAP_LIMIT)))
-                )
-                baseline_guard_score -= int(SINGLE_SOLVER_OVERCAP_PENALTY_SCALE) * int(baseline_over)
-                shortfall_cap = max(200000, abs(int(baseline_guard_score)) + 200000)
-                guard_shortfall = model.NewIntVar(0, int(shortfall_cap), f"baseline_guard_shortfall_u{uid}")
-                model.Add(guard_shortfall >= int(baseline_guard_score) - guard_expr)
-                quality_terms.append((-int(guard_weight)) * guard_shortfall)
+        guard_role = str(unit_role)
+        if guard_role == "unknown":
+            guard_role = (
+                "attack"
+                if _is_attack_type_unit(base_hp, base_atk, base_def, archetype=str(unit_archetype or ""))
+                else "support"
+            )
+        guard_shortfall = _add_baseline_guard_shortfall(
+            model,
+            uid=uid,
+            runes_by_slot=runes_by_slot,
+            xs=x,
+            artifacts_by_type=artifacts_by_type,
+            xas=xa,
+            baseline_runes_by_slot=baseline_runes_by_slot,
+            baseline_artifacts_by_type=baseline_artifacts_by_type,
+            role=guard_role,
+            base_hp=int(base_hp or 0),
+            base_atk=int(base_atk or 0),
+            base_def=int(base_def or 0),
+            base_spd=int(base_spd or 0),
+            base_cr=int(base_cr or 0),
+            base_res=int(base_res or 0),
+            base_acc=int(base_acc or 0),
+            rta_rune_ids_for_unit=rta_rune_ids_for_unit,
+            rta_artifact_ids_for_unit=rta_artifact_ids_for_unit,
+            overcap_penalty_expr=overcap_penalty_expr,
+            overcap_scale=int(SINGLE_SOLVER_OVERCAP_PENALTY_SCALE),
+            shortfall_floor=200000,
+        )
+        if guard_shortfall is not None:
+            quality_terms.append((-int(guard_weight)) * guard_shortfall)
 
     solver = cp_model.CpSolver()
     if register_solver:
@@ -3599,6 +3473,7 @@ def _solve_single_unit_best(
     if is_cancelled and is_cancelled():
         return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
 
+    best_speed = 0
     if speed_hard_priority or bool(force_speed_priority) or bool(_stat_muls) or int(speed_tiebreak_weight) > 0:
         # Fix 1: Phase 1 (max speed) uses a short time cap — in practice done in <0.1s.
         # Phase 2 (quality) gets the full time budget.
@@ -3610,7 +3485,7 @@ def _solve_single_unit_best(
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             best_speed = int(solver.Value(final_speed_expr))
             keep_speed_min = int(best_speed)
-            if _stat_muls:
+            if _stat_muls and not bool(force_speed_priority):
                 # User has set stat priorities: allow a small fixed slack so the
                 # optimizer can explore different rune combinations.
                 keep_speed_min = max(0, int(best_speed) - 10)
@@ -3653,10 +3528,9 @@ def _solve_single_unit_best(
                 max_final_speed=max_final_speed,
                 mode=str(mode or ""),
             )
-            detail = str(hard_detail or "").strip() or (
-                "Harte Constraints nicht erfuellbar "
-                "(Min-Stats/SPD-Tick/Turnorder-Speed-Caps/Locks)."
-            )
+            if not str(hard_detail or "").strip() and diagnose:
+                hard_detail = _diagnose_by_relaxation(call_args)
+            detail = str(hard_detail or "").strip() or tr("opt.diag_generic")
         return GreedyUnitResult(uid, False, tr("opt.not_feasible", detail=detail), runes_by_slot={})
 
     # extract build
@@ -3697,6 +3571,7 @@ def _solve_single_unit_best(
         runes_by_slot=chosen,
         artifacts_by_type=chosen_artifacts,
         final_speed=int(solver.Value(final_speed_expr)),
+        max_speed=int(best_speed),
     )
 
 
@@ -4080,9 +3955,6 @@ def _run_pass_with_profile(
             speed_slack_for_quality=int(speed_slack_for_quality),
             objective_mode=str(objective_mode),
             force_speed_priority=bool(force_speed_priority),
-            arena_rush_damage_bias=(
-                str(getattr(req, "arena_rush_context", "") or "").strip().lower() == "offense"
-            ),
             unit_archetype=str(unit_archetype),
             artifact_hints=dict(artifact_hints_for_unit),
             broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),

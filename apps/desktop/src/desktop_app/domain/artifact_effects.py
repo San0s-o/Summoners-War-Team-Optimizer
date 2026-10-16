@@ -174,19 +174,6 @@ def artifact_effect_text(effect_id: int, value: int | float | str, fallback_pref
         return f"{artifact_effect_label(eid, fallback_prefix)} {value}"
 
 
-def artifact_effect_artifact_type(effect_id: int) -> int:
-    eid = int(effect_id or 0)
-    in_attr = eid in ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE[1]
-    in_type = eid in ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE[2]
-    if in_attr and in_type:
-        return 0
-    if in_attr:
-        return 1
-    if in_type:
-        return 2
-    return 0
-
-
 def artifact_rank_label(rank: int, fallback_prefix: str = "Rank") -> str:
     r = int(rank or 0)
     return ARTIFACT_RANK_LABELS.get(r, f"{fallback_prefix} {r}")

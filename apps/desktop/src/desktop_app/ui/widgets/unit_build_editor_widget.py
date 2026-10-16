@@ -544,12 +544,13 @@ class UnitBuildEditorWidget(QScrollArea):
         bottom_row_layout.setSpacing(dp(10))
         bottom_row_layout.addWidget(min_stats_box, 3)
         bottom_row_layout.addWidget(stat_weights_box, 1)
-        bottom_row.setVisible(False)
+        # Open by default: min stats decide whether a build is feasible at all, so keep them in sight.
+        bottom_row.setVisible(True)
 
-        adv_toggle_btn = QPushButton(f"▶  {tr('group.build_advanced_settings')}")
+        adv_toggle_btn = QPushButton(f"▼  {tr('group.build_advanced_settings')}")
         adv_toggle_btn.setObjectName("collapsibleHeader")
         adv_toggle_btn.setCheckable(True)
-        adv_toggle_btn.setChecked(False)
+        adv_toggle_btn.setChecked(True)
 
         def _toggle_adv(checked: bool) -> None:
             bottom_row.setVisible(checked)

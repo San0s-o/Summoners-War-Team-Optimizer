@@ -4,7 +4,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon
-from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -68,7 +67,6 @@ class OptimizeResultDialog(QDialog):
         unit_base_stats_fn: Callable[[int], Dict[str, int]],
         unit_leader_bonus_fn: Callable[[int, List[int]], Dict[str, int]],
         unit_totem_bonus_fn: Callable[[int], Dict[str, int]],
-        unit_spd_buff_bonus_fn: Callable[[int, List[int], Dict[int, Dict[int, int]]], Dict[str, int]],
         unit_team_index: Optional[Dict[int, int]] = None,
         unit_display_order: Optional[Dict[int, int]] = None,
         mode_rune_owner: Optional[Dict[int, int]] = None,
@@ -121,7 +119,6 @@ class OptimizeResultDialog(QDialog):
         self._unit_base_stats_fn = unit_base_stats_fn
         self._unit_leader_bonus_fn = unit_leader_bonus_fn
         self._unit_totem_bonus_fn = unit_totem_bonus_fn
-        self._unit_spd_buff_bonus_fn = unit_spd_buff_bonus_fn
         self._unit_team_index = unit_team_index or {}
         self._unit_display_order = unit_display_order or {}
         self._rune_lookup = rune_lookup
@@ -381,7 +378,6 @@ class OptimizeResultDialog(QDialog):
         base_stats = self._unit_base_stats_fn(unit_id)
         leader_bonus = self._unit_leader_bonus_fn(unit_id, team_unit_ids)
         totem_bonus = self._unit_totem_bonus_fn(unit_id)
-        spd_buff_bonus = self._unit_spd_buff_bonus_fn(unit_id, team_unit_ids, artifacts_by_unit)
         before_stats: Dict[str, int] | None = None
         if self._compare_enabled():
             has_unit_baseline = bool(self._baseline_runes_by_unit.get(int(unit_id), {}))
@@ -401,7 +397,6 @@ class OptimizeResultDialog(QDialog):
             total_stats,
             leader_bonus,
             totem_bonus,
-            spd_buff_bonus,
             before_stats=before_stats,
         )
         self.detail_layout.addWidget(stats_widget, 3)
@@ -419,7 +414,6 @@ class OptimizeResultDialog(QDialog):
         total_stats: Dict[str, int],
         leader_bonus: Dict[str, int],
         totem_bonus: Dict[str, int],
-        spd_buff_bonus: Dict[str, int],
         before_stats: Optional[Dict[str, int]] = None,
     ) -> QWidget:
         w, v = self._make_result_pane()
@@ -458,7 +452,6 @@ class OptimizeResultDialog(QDialog):
         stat_keys = ["HP", "ATK", "DEF", "SPD", "CR", "CD", "RES", "ACC"]
         has_leader = any(leader_bonus.get(k, 0) != 0 for k in stat_keys)
         has_totem = any(totem_bonus.get(k, 0) != 0 for k in stat_keys)
-        has_buff = any(spd_buff_bonus.get(k, 0) != 0 for k in stat_keys)
         table = QTableWidget()
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -498,15 +491,12 @@ class OptimizeResultDialog(QDialog):
                 headers.append(tr("header.totem"))
             if has_leader:
                 headers.append(tr("header.leader"))
-            if has_buff:
-                headers.append("Buff")
             headers.append(tr("header.total"))
             table.setColumnCount(len(headers))
             table.setHorizontalHeaderLabels(headers)
 
             total_col = len(headers) - 1
-            buff_col = total_col - 1 if has_buff else -1
-            leader_col = total_col - 1 - (1 if has_buff else 0) if has_leader else -1
+            leader_col = total_col - 1 if has_leader else -1
             totem_col = 3 if has_totem else -1
             runes_col = 2
 
@@ -515,8 +505,7 @@ class OptimizeResultDialog(QDialog):
                 total = total_stats.get(key, 0)
                 lead = leader_bonus.get(key, 0)
                 totem = totem_bonus.get(key, 0)
-                buff = spd_buff_bonus.get(key, 0)
-                rune_bonus = total - base - lead - totem - buff
+                rune_bonus = total - base - lead - totem
                 table.setItem(i, 0, QTableWidgetItem(_stat_label_tr(key)))
                 it_b = QTableWidgetItem(str(base))
                 it_b.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -535,15 +524,6 @@ class OptimizeResultDialog(QDialog):
                     it_l = QTableWidgetItem(lead_str)
                     it_l.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     table.setItem(i, leader_col, it_l)
-                if has_buff and buff_col >= 0:
-                    buff_str = f"+{buff}" if buff > 0 else str(buff) if buff else ""
-                    if key == "SPD" and int(buff or 0) > 0:
-                        eff_x10 = int(spd_buff_bonus.get("SPD_BUFF_EFF_PCT_X10", 0) or 0)
-                        if eff_x10 > 0:
-                            buff_str = f"{buff_str} ({float(eff_x10) / 10.0:.1f}%)"
-                    it_bf = QTableWidgetItem(buff_str)
-                    it_bf.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    table.setItem(i, buff_col, it_bf)
                 it_t = QTableWidgetItem(str(total))
                 it_t.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 table.setItem(i, total_col, it_t)

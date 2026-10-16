@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List
 
 from PySide6.QtCore import Qt, QSize, QRect
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -29,9 +30,7 @@ from desktop_app.ui.dpi import dp
 from desktop_app.ui import theme as _theme
 from desktop_app.ui.siege_cards_widget import SiegeDefCardsWidget
 from desktop_app.ui.widgets.selection_combos import _UnitSearchComboBox
-from desktop_app.ui.main_window_sections.arena_rush_ui import (
-    init_arena_rush_builder_ui as _sec_init_arena_rush_builder_ui,
-)
+from desktop_app.ui.widgets.unit_slot_card import UnitSlotCard
 from desktop_app.ui.main_window_sections.off_optimizer_actions import (
     on_edit_presets as _off_on_edit_presets,
     on_optimize as _off_on_optimize,
@@ -67,6 +66,23 @@ def _get_clear_icon() -> QIcon:
         p.end()
         _CLEAR_ICON = QIcon(pix)
     return _CLEAR_ICON
+
+
+def _add_clear_action(cmb: _UnitSearchComboBox) -> None:
+    le = cmb.lineEdit()
+    if le is not None:
+        act = le.addAction(_get_clear_icon(), QLineEdit.TrailingPosition)
+        act.setToolTip(tr("tooltip.clear_slot"))
+        act.triggered.connect(lambda checked=False, c=cmb: _clear_combo(c))
+
+
+def _grid_with_bottom_slack(parent: QWidget) -> QGridLayout:
+    """Grid that grows with *parent* until its cards hit their maximum height; the rest stays below."""
+    box = QVBoxLayout(parent)
+    grid = QGridLayout()
+    box.addLayout(grid, 1)
+    box.addStretch(0)
+    return grid
 
 
 def _row_clear_style() -> str:
@@ -193,24 +209,6 @@ def init_saved_rta_tab(window) -> None:
     window._refresh_saved_opt_combo("rta")
 
 
-def init_saved_arena_rush_tab(window) -> None:
-    v = QVBoxLayout(window.tab_saved_arena_rush)
-    top = QHBoxLayout()
-    window.lbl_saved_arena_rush = QLabel(tr("label.saved_opt"))
-    top.addWidget(window.lbl_saved_arena_rush)
-    window.saved_arena_rush_combo = QComboBox()
-    window.saved_arena_rush_combo.currentIndexChanged.connect(lambda: window._on_saved_opt_changed("arena_rush"))
-    window.saved_arena_rush_combo.activated.connect(lambda: window._on_saved_opt_changed("arena_rush"))
-    top.addWidget(window.saved_arena_rush_combo, 1)
-    window.btn_delete_saved_arena_rush = QPushButton(tr("btn.delete"))
-    window.btn_delete_saved_arena_rush.clicked.connect(lambda: window._on_delete_saved_opt("arena_rush"))
-    top.addWidget(window.btn_delete_saved_arena_rush)
-    v.addLayout(top)
-    window.saved_arena_rush_cards = SiegeDefCardsWidget()
-    v.addWidget(window.saved_arena_rush_cards, 1)
-    window._refresh_saved_opt_combo("arena_rush")
-
-
 def init_saved_off_optimizer_tab(window) -> None:
     v = QVBoxLayout(window.tab_saved_off_optimizer)
     top = QHBoxLayout()
@@ -254,7 +252,7 @@ def init_siege_builder_ui(window) -> None:
     siege_scroll.setWidgetResizable(True)
     box_layout.addWidget(siege_scroll)
     siege_inner = QWidget()
-    grid = QGridLayout(siege_inner)
+    grid = _grid_with_bottom_slack(siege_inner)
     siege_scroll.setWidget(siege_inner)
 
     window._all_unit_combos: List[QComboBox] = []
@@ -264,6 +262,7 @@ def init_siege_builder_ui(window) -> None:
     # col 0 = checkbox, col 1 = defense label, cols 2-4 = unit slots
     for col, key in enumerate(("label.team_slot_1_leader", "label.team_slot_2", "label.team_slot_3"), start=2):
         hdr = QLabel(tr(key))
+        hdr.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # only card rows take height
         if col == 2:
             hdr.setToolTip(tr("tooltip.team_slot_leader"))
         window.lbl_siege_slot_headers.append(hdr)
@@ -281,6 +280,7 @@ def init_siege_builder_ui(window) -> None:
             grid.addWidget(chk, t + 1, 0, alignment=Qt.AlignCenter)
 
             lbl = QLabel(tr("label.defense", n=t + 1))
+            lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
             window.lbl_siege_defense.append(lbl)
             grid.addWidget(lbl, t + 1, 1)
             row: List[QComboBox] = []
@@ -288,12 +288,8 @@ def init_siege_builder_ui(window) -> None:
                 cmb = new_unit_search_combo(window, min_width=300)
                 if s == 0:
                     cmb.setToolTip(tr("tooltip.team_slot_leader"))
-                le = cmb.lineEdit()
-                if le is not None:
-                    act = le.addAction(_get_clear_icon(), QLineEdit.TrailingPosition)
-                    act.setToolTip(tr("tooltip.clear_slot"))
-                    act.triggered.connect(lambda checked=False, c=cmb: _clear_combo(c))
-                grid.addWidget(cmb, t + 1, 2 + s)
+                _add_clear_action(cmb)
+                grid.addWidget(UnitSlotCard(cmb), t + 1, 2 + s)
                 row.append(cmb)
             row_btn = QPushButton("✕")
             row_btn.setFixedSize(dp(28), dp(26))
@@ -301,11 +297,12 @@ def init_siege_builder_ui(window) -> None:
             row_btn.setStyleSheet(_row_clear_style())
             row_btn.clicked.connect(lambda checked=False, r=row: [_clear_combo(c) for c in r])
             grid.addWidget(row_btn, t + 1, 5)
+            grid.setRowStretch(t + 1, 1)  # rows share the tab height (cards cap their own size)
             window.siege_team_combos.append(row)
     finally:
         window._unit_combo_registration_tab = ""
 
-    grid.setRowStretch(11, 1)  # absorb extra vertical space, push content to top
+    grid.setVerticalSpacing(dp(8))
     grid.setColumnStretch(0, 0)  # checkbox column - minimal width
     grid.setColumnStretch(1, 0)  # defense label - minimal width
     grid.setColumnStretch(2, 1)
@@ -382,14 +379,15 @@ def init_wgb_builder_ui(window) -> None:
     v = QVBoxLayout(window.tab_wgb_builder)
 
     window.box_wgb_select = QGroupBox(tr("group.wgb_select"))
-    v.addWidget(window.box_wgb_select)
-    grid = QGridLayout(window.box_wgb_select)
+    v.addWidget(window.box_wgb_select, 1)
+    grid = _grid_with_bottom_slack(window.box_wgb_select)
 
     window.wgb_team_combos: List[List[QComboBox]] = []
     window.lbl_wgb_defense: List[QLabel] = []
     window.lbl_wgb_slot_headers: List[QLabel] = []
     for col, key in enumerate(("label.team_slot_1_leader", "label.team_slot_2", "label.team_slot_3"), start=1):
         hdr = QLabel(tr(key))
+        hdr.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # only card rows take height
         if col == 1:
             hdr.setToolTip(tr("tooltip.team_slot_leader"))
         window.lbl_wgb_slot_headers.append(hdr)
@@ -398,6 +396,7 @@ def init_wgb_builder_ui(window) -> None:
     try:
         for t in range(5):
             lbl = QLabel(tr("label.defense", n=t + 1))
+            lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
             window.lbl_wgb_defense.append(lbl)
             grid.addWidget(lbl, t + 1, 0)
             row: List[QComboBox] = []
@@ -405,12 +404,8 @@ def init_wgb_builder_ui(window) -> None:
                 cmb = new_unit_search_combo(window, min_width=300)
                 if s == 0:
                     cmb.setToolTip(tr("tooltip.team_slot_leader"))
-                le = cmb.lineEdit()
-                if le is not None:
-                    act = le.addAction(_get_clear_icon(), QLineEdit.TrailingPosition)
-                    act.setToolTip(tr("tooltip.clear_slot"))
-                    act.triggered.connect(lambda checked=False, c=cmb: _clear_combo(c))
-                grid.addWidget(cmb, t + 1, 1 + s)
+                _add_clear_action(cmb)
+                grid.addWidget(UnitSlotCard(cmb), t + 1, 1 + s)
                 row.append(cmb)
             row_btn = QPushButton("✕")
             row_btn.setFixedSize(dp(28), dp(26))
@@ -418,9 +413,14 @@ def init_wgb_builder_ui(window) -> None:
             row_btn.setStyleSheet(_row_clear_style())
             row_btn.clicked.connect(lambda checked=False, r=row: [_clear_combo(c) for c in r])
             grid.addWidget(row_btn, t + 1, 4)
+            grid.setRowStretch(t + 1, 1)
             window.wgb_team_combos.append(row)
     finally:
         window._unit_combo_registration_tab = ""
+    grid.setVerticalSpacing(dp(8))
+    grid.setColumnStretch(0, 0)
+    for col in (1, 2, 3):
+        grid.setColumnStretch(col, 1)
 
     btn_row = QHBoxLayout()
     v.addLayout(btn_row)
@@ -477,7 +477,8 @@ def init_wgb_builder_ui(window) -> None:
     btn_row.addWidget(window.lbl_wgb_validate)
 
     window.wgb_preview_cards = SiegeDefCardsWidget()
-    v.addWidget(window.wgb_preview_cards, 1)
+    window.wgb_preview_cards.setVisible(False)
+    v.addWidget(window.wgb_preview_cards, 2)
 
 
 def init_rta_builder_ui(window) -> None:
@@ -572,14 +573,6 @@ def init_rta_builder_ui(window) -> None:
     btn_row.addWidget(window.lbl_rta_validate)
 
 
-def init_arena_rush_builder_ui(window) -> None:
-    window._unit_combo_registration_tab = "arena_rush"
-    try:
-        return _sec_init_arena_rush_builder_ui(window, new_unit_search_combo)
-    finally:
-        window._unit_combo_registration_tab = ""
-
-
 def init_off_optimizer_builder_ui(window) -> None:
     from desktop_app.ui.main_window_sections.off_optimizer_actions import restore_state
 
@@ -590,45 +583,18 @@ def init_off_optimizer_builder_ui(window) -> None:
     window.off_optimizer_speed_lead_uid = 0
     window.off_optimizer_speed_lead_pct = 0
 
-    c = _theme.C
-    select_panel = QFrame()
-    select_panel.setObjectName("OffOptimizerSelectPanel")
-    select_panel.setFixedHeight(dp(118))
-    select_panel.setStyleSheet(
-        f"QFrame#OffOptimizerSelectPanel {{ background: {c['bg_card']}; border: 1px solid {c['border']}; "
-        f"border-radius: {dp(8)}px; }}"
-        f"QFrame#OffOptimizerSlot {{ background: {c['bg_input']}; border: 1px solid {c['border']}; "
-        f"border-radius: {dp(8)}px; }}"
-        f"QLabel#OffOptimizerSlotTitle {{ color: {c['text_dim']}; font-size: {dp(10)}px; font-weight: 600; }}"
-    )
-    v.addWidget(select_panel)
-    select_layout = QHBoxLayout(select_panel)
-    select_layout.setContentsMargins(dp(14), dp(12), dp(14), dp(12))
+    select_layout = QHBoxLayout()
     select_layout.setSpacing(dp(12))
+    v.addLayout(select_layout)
     window.off_optimizer_combos = []
     window._unit_combo_registration_tab = "off_optimizer"
     try:
         for s in range(4):
-            slot = QFrame()
-            slot.setObjectName("OffOptimizerSlot")
-            slot.setMinimumWidth(dp(250))
-            slot.setMaximumWidth(dp(360))
-            slot_layout = QVBoxLayout(slot)
-            slot_layout.setContentsMargins(dp(10), dp(8), dp(10), dp(10))
-            slot_layout.setSpacing(dp(6))
-
-            title = QLabel(f"Monster {s + 1}")
-            title.setObjectName("OffOptimizerSlotTitle")
-            slot_layout.addWidget(title)
-
             cmb = new_unit_search_combo(window, min_width=220)
-            le = cmb.lineEdit()
-            if le is not None:
-                act = le.addAction(_get_clear_icon(), QLineEdit.TrailingPosition)
-                act.setToolTip(tr("tooltip.clear_slot"))
-                act.triggered.connect(lambda checked=False, c=cmb: _clear_combo(c))
-            slot_layout.addWidget(cmb)
-            select_layout.addWidget(slot, 1)
+            _add_clear_action(cmb)
+            card = UnitSlotCard(cmb, title=f"Monster {s + 1}", vertical=True, portrait=140)
+            card.setMaximumWidth(dp(420))
+            select_layout.addWidget(card, 1)
             window.off_optimizer_combos.append(cmb)
     finally:
         window._unit_combo_registration_tab = ""
@@ -661,9 +627,9 @@ def init_off_optimizer_builder_ui(window) -> None:
     window.combo_off_optimizer_pool.addItem("WGB", "wgb")
     window.combo_off_optimizer_pool.addItem("Arena", "arena")
     window.combo_off_optimizer_strategy = QComboBox()
-    window.combo_off_optimizer_strategy.addItem("First Turn / Speed Tune", "first_turn")
-    window.combo_off_optimizer_strategy.addItem("Boosted Damage", "boosted_damage")
-    window.combo_off_optimizer_strategy.addItem("Second Turn", "second_turn")
+    window.combo_off_optimizer_strategy.addItem(tr("off.strategy_first_turn"), "first_turn")
+    window.combo_off_optimizer_strategy.addItem(tr("off.strategy_boosted"), "boosted_damage")
+    window.combo_off_optimizer_strategy.addItem(tr("off.strategy_second_turn"), "second_turn")
     window.combo_workers_off_optimizer = QComboBox()
     window._populate_worker_combo(window.combo_workers_off_optimizer)
     window.combo_quality_profile_off_optimizer = QComboBox()
@@ -673,8 +639,8 @@ def init_off_optimizer_builder_ui(window) -> None:
     window.combo_quality_profile_off_optimizer.setCurrentIndex(idx_gpu if idx_gpu >= 0 else 0)
     window.combo_quality_profile_off_optimizer.currentIndexChanged.connect(window._sync_worker_controls)
     btn_row.addWidget(_make_settings_frame(
-        "Pool", window.combo_off_optimizer_pool,
-        "Strategie", window.combo_off_optimizer_strategy,
+        tr("off.label_pool"), window.combo_off_optimizer_pool,
+        tr("off.label_strategy"), window.combo_off_optimizer_strategy,
         tr("label.workers"), window.combo_workers_off_optimizer,
         tr("label.mode"), window.combo_quality_profile_off_optimizer,
     ))
@@ -685,10 +651,9 @@ def init_off_optimizer_builder_ui(window) -> None:
     window.lbl_off_optimizer_validate.setStyleSheet(_status_lbl_style())
     btn_row.addWidget(window.lbl_off_optimizer_validate)
 
+    # Shows the last optimization result right in the builder tab.
     window.off_optimizer_result_cards = SiegeDefCardsWidget()
-    window.off_optimizer_result_cards.setVisible(False)
-    v.addWidget(window.off_optimizer_result_cards)
-    v.addStretch(1)
+    v.addWidget(window.off_optimizer_result_cards, 1)
     restore_state(window)
 
 
@@ -697,8 +662,6 @@ def saved_opt_widgets(window, mode: str):
         return window.saved_siege_combo, window.saved_siege_cards
     if mode == "rta":
         return window.saved_rta_combo, window.saved_rta_cards
-    if mode == "arena_rush":
-        return window.saved_arena_rush_combo, window.saved_arena_rush_cards
     if mode == "off_optimizer":
         return window.saved_off_optimizer_combo, window.saved_off_optimizer_cards
     return window.saved_wgb_combo, window.saved_wgb_cards
@@ -717,13 +680,10 @@ def refresh_saved_opt_combo(window, mode: str) -> None:
         display_name = display_name.replace("SIEGE Opt", tr("saved.siege_opt"))
         display_name = display_name.replace("WGB Opt", tr("saved.wgb_opt"))
         display_name = display_name.replace("RTA Opt", tr("saved.rta_opt"))
-        display_name = display_name.replace("ARENA_RUSH Opt", tr("saved.arena_rush_opt"))
         display_name = display_name.replace("OFF_OPTIMIZER Opt", "Off-Optimierer Optimierung")
         display_name = display_name.replace("SIEGE Optimizer", tr("saved.siege_opt"))
         display_name = display_name.replace("WGB Optimizer", tr("saved.wgb_opt"))
         display_name = display_name.replace("RTA Optimizer", tr("saved.rta_opt"))
-        display_name = display_name.replace("ARENA_RUSH Optimizer", tr("saved.arena_rush_opt"))
-        display_name = display_name.replace("ARENA_RUSH Optimization", tr("saved.arena_rush_opt"))
         display_name = display_name.replace("OFF_OPTIMIZER Optimizer", "Off-Optimierer Optimierung")
         display_name = display_name.replace("OFF_OPTIMIZER Optimization", "Off-Optimierer Optimierung")
         combo.addItem(f"{display_name}  ({opt.timestamp})", opt.id)

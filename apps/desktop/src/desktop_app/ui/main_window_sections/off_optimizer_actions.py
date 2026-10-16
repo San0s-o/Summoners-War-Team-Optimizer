@@ -6,23 +6,22 @@ from typing import Dict, List, Tuple
 
 from PySide6.QtWidgets import QDialog, QMessageBox
 
-from desktop_app.engine.arena_rush_timing import OpeningTurnEffect
+from desktop_app.domain.optimization_store import SavedOptimization, SavedUnitResult
 from desktop_app.engine.off_optimizer import (
+    OFF_OPTIMIZER_MAX_TEAM_SIZE,
     OFF_OPTIMIZER_MODE,
+    OpeningTurnEffect,
+    STRATEGY_BOOSTED_DAMAGE,
     STRATEGY_FIRST_TURN,
+    STRATEGY_SECOND_TURN,
     OffOptimizerRequest,
-    off_optimizer_team_size_for_pool,
+    find_unbuildable_units,
     optimize_off_optimizer,
 )
 from desktop_app.i18n import tr
 from desktop_app.ui.dialogs.build_dialog import BuildDialog
-from desktop_app.ui.main_window_sections.arena_rush_actions import (
-    _arena_effect_capabilities_by_unit,
-    _arena_speed_leader_bonus_map,
-    optimizer_archetype_by_uid,
-    optimizer_artifact_hints_by_uid,
-)
 from desktop_app.ui.toast import show_toast
+from desktop_app.ui.main_window_sections import optimizer_context as ctx
 
 
 def _selection_path(window) -> Path:
@@ -36,8 +35,26 @@ def _current_pool_mode(window) -> str:
     return str(combo.currentData() or "siege")
 
 
-def _current_team_size(window) -> int:
-    return off_optimizer_team_size_for_pool(_current_pool_mode(window))
+def _team_size(ids: List[int]) -> int:
+    return max(3, len(ids))
+
+
+def _turn_effects_with_defaults(window, ids: List[int]) -> Dict[int, Dict[str, object]]:
+    """Saved per-unit opening effects; units never configured fall back to their skill data."""
+    saved = dict(getattr(window, "off_optimizer_turn_effects", {}) or {})
+    caps = ctx.effect_capabilities_by_unit(window, ids)
+    out: Dict[int, Dict[str, object]] = {}
+    for uid in ids:
+        if int(uid) in saved:
+            out[int(uid)] = dict(saved[int(uid)] or {})
+            continue
+        cap = dict(caps.get(int(uid), {}) or {})
+        out[int(uid)] = {
+            "applies_spd_buff": bool(cap.get("has_spd_buff", False)),
+            "atb_boost_pct": float(cap.get("max_atb_boost_pct", 0) or 0) if cap.get("has_atb_boost") else 0.0,
+            "include_caster": True,
+        }
+    return out
 
 
 def collect_off_optimizer_unit_ids(window) -> List[int]:
@@ -54,12 +71,61 @@ def collect_off_optimizer_unit_ids(window) -> List[int]:
 
 def _validate(window) -> Tuple[bool, str, List[int]]:
     ids = collect_off_optimizer_unit_ids(window)
-    max_units = _current_team_size(window)
     if not ids:
-        return False, "Off-Optimierer: Bitte mindestens ein Monster auswählen.", []
-    if len(ids) > max_units:
-        return False, f"Off-Optimierer: Maximal {max_units} Monster auswählen.", []
-    return True, f"Off-Optimierer: OK ({len(ids)} Monster).", ids
+        return False, tr("off.need_unit"), []
+    if len(ids) >= OFF_OPTIMIZER_MAX_TEAM_SIZE:
+        # 4-unit offenses only exist in Arena.
+        window.combo_off_optimizer_pool.setCurrentIndex(window.combo_off_optimizer_pool.findData("arena"))
+    pool = str(window.combo_off_optimizer_pool.currentText() or "")
+    return True, tr("off.valid", n=len(ids), size=_team_size(ids), pool=pool), ids
+
+
+def _leader_bonus(window, ids: List[int]) -> Dict[int, int]:
+    return ctx.speed_leader_bonus_map(
+        window,
+        ids,
+        leader_uid=int(getattr(window, "off_optimizer_speed_lead_uid", 0) or 0),
+        lead_pct_override=int(getattr(window, "off_optimizer_speed_lead_pct", 0) or 0),
+    )
+
+
+def _short_name(window, uid: int) -> str:
+    unit = window.account.units_by_id.get(int(uid)) if window.account else None
+    return window.monster_db.name_for(int(unit.unit_master_id)) if unit is not None else str(uid)
+
+
+def _result_summary(window, ids: List[int], results, tune, strategy: str) -> Tuple[str, bool]:
+    """One short status line plus whether the run reached its goal."""
+    ok_ids = {int(r.unit_id) for r in results if r.ok}
+    parts = [tr("off.built", ok=len(ok_ids), total=len(ids))]
+    missing = [uid for uid in ids if int(uid) not in ok_ids]
+    if missing:
+        parts.append(tr("off.not_built", names=", ".join(_short_name(window, uid) for uid in missing)))
+        return " · ".join(parts), False
+    if tune is None:
+        return parts[0], True
+    strategy_key = str(strategy or "").strip().lower()
+    if strategy_key == STRATEGY_SECOND_TURN:
+        parts.append(tr("off.second_turn_ok" if tune.ok else "off.second_turn_fail"))
+        return " · ".join(parts), bool(tune.ok)
+    if tune.ok:
+        parts.append(tr("off.turn_ok"))
+        return " · ".join(parts), True
+    name = _short_name(window, int(tune.first_cut_by_uid)) if int(tune.first_cut_by_uid or 0) > 0 else "?"
+    if strategy_key == STRATEGY_BOOSTED_DAMAGE:
+        parts.append(tr("off.mirror_cut_accepted", name=name))
+        return " · ".join(parts), True
+    parts.append(tr("off.mirror_cut", name=name))
+    return " · ".join(parts), False
+
+
+def _turn_order_text(window, tune, unit_count: int) -> str:
+    labels = []
+    for label in list(getattr(tune, "observed_order", []) or [])[: max(6, unit_count * 2)]:
+        side, uid_s = str(label).split(":", 1)
+        side_txt = tr("off.side_off") if side == "off" else tr("off.side_mirror")
+        labels.append(f"{side_txt} {_short_name(window, int(uid_s))}")
+    return tr("off.turn_order", order=" → ".join(labels)) if labels else ""
 
 
 def _speed_lead_pct_by_uid(window, unit_ids: List[int]) -> Dict[int, int]:
@@ -133,12 +199,24 @@ def restore_state(window) -> None:
 
 
 def on_validate(window) -> None:
-    ok, msg, _ids = _validate(window)
+    ok, msg, ids = _validate(window)
     window.lbl_off_optimizer_validate.setText(msg)
     if not ok:
-        QMessageBox.critical(window, "Off-Optimierer", msg)
+        QMessageBox.critical(window, tr("off.title"), msg)
         return
     save_state(window)
+    if window.account:
+        # Catch builds that can never be met (min stats, ticks) before a long optimization.
+        problems = window._run_with_busy_progress(
+            msg,
+            lambda is_cancelled, _register_solver, _progress_cb: find_unbuildable_units(
+                window.account, window.presets, ids, _leader_bonus(window, ids), is_cancelled
+            ),
+        ) or {}
+        if problems:
+            lines = "\n".join(f"• {_short_name(window, uid)}: {reason}" for uid, reason in problems.items())
+            QMessageBox.warning(window, tr("off.title"), tr("off.infeasible_units", lines=lines))
+            return
     show_toast(window, msg, "success")
 
 
@@ -147,17 +225,16 @@ def on_edit_presets(window) -> None:
         return
     ok, msg, ids = _validate(window)
     if not ok:
-        QMessageBox.critical(window, "Off-Optimierer", tr("dlg.validate_first", msg=msg))
+        QMessageBox.critical(window, tr("off.title"), tr("dlg.validate_first", msg=msg))
         return
     unit_rows = [(uid, window._unit_text(uid)) for uid in ids]
     speed_lead_pct_by_uid = _speed_lead_pct_by_uid(window, ids)
-    effect_caps = _arena_effect_capabilities_by_unit(window, ids)
-    effects = dict(getattr(window, "off_optimizer_turn_effects", {}) or {})
-    order_turn_effects = [{int(uid): dict(effects.get(int(uid), {}) or {}) for uid in ids}]
-    team_size = _current_team_size(window)
+    effect_caps = ctx.effect_capabilities_by_unit(window, ids)
+    order_turn_effects = [_turn_effects_with_defaults(window, ids)]
+    team_size = _team_size(ids)
     dlg = BuildDialog(
         window,
-        "Off-Optimierer Builds",
+        tr("off.builds_title"),
         unit_rows,
         window.presets,
         OFF_OPTIMIZER_MODE,
@@ -165,7 +242,7 @@ def on_edit_presets(window) -> None:
         window._unit_icon_for_unit_id,
         team_size=team_size,
         order_teams=[unit_rows],
-        order_team_titles=["Off-Optimierer"],
+        order_team_titles=[tr("off.title")],
         order_turn_effects=order_turn_effects,
         show_turn_effect_controls=True,
         order_turn_effect_capabilities=effect_caps,
@@ -219,14 +296,14 @@ def on_optimize(window) -> None:
         return
     ok, msg, ids = _validate(window)
     if not ok:
-        QMessageBox.critical(window, "Off-Optimierer", tr("dlg.validate_first", msg=msg))
+        QMessageBox.critical(window, tr("off.title"), tr("dlg.validate_first", msg=msg))
         return
     save_state(window)
     quality_profile = str(window.combo_quality_profile_off_optimizer.currentData() or "gpu_combo")
     workers = window._effective_workers(quality_profile, window.combo_workers_off_optimizer)
     strategy = str(window.combo_off_optimizer_strategy.currentData() or STRATEGY_FIRST_TURN)
     order = _opening_order_from_presets(window, ids)
-    raw_effects = dict(getattr(window, "off_optimizer_turn_effects", {}) or {})
+    raw_effects = _turn_effects_with_defaults(window, ids)
     turn_effects: Dict[int, OpeningTurnEffect] = {}
     for uid in ids:
         cfg = dict(raw_effects.get(int(uid), {}) or {})
@@ -239,15 +316,10 @@ def on_optimize(window) -> None:
                 applies_spd_buff=bool(spd),
                 include_caster=bool(include_caster),
             )
-    leader_bonus = _arena_speed_leader_bonus_map(
-        window,
-        ids,
-        leader_uid=int(getattr(window, "off_optimizer_speed_lead_uid", 0) or 0),
-        lead_pct_override=int(getattr(window, "off_optimizer_speed_lead_pct", 0) or 0),
-    )
-    unit_archetype_by_uid = optimizer_archetype_by_uid(window, ids)
-    unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ids)
-    running_text = tr("result.opt_running", mode="Off-Optimierer")
+    leader_bonus = _leader_bonus(window, ids)
+    unit_archetype_by_uid = ctx.optimizer_archetype_by_uid(window, ids)
+    unit_artifact_hints_by_uid = ctx.optimizer_artifact_hints_by_uid(window, ids)
+    running_text = tr("result.opt_running", mode=tr("off.title"))
     res = window._run_with_busy_progress(
         running_text,
         lambda is_cancelled, register_solver, progress_cb: optimize_off_optimizer(
@@ -273,27 +345,54 @@ def on_optimize(window) -> None:
             ),
         ),
     )
-    final_msg = str(getattr(res, "message", "") or "")
-    tune = getattr(res, "mirror_tune", None)
-    if tune is not None:
-        labels = []
-        for label in list(getattr(tune, "observed_order", []) or [])[: max(6, len(ids) * 2)]:
-            side, uid_s = str(label).split(":", 1)
-            labels.append(("Off " if side == "off" else "Mirror ") + window._unit_text(int(uid_s)))
-        if labels:
-            final_msg = f"{final_msg}\nTurnorder: " + " -> ".join(labels)
-    window.lbl_off_optimizer_validate.setText(final_msg.splitlines()[0] if final_msg else msg)
-    show_toast(window, final_msg.splitlines()[0] if final_msg else msg, "success" if bool(getattr(res, "ok", False)) else "warning")
     opt = getattr(res, "optimization", None)
-    if opt is not None and getattr(opt, "results", None):
+    results = list(getattr(opt, "results", None) or [])
+    tune = getattr(res, "mirror_tune", None)
+    summary, reached = _result_summary(window, ids, results, tune, strategy)
+    lines = [summary]
+    lines += [f"• {_short_name(window, int(r.unit_id))}: {r.message}" for r in results if not r.ok]
+    order_text = _turn_order_text(window, tune, len(ids))
+    if order_text:
+        lines.append(order_text)
+    if opt is not None and str(getattr(opt, "message", "") or ""):
+        lines.append(tr("off.details", details=str(opt.message)))
+    full_msg = "\n".join(lines)
+    # Short line in the status bar; reasons, turn order and solver stats in the tooltip/dialog.
+    window.lbl_off_optimizer_validate.setText(summary)
+    window.lbl_off_optimizer_validate.setToolTip(full_msg)
+    show_toast(window, summary, "success" if reached else "warning")
+    preview = SavedOptimization(
+        id="",
+        name="",
+        mode=OFF_OPTIMIZER_MODE,
+        teams=[ids],
+        results=[
+            SavedUnitResult(
+                unit_id=int(r.unit_id),
+                runes_by_slot=dict(r.runes_by_slot),
+                artifacts_by_type=dict(r.artifacts_by_type or {}),
+                final_speed=int(r.final_speed or 0),
+            )
+            for r in results
+            if r.ok and r.runes_by_slot
+        ],
+    )
+    window.off_optimizer_result_cards.render_saved_optimization(
+        preview,
+        window.account,
+        window.monster_db,
+        window.assets_dir,
+        rune_mode="arena" if _current_pool_mode(window) == "arena" else "siege",
+    )
+    if results:
         window._show_optimize_results(
-            "Off-Optimierer",
-            final_msg,
-            opt.results,
+            tr("off.title"),
+            full_msg,
+            results,
             unit_team_index={int(uid): 0 for uid in ids},
             unit_display_order={int(uid): idx for idx, uid in enumerate(ids)},
             mode=OFF_OPTIMIZER_MODE,
             teams=[ids],
-            team_header_by_index={0: "Off-Optimierer"},
-            group_size=_current_team_size(window),
+            team_header_by_index={0: tr("off.title")},
+            group_size=_team_size(ids),
         )

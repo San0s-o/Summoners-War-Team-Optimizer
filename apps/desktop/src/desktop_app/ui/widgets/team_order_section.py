@@ -33,34 +33,6 @@ from desktop_app.ui.dpi import dp
 from desktop_app.ui.widgets.selection_combos import _NoScrollComboBox
 
 
-def _lock_team_list_height(lw: QListWidget) -> None:
-    """Fix the list height so it cannot grow/shrink when embedded in a grid."""
-    rows_total = 0
-    for idx in range(lw.count()):
-        item = lw.item(idx)
-        if item is None:
-            continue
-        hint_h = int(item.sizeHint().height() or 0)
-        if hint_h <= 0:
-            hint_h = int(lw.sizeHintForRow(idx) or 0)
-        rows_total += max(0, int(hint_h))
-    row_gap = max(0, int(lw.spacing() or 0))
-    if lw.count() > 1 and row_gap > 0:
-        rows_total += row_gap * (lw.count() - 1)
-    margins = lw.contentsMargins()
-    frame_and_margins = (
-        int(lw.frameWidth() * 2)
-        + int(margins.top())
-        + int(margins.bottom())
-        + dp(6)
-    )
-    target_height = max(dp(120), int(rows_total + frame_and_margins))
-    lw.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    lw.setMinimumHeight(target_height)
-    lw.setMaximumHeight(target_height)
-    lw.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-
-
 class TeamOrderSection(QWidget):
     """Turn-order section: drag-and-drop team lists, spd-tick combos, turn-effect controls."""
 
@@ -147,18 +119,15 @@ class TeamOrderSection(QWidget):
         order_box = QGroupBox(tr("group.turn_order"))
         order_outer = QVBoxLayout(order_box)
         if teams and self._order_teams:
-            self._build_arena_rush_order_section(order_outer, teams)
+            self._build_explicit_order_section(order_outer, teams)
         elif teams:
             self._build_paginated_order_section(order_outer, teams)
 
-        if str(self.mode).strip().lower() == "arena_rush":
-            layout.addWidget(order_box)
-        else:
-            order_scroll = QScrollArea()
-            order_scroll.setWidgetResizable(True)
-            order_scroll.setWidget(order_box)
-            order_scroll.setMaximumHeight(dp(340))
-            layout.addWidget(order_scroll)
+        order_scroll = QScrollArea()
+        order_scroll.setWidgetResizable(True)
+        order_scroll.setWidget(order_box)
+        order_scroll.setMaximumHeight(dp(340))
+        layout.addWidget(order_scroll)
 
     # ── Public read API ──────────────────────────────────────────────────────
 
@@ -301,7 +270,7 @@ class TeamOrderSection(QWidget):
             return None
         return QIcon(pix)
 
-    def _build_arena_rush_order_section(
+    def _build_explicit_order_section(
         self, order_outer: QVBoxLayout, teams: List[List[Tuple[int, str]]]
     ) -> None:
         def_title = self._order_team_titles[0] if self._order_team_titles else "Team 1"
@@ -652,8 +621,6 @@ class TeamOrderSection(QWidget):
             )
             it.setSizeHint(QSize(0, int(row_min_height)))
             lw.setItemWidget(it, row_widget)
-        if str(self.mode).strip().lower() == "arena_rush" and self._order_teams:
-            _lock_team_list_height(lw)
         self._team_order_lists.append(lw)
         lw.currentItemChanged.connect(
             lambda current, _prev, _lw=lw: self._on_team_list_current_item_changed(_lw, current)

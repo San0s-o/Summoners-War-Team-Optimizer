@@ -79,6 +79,5 @@ def sync_worker_controls(window) -> None:
     _apply("combo_quality_profile_siege", "combo_workers_siege", "lbl_siege_passes", "spin_multi_pass_siege")
     _apply("combo_quality_profile_wgb", "combo_workers_wgb", "lbl_wgb_passes", "spin_multi_pass_wgb")
     _apply("combo_quality_profile_rta", "combo_workers_rta", "lbl_rta_passes", "spin_multi_pass_rta")
-    _apply("combo_quality_profile_arena_rush", "combo_workers_arena_rush")
     _apply("combo_quality_profile_off_optimizer", "combo_workers_off_optimizer")
     _apply("combo_quality_profile_team", "combo_workers_team", "lbl_team_passes", "spin_multi_pass_team")

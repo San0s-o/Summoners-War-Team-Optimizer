@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Callable, Any
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QStandardItemModel
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -79,7 +79,6 @@ from desktop_app.ui.main_window_sections.stats_helpers import (
     unit_base_stats as _sec_unit_base_stats,
     unit_leader_bonus as _sec_unit_leader_bonus,
     unit_totem_bonus as _sec_unit_totem_bonus,
-    unit_spd_buff_bonus as _sec_unit_spd_buff_bonus,
     unit_final_spd_value as _sec_unit_final_spd_value,
     unit_final_stats_values as _sec_unit_final_stats_values,
     team_leader_skill as _sec_team_leader_skill,
@@ -124,7 +123,6 @@ from desktop_app.ui.main_window_sections.settings_section import (
     on_settings_check_update as _sec_on_settings_check_update,
     on_settings_extra_info_toggled as _sec_on_settings_extra_info_toggled,
     on_settings_language_changed as _sec_on_settings_language_changed,
-    retranslate_settings as _sec_retranslate_settings,
 )
 from desktop_app.ui.main_window_sections.worker_controls_section import (
     max_solver_workers as _sec_max_solver_workers,
@@ -207,7 +205,6 @@ class MainWindow(QMainWindow):
         self._unit_text_cache_by_uid: Dict[int, str] = {}
         self._siege_optimization_running = False
         self._lazy_view_dirty: Dict[str, bool] = {}
-        self._arena_rush_state_restore_pending = False
         self._populated_unit_combo_ids: set[int] = set()
         self._unit_combos_by_tab: Dict[str, List[QComboBox]] = {}
         self._unit_combo_registration_tab = ""
@@ -242,35 +239,23 @@ class MainWindow(QMainWindow):
 
         self.lbl_status = QLabel("")
 
-        top = QHBoxLayout()
-        top.addStretch(1)
         self.btn_help = QPushButton(tr("help.title"))
-        self.btn_help.setMinimumHeight(dp(34))
         self.btn_help.setMinimumWidth(dp(108))
-        self.btn_help.setStyleSheet(
-            (
-                "QPushButton {{ background: #3a3a3a; color: #ffffff; border: 1px solid #555555;"
-                " border-radius: {radius}px; font-size: {font_size}px; font-weight: 600;"
-                " padding: {pad_v}px {pad_h}px; min-height: {min_h}px; }}"
-                "QPushButton:hover {{ background: #4a90e2; border-color: #4a90e2; }}"
-                "QPushButton:pressed {{ background: #2d6bc4; }}"
-            ).format(
-                radius=dp(8),
-                font_size=dp(11),
-                pad_v=dp(6),
-                pad_h=dp(12),
-                min_h=dp(28),
-            )
-        )
+        self.btn_help.setProperty("ghost", True)
+        self.btn_help.setStyleSheet(f"QPushButton {{ min-height: 0px; padding: {dp(4)}px {dp(14)}px; }}")
         self.btn_help.clicked.connect(self._show_help_dialog)
-        top.addWidget(self.btn_help)
-        layout.addLayout(top)
+        help_corner = QWidget()
+        help_corner_layout = QHBoxLayout(help_corner)
+        help_corner_layout.setContentsMargins(0, dp(2), dp(6), dp(2))
+        help_corner_layout.addWidget(self.btn_help)
 
         self.tabs = QTabWidget()
         self.tabs.setTabBar(ReorderableTabBar(self.tabs))
         self.tabs.setDocumentMode(True)
         self.tabs.setUsesScrollButtons(True)
         self.tabs.setElideMode(Qt.ElideRight)
+        # Help sits next to the tabs instead of taking a row of its own.
+        self.tabs.setCornerWidget(help_corner, Qt.TopRightCorner)
         self._apply_tab_style()
         layout.addWidget(self.tabs, 1)
 
@@ -374,10 +359,9 @@ class MainWindow(QMainWindow):
             lambda _: self._on_tab_changed(self.tabs.currentIndex())
         )
 
-        # ── Arena Rush-Gruppe ─────────────────────────────────────
         # ── Runen & Artefakte (eigene innere Tabs) ────────────────
         self.tab_off_optimizer = QWidget()
-        self.tabs.addTab(self.tab_off_optimizer, "Off-Optimierer")
+        self.tabs.addTab(self.tab_off_optimizer, tr("tab.off_optimizer"))
         _off_layout = QVBoxLayout(self.tab_off_optimizer)
         _off_layout.setContentsMargins(0, 0, 0, 0)
         _off_layout.setSpacing(0)
@@ -415,6 +399,7 @@ class MainWindow(QMainWindow):
         self.rune_optimization_widget = RuneOptimizationWidget(
             rune_set_icon_fn=self._rune_set_icon,
             monster_name_fn=self._monster_name_for_unit_id,
+            monster_icon_fn=self._unit_icon_for_unit_id,
         )
         _runes_layout.addWidget(self.rune_optimization_widget)
 
@@ -424,6 +409,7 @@ class MainWindow(QMainWindow):
         _artifacts_layout.setContentsMargins(0, 0, 0, 0)
         self.artifact_optimization_widget = ArtifactOptimizationWidget(
             monster_name_fn=self._monster_name_for_unit_id,
+            monster_icon_fn=self._unit_icon_for_unit_id,
         )
         _artifacts_layout.addWidget(self.artifact_optimization_widget)
 
@@ -469,56 +455,8 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _apply_inner_tab_style(tab_widget: "QTabWidget") -> None:
-        from desktop_app.ui.dpi import dp as _dp
-        from desktop_app.ui import theme as _th
-        c = _th.C
-        is_cp = _th.current_name == "cyberpunk"
-        # derive inner-tab colours from the active theme
-        pane_bg = c["tab_pane"]
-        tab_text = c["tab_text"]
-        tab_sel_text = c["tab_active_text"] if is_cp else "#e8ecf1"
-        tab_accent = c["tab_accent"]
-        tab_border = c["tab_border"]
-        hover_bg = c["tab_hover_accent"] if is_cp else c["bg_mid"]
-        hover_text = c["tab_hover_text"]
-        extra_tab = "text-transform: uppercase; letter-spacing: 1px; font-weight: 500;" if is_cp else ""
-        extra_sel = "font-weight: bold;" if is_cp else ""
-        tab_widget.setStyleSheet(f"""
-            QTabWidget {{ border: none; background: transparent; }}
-            QTabWidget::pane {{
-                border: 1px solid {tab_border};
-                border-radius: {_dp(8)}px;
-                background: {pane_bg};
-                top: {_dp(6)}px;
-            }}
-            QTabBar {{
-                qproperty-drawBase: 0;
-                background: transparent;
-            }}
-            QTabBar::tab {{
-                background: transparent;
-                color: {tab_text};
-                border: 1px solid transparent;
-                border-bottom: 2px solid transparent;
-                border-radius: {_dp(7)}px;
-                min-width: {_dp(90)}px;
-                padding: {_dp(6)}px {_dp(14)}px;
-                margin-right: {_dp(5)}px;
-                {extra_tab}
-            }}
-            QTabBar::tab:selected {{
-                background: {hover_bg};
-                color: {tab_sel_text};
-                border-color: {tab_border};
-                border-bottom: 2px solid {tab_accent};
-                {extra_sel}
-            }}
-            QTabBar::tab:hover:!selected {{
-                background: {hover_bg};
-                color: {hover_text};
-                border-color: {tab_border};
-            }}
-        """)
+        from desktop_app.ui.main_window_sections.presentation_section import tab_stylesheet
+        tab_widget.setStyleSheet(tab_stylesheet())
 
     # ============================================================
     # Tab reordering
@@ -741,14 +679,6 @@ class MainWindow(QMainWindow):
 
     def _unit_totem_bonus(self, unit_id: int) -> Dict[str, int]:
         return _sec_unit_totem_bonus(self, unit_id)
-
-    def _unit_spd_buff_bonus(
-        self,
-        unit_id: int,
-        team_unit_ids: List[int],
-        artifacts_by_unit: Optional[Dict[int, Dict[int, int]]] = None,
-    ) -> Dict[str, int]:
-        return _sec_unit_spd_buff_bonus(self, unit_id, team_unit_ids, artifacts_by_unit)
 
     def _unit_final_spd_value(
         self,

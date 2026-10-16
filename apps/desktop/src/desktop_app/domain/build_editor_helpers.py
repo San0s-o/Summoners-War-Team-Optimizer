@@ -391,7 +391,7 @@ def collect_artifact_substat_options_by_type(account: AccountData | None) -> Dic
 
 def can_load_current_runes(account: AccountData | None, mode: str) -> bool:
     mode_key = str(mode or "").strip().lower()
-    return bool(account) and mode_key in ("siege", "wgb", "rta", "arena_rush", "off_optimizer", "arena")
+    return bool(account) and mode_key in ("siege", "wgb", "rta", "off_optimizer", "arena")
 
 
 def rune_mode_for_mode(mode: str) -> str:
@@ -402,58 +402,13 @@ def rune_mode_for_mode(mode: str) -> str:
         return "arena"
     if mode_key in ("siege", "wgb", "off_optimizer"):
         return "siege"
-    if mode_key == "arena_rush":
-        return "pve"
     return "pve"
 
 
 def equipped_artifacts_for_unit(account: AccountData | None, unit_id: int, rune_mode: str) -> Dict[int, int]:
-    if not account:
+    if not account or int(unit_id or 0) <= 0:
         return {}
-    uid = int(unit_id or 0)
-    if uid <= 0:
-        return {}
-    by_id = {int(a.artifact_id): a for a in (account.artifacts or [])}
-    out: Dict[int, int] = {}
-    mode_key = str(rune_mode).strip().lower()
-    if mode_key in ("siege", "guild"):
-        for aid in (account.guild_artifact_equip.get(int(uid), []) or []):
-            art = by_id.get(int(aid))
-            if art is None:
-                continue
-            art_type = int(getattr(art, "type_", 0) or 0)
-            if art_type in (1, 2) and art_type not in out:
-                out[int(art_type)] = int(aid)
-        if len(out) >= 2:
-            return out
-    elif mode_key == "arena":
-        for aid in (getattr(account, "arena_artifact_equip", {}).get(int(uid), []) or []):
-            art = by_id.get(int(aid))
-            if art is None:
-                continue
-            art_type = int(getattr(art, "type_", 0) or 0)
-            if art_type in (1, 2) and art_type not in out:
-                out[int(art_type)] = int(aid)
-        if len(out) >= 2:
-            return out
-    elif mode_key == "rta":
-        for aid in (account.rta_artifact_equip.get(int(uid), []) or []):
-            art = by_id.get(int(aid))
-            if art is None:
-                continue
-            art_type = int(getattr(art, "type_", 0) or 0)
-            if art_type in (1, 2) and art_type not in out:
-                out[int(art_type)] = int(aid)
-        if len(out) >= 2:
-            return out
-    for art in (account.artifacts or []):
-        if int(getattr(art, "occupied_id", 0) or 0) != int(uid):
-            continue
-        art_type = int(getattr(art, "type_", 0) or 0)
-        aid = int(getattr(art, "artifact_id", 0) or 0)
-        if art_type in (1, 2) and aid > 0 and art_type not in out:
-            out[int(art_type)] = int(aid)
-    return out
+    return {t: int(a.artifact_id) for t, a in account.equipped_artifacts_for(int(unit_id), rune_mode).items()}
 
 
 def capture_current_runes_snapshot(
@@ -531,7 +486,7 @@ def validate_order_tick_plausibility(
     unit_labels: Dict[int, str],
     order_team_titles: List[str],
 ) -> None:
-    is_arena_rush = str(mode or "").strip().lower() in ("arena_rush", "off_optimizer")
+    uses_opening_effects = str(mode or "").strip().lower() == "off_optimizer"
     for team_index, team_order in enumerate(team_orders):
         order = [int(uid) for uid in (team_order or []) if int(uid) > 0]
         if len(order) <= 1:
@@ -552,7 +507,7 @@ def validate_order_tick_plausibility(
             min_tick_spd = int(min_spd_for_tick(int(tick), mode) or 0)
             max_tick_spd = int(max_spd_for_tick(int(tick), mode) or 0)
             floor = int(min_tick_spd)
-            if is_arena_rush and min_tick_spd > 0:
+            if uses_opening_effects and min_tick_spd > 0:
                 speed_factor = 1.0
                 if has_spd_buff_before_turn(order, effect_cfg, int(uid)):
                     speed_factor += 0.30

@@ -159,7 +159,8 @@ def _parse_artifact(a: Dict[str, Any], occupied_id_override: int | None = None) 
         occupied_id=occ,
         slot=_safe_int(a.get("slot")),
         type_=_safe_int(a.get("type") or a.get("artifact_type")),
-        attribute=_safe_int(a.get("attribute")),
+        # Type artifacts carry their archetype (1 attack .. 4 support) in unit_style, not attribute.
+        attribute=_safe_int(a.get("attribute")) or _safe_int(a.get("unit_style")),
         rank=_safe_int(a.get("rank")),
         level=_safe_int(a.get("level")),
         original_rank=original_rank,

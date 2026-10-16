@@ -71,6 +71,17 @@ SET_NAMES: dict[int, str] = {
 
 SET_ID_BY_NAME: dict[str, int] = {v: k for k, v in SET_NAMES.items()}
 
+# Flat stat bonus per completed set: set_id -> (effect_id, value). Swift is handled separately.
+SET_STAT_BONUS: dict[int, tuple[int, int]] = {
+    1: (2, 15),   # Energy: HP +15%
+    2: (6, 15),   # Guard: DEF +15%
+    4: (9, 12),   # Blade: CRI Rate +12%
+    5: (10, 40),  # Rage: CRI Dmg +40%
+    6: (12, 20),  # Focus: ACC +20%
+    7: (11, 20),  # Endure: RES +20%
+    8: (4, 35),   # Fatal: ATK +35%
+}
+
 
 # ============================================================
 # Rune Mainstat mapping (Export pri_eff[0] -> key)
@@ -202,7 +213,6 @@ class BuildStore:
         "siege": ModeBuilds(),
         "wgb": ModeBuilds(),
         "rta": ModeBuilds(),
-        "arena_rush": ModeBuilds(),
         "off_optimizer": ModeBuilds(),
     })
 
@@ -220,7 +230,7 @@ class BuildStore:
         store.version = str(raw.get("version") or store.version)
 
         modes_raw = raw.get("modes") or {}
-        for mode in ("siege", "wgb", "rta", "arena_rush", "off_optimizer"):
+        for mode in ("siege", "wgb", "rta", "off_optimizer"):
             mr = modes_raw.get(mode) or {}
             mb = ModeBuilds()
             by = mr.get("by_unit_id") or {}

@@ -1,29 +1,17 @@
 from __future__ import annotations
 
-from typing import Callable, Optional
+from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
+from typing import Callable, List, Optional, Tuple
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import (
-    QAbstractTextDocumentLayout,
-    QPainter,
-    QPalette,
-    QStandardItem,
-    QStandardItemModel,
-    QTextDocument,
-)
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QApplication,
     QComboBox,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
-    QStyle,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -36,35 +24,41 @@ from desktop_app.domain.artifact_effects import (
 )
 from desktop_app.engine.efficiency import artifact_efficiency
 from desktop_app.i18n import tr
+from desktop_app.ui import theme as _theme
 from desktop_app.ui.dpi import dp
+from desktop_app.ui.siege_cards_widget import (
+    _RUNE_QUALITY_BORDER,
+    _artifact_center_slug,
+    _artifact_quality_tier,
+    _artifact_rich_tooltip,
+    _artifact_type_icon,
+)
+from desktop_app.ui.widgets.card_grid import (
+    CardDelegate,
+    CardGridView,
+    CardListModel,
+    draw_badge,
+    draw_card_frame,
+    draw_eff_bar,
+    draw_portrait,
+    draw_text,
+    eff_colour,
+    filter_bar,
+    font,
+)
 from desktop_app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 
-class _SortableNumericItem(QTableWidgetItem):
-    def __lt__(self, other) -> bool:
-        if isinstance(other, QTableWidgetItem):
-            a = self.data(Qt.UserRole)
-            b = other.data(Qt.UserRole)
-            try:
-                return float(a) < float(b)
-            except Exception:
-                pass
-        return super().__lt__(other)
+_ASSETS_UI = Path(__file__).resolve().parents[1] / "assets" / "ui"
 
 
-def _numeric_item(value: float, suffix: str = "") -> QTableWidgetItem:
-    text = f"{value:.2f}{suffix}" if suffix else f"{value:.2f}"
-    item = _SortableNumericItem(text)
-    item.setData(Qt.UserRole, float(value))
-    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    return item
-
-
-def _int_item(value: int) -> QTableWidgetItem:
-    item = _SortableNumericItem(str(int(value)))
-    item.setData(Qt.UserRole, int(value))
-    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    return item
+@lru_cache(maxsize=None)
+def _symbol_icon(type_id: int, tier: str, slug: str) -> QIcon:
+    """Element/archetype symbol in the quality's colour (flame, swirl, sword, ...)."""
+    path = _ASSETS_UI / f"conversion_{slug}_{tier}.png"
+    if slug and path.exists():
+        return QIcon(str(path))
+    return _artifact_type_icon(type_id, tier)
 
 
 def _type_text(art: Artifact) -> str:
@@ -76,25 +70,9 @@ def _type_text(art: Artifact) -> str:
     return f"Typ {t}"
 
 
-def _rank_text(art: Artifact) -> str:
+def _rank(art: Artifact) -> int:
     rank = int(getattr(art, "original_rank", 0) or 0)
-    if rank <= 0:
-        rank = int(art.rank or 0)
-    return artifact_rank_label(rank)
-
-
-def _slot_text(art: Artifact) -> str:
-    t = int(art.type_ or 0)
-    if t == 1:
-        return tr("art_opt.type_attribute")
-    if t == 2:
-        return tr("art_opt.type_type")
-    s = int(art.slot or 0)
-    if s == 1:
-        return tr("art_opt.type_attribute")
-    if s == 2:
-        return tr("art_opt.type_type")
-    return str(s)
+    return rank if rank > 0 else int(art.rank or 0)
 
 
 def _mainstat_text(art: Artifact) -> str:
@@ -113,70 +91,114 @@ def _mainstat_text(art: Artifact) -> str:
     return artifact_effect_text(eid, val)
 
 
-def _sec_effects_text(art: Artifact) -> str:
-    parts = []
+@dataclass
+class _ArtRow:
+    art: Artifact
+    eff: float
+    title: str              # "Attribut · Feuer"
+    quality: str
+    quality_colour: QColor
+    icon: QIcon
+    main: str
+    subs: List[Tuple[str, int, bool]] = field(default_factory=list)  # (text, rolls, swapped)
+    monster_uid: int = 0
+    monster: str = ""
+    search: str = ""
+
+
+# (i18n key of the sort entry, key function, descending)
+_SORTS: List[Tuple[str, Callable[[_ArtRow], object], bool]] = [
+    ("art_opt.col.efficiency", lambda r: r.eff, True),
+    ("art_opt.col.quality", lambda r: (_rank(r.art), r.eff), True),
+    ("art_opt.col.level", lambda r: (int(r.art.level or 0), r.eff), True),
+    ("art_opt.col.type", lambda r: (int(r.art.type_ or 0), -r.eff), False),
+]
+
+
+def _build_row(art: Artifact, monster_name: str) -> _ArtRow:
+    subs: List[Tuple[str, int, bool]] = []
     for sec in (art.sec_effects or []):
         if not sec or len(sec) < 2:
             continue
-        eid = int(sec[0] or 0)
-        val = sec[1]
-        upgrades = int(sec[2] or 0) if len(sec) > 2 else 0
-        text = artifact_effect_text(eid, val)
-        if upgrades > 0:
-            text += f" ({tr('ui.rolls', n=upgrades)})"
-        parts.append(text)
-    return " | ".join(parts)
+        rolls = int(sec[2] or 0) if len(sec) > 2 else 0
+        swapped = bool(int(sec[3] or 0)) if len(sec) > 3 else False
+        subs.append((artifact_effect_text(int(sec[0] or 0), sec[1]), rolls, swapped))
+    slug = _artifact_center_slug(art)
+    center = tr(f"art_opt.center.{slug}") if slug else ""
+    rank = _rank(art)
+    row = _ArtRow(
+        art=art,
+        eff=float(artifact_efficiency(art)),
+        title=" · ".join(x for x in (_type_text(art), center) if x),
+        quality=artifact_rank_label(rank),
+        quality_colour=QColor(_RUNE_QUALITY_BORDER.get(rank, "#555555")),
+        icon=_symbol_icon(int(art.type_ or 0), _artifact_quality_tier(art), slug),
+        main=_mainstat_text(art),
+        subs=subs,
+        monster_uid=int(art.occupied_id or 0),
+        monster=monster_name,
+    )
+    row.search = " ".join([row.title, row.quality, row.main, monster_name] + [s[0] for s in subs]).lower()
+    return row
 
 
-def _sec_effects_html(art: Artifact) -> str:
-    parts = []
-    for sec in (art.sec_effects or []):
-        if not sec or len(sec) < 2:
-            continue
-        eid = int(sec[0] or 0)
-        val = sec[1]
-        upgrades = int(sec[2] or 0) if len(sec) > 2 else 0
-        swapped = int(sec[3] or 0) if len(sec) > 3 else 0
-        text = artifact_effect_text(eid, val)
-        if upgrades > 0:
-            text += f" ({tr('ui.rolls', n=upgrades)})"
-        if swapped:
-            text = f"<span style='color:#1abc9c'>{text}</span>"
-        parts.append(text)
-    return "<span style='color:#9aa4b2'> | </span>".join(parts)
+def _row_tooltip(row: _ArtRow) -> str:
+    return _artifact_rich_tooltip(row.art) + f"<br><br>{tr('art_opt.col.efficiency')}: <b>{row.eff:.2f}%</b>"
 
 
-class _RichTextDelegate(QStyledItemDelegate):
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        options = QStyleOptionViewItem(option)
-        self.initStyleOption(options, index)
-        style = options.widget.style() if options.widget else QApplication.style()
+class _ArtifactCardDelegate(CardDelegate):
+    def __init__(self, view: CardGridView, monster_icon_fn):
+        super().__init__(view)
+        self._monster_icon_fn = monster_icon_fn
 
-        doc = QTextDocument()
-        doc.setDefaultFont(options.font)
-        doc.setHtml(options.text or "")
-        options.text = ""
-        style.drawControl(QStyle.CE_ItemViewItem, options, painter, options.widget)
+    def paint_card(self, p: QPainter, rect, row: _ArtRow, hovered: bool, base: QFont) -> None:
+        c = _theme.C
+        text, dim = QColor(c["text"]), QColor(c["text_dim"])
+        r = draw_card_frame(p, rect, row.quality_colour, hovered)
+        x, y, w = r.left(), r.top(), r.width()
 
-        text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, options, options.widget)
-        painter.save()
-        try:
-            painter.translate(text_rect.topLeft())
-            painter.setClipRect(text_rect.translated(-text_rect.topLeft()))
-            doc.setTextWidth(float(text_rect.width()))
-            ctx = QAbstractTextDocumentLayout.PaintContext()
-            if options.state & QStyle.State_Selected:
-                ctx.palette.setColor(QPalette.ColorRole.Text, options.palette.highlightedText().color())
-            doc.documentLayout().draw(painter, ctx)
-        finally:
-            painter.restore()
+        badge = dp(44)
+        draw_badge(p, QRectF(x, y, badge, badge), row.icon, row.quality_colour, icon_scale=0.78)
+        tx = x + badge + dp(10)
+        right_w = dp(48)
+        draw_text(p, QRectF(tx, y, w - badge - dp(10) - right_w, badge / 2), row.title, font(base, 1.5, True), text)
+        draw_text(p, QRectF(tx, y + badge / 2, w - badge - dp(10) - right_w, badge / 2), row.quality,
+                  font(base, -0.5), row.quality_colour)
+        draw_text(p, QRectF(r.right() - right_w, y, right_w, badge / 2), f"+{int(row.art.level or 0)}",
+                  font(base, 1.5, True), text, Qt.AlignRight | Qt.AlignVCenter)
 
-    def sizeHint(self, option: QStyleOptionViewItem, index):
-        doc = QTextDocument()
-        doc.setDefaultFont(option.font)
-        doc.setHtml(str(index.data() or ""))
-        doc.setTextWidth(float(max(0, option.rect.width())))
-        return doc.size().toSize()
+        y += badge + dp(8)
+        line_h = dp(22)
+        draw_text(p, QRectF(x, y, w, line_h), row.main, font(base, 2.0, True), text)
+        y += line_h + dp(4)
+        p.setPen(QPen(QColor(c["card_border"]), 1))
+        p.drawLine(int(x), int(y), int(r.right()), int(y))
+        y += dp(5)
+
+        # substats with their upgrade rolls as pips on the right
+        sub_h = dp(19)
+        pip, pip_gap = dp(6), dp(4)
+        pips_w = 4 * (pip + pip_gap)
+        teal, accent = QColor("#1abc9c"), QColor(c["accent"])
+        for sub_text, rolls, swapped in row.subs[:4]:
+            draw_text(p, QRectF(x, y, w - pips_w - dp(6), sub_h), "• " + sub_text, font(base, 0.0), teal if swapped else text)
+            p.setPen(Qt.NoPen)
+            for i in range(min(rolls, 4)):
+                px = r.right() - (4 - i) * (pip + pip_gap) + pip_gap
+                p.setBrush(accent)
+                p.drawEllipse(QRectF(px, y + (sub_h - pip) / 2, pip, pip))
+            y += sub_h
+
+        bar_h = dp(6)
+        foot_h = dp(24)
+        fy = r.bottom() - bar_h - dp(6) - foot_h
+        eff_w = dp(76)
+        if row.monster_uid and self._monster_icon_fn:
+            draw_portrait(p, QRectF(x, fy, foot_h, foot_h), self._monster_icon_fn(row.monster_uid))
+            draw_text(p, QRectF(x + foot_h + dp(8), fy, w - foot_h - dp(8) - eff_w, foot_h), row.monster, font(base), text)
+        draw_text(p, QRectF(r.right() - eff_w, fy, eff_w, foot_h), f"{row.eff:.1f}%", font(base, 3.0, True),
+                  eff_colour(row.eff), Qt.AlignRight | Qt.AlignVCenter)
+        draw_eff_bar(p, QRectF(x, r.bottom() - bar_h, w, bar_h), row.eff)
 
 
 class ArtifactOptimizationWidget(QWidget):
@@ -184,83 +206,87 @@ class ArtifactOptimizationWidget(QWidget):
         self,
         parent: Optional[QWidget] = None,
         monster_name_fn: Callable[[int], str] | None = None,
+        monster_icon_fn: Callable[[int], QIcon] | None = None,
     ):
         super().__init__(parent)
         self._account: Optional[AccountData] = None
         self._monster_name_fn = monster_name_fn
         self._updating_filters = False
         self._search_text: str = ""
+        self._rows: List[_ArtRow] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        layout.setSpacing(dp(6))
+        layout.setSpacing(dp(8))
 
-        # ── search bar ───────────────────────────────────────────
-        search_row = QHBoxLayout()
-        search_row.setSpacing(dp(6))
         self._search_box = QLineEdit()
-        self._search_box.setPlaceholderText(tr("art_opt.search_placeholder"))
-        self._search_box.setClearButtonEnabled(True)
-        self._search_box.setMaximumWidth(dp(400))
         self._search_box.textChanged.connect(self._on_search_changed)
-        search_row.addWidget(self._search_box)
-        search_row.addStretch(1)
-        layout.addLayout(search_row)
+        filter_frame, fb = filter_bar(self._search_box)
 
-        top = QHBoxLayout()
-        self.lbl_info = QLabel("")
-        top.addWidget(self.lbl_info)
-        top.addStretch(1)
-        self.lbl_filter_type = QLabel("")
-        top.addWidget(self.lbl_filter_type)
+        def _dim_label() -> QLabel:
+            lbl = QLabel("")
+            fb.addWidget(lbl)
+            return lbl
+
+        self.lbl_filter_type = _dim_label()
         self.combo_filter_type = QComboBox()
         self.combo_filter_type.setMinimumWidth(dp(120))
         self.combo_filter_type.currentIndexChanged.connect(self._on_filters_changed)
-        top.addWidget(self.combo_filter_type)
-        self.lbl_filter_monster = QLabel("")
-        top.addWidget(self.lbl_filter_monster)
+        fb.addWidget(self.combo_filter_type)
+
+        self.lbl_filter_monster = _dim_label()
         self.combo_filter_monster = _UnitSearchComboBox()
         self.combo_filter_monster.setMinimumWidth(dp(200))
         self.combo_filter_monster.currentIndexChanged.connect(self._on_filters_changed)
-        top.addWidget(self.combo_filter_monster)
-        self.btn_reset_filters = QPushButton("")
-        self.btn_reset_filters.clicked.connect(self._on_reset_filters)
-        top.addWidget(self.btn_reset_filters)
-        top.addStretch(1)
-        layout.addLayout(top)
+        fb.addWidget(self.combo_filter_monster)
 
-        self.table = QTableWidget(0, 8)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setSortingEnabled(True)
-        self.table.setAlternatingRowColors(True)
-        self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(36)
-        self.table.horizontalHeader().setStretchLastSection(False)
-        self.table.setItemDelegateForColumn(5, _RichTextDelegate(self.table))
-        layout.addWidget(self.table, 1)
+        self.lbl_sort = _dim_label()
+        self.combo_sort = QComboBox()
+        self.combo_sort.setMinimumWidth(dp(140))
+        self.combo_sort.currentIndexChanged.connect(self._on_filters_changed)
+        fb.addWidget(self.combo_sort)
+
+        self.btn_reset_filters = QPushButton("")
+        self.btn_reset_filters.setProperty("ghost", True)
+        self.btn_reset_filters.clicked.connect(self._on_reset_filters)
+        fb.addWidget(self.btn_reset_filters)
+
+        fb.addStretch(1)
+        self.lbl_info = QLabel("")
+        fb.addWidget(self.lbl_info)
+        layout.addWidget(filter_frame)
+
+        self.view = CardGridView(min_card_width=dp(380), card_height=dp(226))
+        self.model = CardListModel(_row_tooltip, self.view)
+        self.view.setModel(self.model)
+        self.view.setItemDelegate(_ArtifactCardDelegate(self.view, monster_icon_fn))
+        layout.addWidget(self.view, 1)
 
         self.retranslate()
 
     def retranslate(self) -> None:
         self.lbl_filter_type.setText(tr("art_opt.filter_type"))
         self.lbl_filter_monster.setText(tr("art_opt.filter_monster"))
+        self.lbl_sort.setText(tr("rune_opt.sort_label"))
         self.btn_reset_filters.setText(tr("art_opt.filter_reset"))
-        self.table.setHorizontalHeaderLabels([
-            tr("art_opt.col.type"),
-            tr("art_opt.col.quality"),
-            tr("art_opt.col.level"),
-            tr("art_opt.col.slot"),
-            tr("art_opt.col.mainstat"),
-            tr("art_opt.col.substats"),
-            tr("art_opt.col.monster"),
-            tr("art_opt.col.efficiency"),
-        ])
-        self.refresh()
+        self._search_box.setPlaceholderText(tr("art_opt.search_placeholder"))
+        current_sort = max(0, self.combo_sort.currentIndex())
+        self.combo_sort.blockSignals(True)
+        self.combo_sort.clear()
+        for key, _fn, _desc in _SORTS:
+            self.combo_sort.addItem(tr(key))
+        self.combo_sort.setCurrentIndex(current_sort)
+        self.combo_sort.blockSignals(False)
+        self.set_account(self._account)  # rows hold translated texts
 
     def set_account(self, account: Optional[AccountData]) -> None:
         self._account = account
+        name_fn = self._monster_name_fn or (lambda _uid: "")
+        self._rows = [
+            _build_row(a, name_fn(int(a.occupied_id or 0)) if int(a.occupied_id or 0) > 0 else "")
+            for a in (account.artifacts if account else [])
+        ]
+        self._populate_filters()
         self.refresh()
 
     def _on_filters_changed(self, _index: int) -> None:
@@ -284,7 +310,7 @@ class ArtifactOptimizationWidget(QWidget):
             self._updating_filters = False
         self.refresh()
 
-    def _populate_filters(self, artifacts: list[Artifact]) -> None:
+    def _populate_filters(self) -> None:
         current_type = int(self.combo_filter_type.currentData() or 0)
         current_monster_uid = int(self.combo_filter_monster.currentData(Qt.UserRole) or 0)
 
@@ -292,16 +318,10 @@ class ArtifactOptimizationWidget(QWidget):
         all_item = QStandardItem(tr("art_opt.filter_all"))
         all_item.setData(0, Qt.UserRole)
         monster_model.appendRow(all_item)
-        if self._monster_name_fn:
-            seen_uids: dict[int, str] = {}
-            for a in artifacts:
-                uid = int(a.occupied_id or 0)
-                if uid > 0 and uid not in seen_uids:
-                    seen_uids[uid] = self._monster_name_fn(uid)
-            for uid, name in sorted(seen_uids.items(), key=lambda x: x[1]):
-                item = QStandardItem(name)
-                item.setData(uid, Qt.UserRole)
-                monster_model.appendRow(item)
+        for uid, name in sorted({(r.monster_uid, r.monster) for r in self._rows if r.monster_uid}, key=lambda x: x[1]):
+            item = QStandardItem(name)
+            item.setData(uid, Qt.UserRole)
+            monster_model.appendRow(item)
 
         self._updating_filters = True
         self.combo_filter_type.blockSignals(True)
@@ -326,115 +346,36 @@ class ArtifactOptimizationWidget(QWidget):
             self._updating_filters = False
 
     def refresh(self) -> None:
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(0)
-
         if not self._account:
             self.lbl_info.setText(tr("art_opt.hint_no_import"))
-            self._populate_filters([])
-            self.table.setSortingEnabled(True)
+            self.model.set_rows([])
             return
-
-        all_artifacts = list(self._account.artifacts or [])
-        all_artifacts.sort(key=lambda a: (artifact_efficiency(a), int(a.artifact_id or 0)), reverse=True)
-        self._populate_filters(all_artifacts)
-
-        if not all_artifacts:
+        if not self._rows:
             self.lbl_info.setText(tr("art_opt.hint_no_rows"))
-            self.table.setSortingEnabled(True)
+            self.model.set_rows([])
             return
 
         selected_type = int(self.combo_filter_type.currentData() or 0)
         selected_uid = int(self.combo_filter_monster.currentData(Qt.UserRole) or 0)
-        artifacts = [
-            a for a in all_artifacts
-            if (selected_type <= 0 or int(a.type_ or 0) == selected_type)
-            and (selected_uid <= 0 or int(a.occupied_id or 0) == selected_uid)
+        needle = self._search_text
+        rows = [
+            r for r in self._rows
+            if (selected_type <= 0 or int(r.art.type_ or 0) == selected_type)
+            and (selected_uid <= 0 or r.monster_uid == selected_uid)
+            and (not needle or needle in r.search)
         ]
+        _key, key_fn, descending = _SORTS[max(0, self.combo_sort.currentIndex())]
+        rows.sort(key=key_fn, reverse=descending)
 
-        if not artifacts:
+        if not rows:
             self.lbl_info.setText(tr("art_opt.hint_no_filter_rows"))
-            self.table.setSortingEnabled(True)
-            return
-
-        if len(artifacts) == len(all_artifacts):
-            self.lbl_info.setText(tr("art_opt.count", n=len(artifacts)))
+        elif len(rows) == len(self._rows):
+            self.lbl_info.setText(tr("art_opt.count", n=len(rows)))
         else:
-            self.lbl_info.setText(tr("art_opt.count_filtered", shown=len(artifacts), total=len(all_artifacts)))
-
-        self.table.setRowCount(len(artifacts))
-
-        for row, art in enumerate(artifacts):
-            eff = artifact_efficiency(art)
-
-            type_item = QTableWidgetItem(_type_text(art))
-            type_item.setData(Qt.UserRole, int(art.type_ or 0))
-            self.table.setItem(row, 0, type_item)
-
-            rank_val = int(getattr(art, "original_rank", 0) or art.rank or 0)
-            rank_item = _SortableNumericItem(_rank_text(art))
-            rank_item.setData(Qt.UserRole, rank_val)
-            self.table.setItem(row, 1, rank_item)
-
-            self.table.setItem(row, 2, _int_item(int(art.level or 0)))
-
-            slot_item = QTableWidgetItem(_slot_text(art))
-            slot_item.setData(Qt.UserRole, int(art.slot or 0))
-            self.table.setItem(row, 3, slot_item)
-
-            self.table.setItem(row, 4, QTableWidgetItem(_mainstat_text(art)))
-            sub_item = QTableWidgetItem(_sec_effects_html(art))
-            sub_item.setData(Qt.UserRole, _sec_effects_text(art))
-            sub_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            self.table.setItem(row, 5, sub_item)
-
-            monster_name = ""
-            uid = int(art.occupied_id or 0)
-            if uid > 0 and self._monster_name_fn:
-                monster_name = self._monster_name_fn(uid)
-            self.table.setItem(row, 6, QTableWidgetItem(monster_name))
-
-            self.table.setItem(row, 7, _numeric_item(eff, "%"))
-
-        self.table.resizeColumnsToContents()
-        self.table.setColumnWidth(0, max(72, self.table.columnWidth(0)))
-        self.table.setColumnWidth(1, max(80, self.table.columnWidth(1)))
-        self.table.setColumnWidth(4, 100)
-        # Spalte 5 (Substats): Breite am breitesten Klartext-Eintrag orientieren,
-        # da resizeColumnsToContents() HTML-Inhalte nicht korrekt messen kann.
-        fm = self.table.fontMetrics()
-        max_sub_w = max(
-            (fm.horizontalAdvance(str(self.table.item(r, 5).data(Qt.UserRole) or ""))
-             for r in range(self.table.rowCount())
-             if self.table.item(r, 5)),
-            default=0,
-        )
-        self.table.setColumnWidth(5, max_sub_w + 24)
-        self.table.setColumnWidth(6, max(120, self.table.columnWidth(6)))
-        self.table.setSortingEnabled(True)
-        self._apply_search_filter()
+            self.lbl_info.setText(tr("art_opt.count_filtered", shown=len(rows), total=len(self._rows)))
+        self.model.set_rows(rows)
+        self.view.scrollToTop()
 
     def _on_search_changed(self, text: str) -> None:
         self._search_text = text.strip().lower()
-        self._apply_search_filter()
-
-    def _apply_search_filter(self) -> None:
-        needle = self._search_text
-        if not needle:
-            for row in range(self.table.rowCount()):
-                self.table.setRowHidden(row, False)
-            return
-        for row in range(self.table.rowCount()):
-            # Search in: type (0), rank (1), mainstat (4), substats text (5 UserRole), monster (6)
-            haystack_parts = []
-            for col in (0, 1, 4, 6):
-                item = self.table.item(row, col)
-                if item:
-                    haystack_parts.append(item.text().lower())
-            sub_item = self.table.item(row, 5)
-            if sub_item:
-                plain = sub_item.data(Qt.UserRole)
-                if plain:
-                    haystack_parts.append(str(plain).lower())
-            haystack = " ".join(haystack_parts)
-            self.table.setRowHidden(row, needle not in haystack)
+        self.refresh()
