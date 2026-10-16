@@ -123,7 +123,6 @@ def retranslate_ui(window) -> None:
     _set_tab_text("tab_siege", "tab.siege_group")
     _set_tab_text("tab_wgb", "tab.wgb_group")
     _set_tab_text("tab_rta", "tab.rta_group")
-    _set_tab_text("tab_arena_rush", "tab.arena_rush_group")
     _set_tab_text("tab_rune_optimization", "tab.rune_optimization")
     _set_tab_text("tab_settings", "tab.settings")
 
@@ -141,18 +140,12 @@ def retranslate_ui(window) -> None:
     _set_inner_tab_text("rta_inner_tabs", 1, "tab.subtab_builder")
     _set_inner_tab_text("rta_inner_tabs", 2, "tab.subtab_saved")
 
-    # Arena Rush-Gruppe: Builder | Gespeichert
-    _set_inner_tab_text("arena_rush_inner_tabs", 0, "tab.subtab_builder")
-    _set_inner_tab_text("arena_rush_inner_tabs", 1, "tab.subtab_saved")
-
     window.lbl_saved_siege.setText(tr("label.saved_opt"))
     window.lbl_saved_wgb.setText(tr("label.saved_opt"))
     window.lbl_saved_rta.setText(tr("label.saved_opt"))
-    window.lbl_saved_arena_rush.setText(tr("label.saved_opt"))
     window.btn_delete_saved_siege.setText(tr("btn.delete"))
     window.btn_delete_saved_wgb.setText(tr("btn.delete"))
     window.btn_delete_saved_rta.setText(tr("btn.delete"))
-    window.btn_delete_saved_arena_rush.setText(tr("btn.delete"))
 
     window.box_siege_select.setTitle(tr("group.siege_select"))
     window.box_siege_select.setToolTip(tr("tooltip.team_slot_leader"))
@@ -219,30 +212,6 @@ def retranslate_ui(window) -> None:
     window.lbl_rta_profile.setText("Profil")
     window.spin_multi_pass_rta.setToolTip(tr("tooltip.passes"))
     window.combo_workers_rta.setToolTip(tr("tooltip.workers"))
-
-    window.box_arena_def_select.setTitle(tr("group.arena_def_select"))
-    window.box_arena_off_select.setTitle(tr("group.arena_off_select"))
-    window.lbl_arena_defense.setText(tr("label.arena_defense"))
-    for idx, lbl in enumerate(window.lbl_arena_offense, start=1):
-        lbl.setText(tr("label.offense", n=idx))
-    for chk in window.chk_arena_offense_enabled:
-        chk.setText(tr("label.active"))
-    window.btn_take_current_arena_def.setText(tr("btn.take_arena_def"))
-    window.btn_take_arena_decks.setText(tr("btn.take_arena_off"))
-    window.btn_validate_arena_rush.setText(tr("btn.validate_pools"))
-    window.btn_edit_presets_arena_rush.setText(tr("btn.builds"))
-    window.btn_optimize_arena_rush.setText(tr("btn.optimize"))
-    window.lbl_arena_rush_passes.setText(tr("label.passes"))
-    window.lbl_arena_rush_workers.setText(tr("label.workers"))
-    window.lbl_arena_rush_profile.setText("Profil")
-    window.spin_multi_pass_arena_rush.setToolTip(tr("tooltip.passes"))
-    window.combo_workers_arena_rush.setToolTip(tr("tooltip.workers"))
-    idx_arena_max = window.combo_quality_profile_arena_rush.findData("max_quality")
-    if idx_arena_max >= 0:
-        window.combo_quality_profile_arena_rush.setItemText(idx_arena_max, tr("profile.maximum"))
-    idx_arena_gpu = window.combo_quality_profile_arena_rush.findData("gpu_combo")
-    if idx_arena_gpu >= 0:
-        window.combo_quality_profile_arena_rush.setItemText(idx_arena_gpu, tr("profile.smart"))
 
     window.lbl_team.setText(tr("label.team"))
     window.btn_new_team.setText(tr("btn.new_team"))

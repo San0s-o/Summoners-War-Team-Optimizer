@@ -401,6 +401,21 @@ def team_leader_skill(window, team_unit_ids: List[int]):
         selected = _arena_rush_selected_speed_lead(window, team_unit_ids)
         if selected is not None:
             return selected
+    off_pool_combo = getattr(window, "combo_off_optimizer_pool", None)
+    off_pool = str(off_pool_combo.currentData() if off_pool_combo is not None else "").strip().lower()
+    if mode_ctx == "off_optimizer" and off_pool == "arena":
+        lead_uid = int(getattr(window, "off_optimizer_speed_lead_uid", 0) or 0)
+        lead_pct = int(getattr(window, "off_optimizer_speed_lead_pct", 0) or 0)
+        valid_ids = {int(uid) for uid in (team_unit_ids or []) if int(uid) > 0}
+        if lead_uid > 0 and lead_uid in valid_ids:
+            if lead_pct <= 0:
+                lead_unit = window.account.units_by_id.get(int(lead_uid))
+                if lead_unit is not None:
+                    ls = window.monster_db.leader_skill_for(int(lead_unit.unit_master_id))
+                    if ls and str(ls.stat).strip().upper() == "SPD%" and str(ls.area).strip() in ("Arena", "General"):
+                        lead_pct = int(ls.amount or 0)
+            if lead_pct > 0:
+                return SimpleNamespace(stat="SPD%", amount=int(lead_pct), area="Arena", element="")
     leader_uid = team_unit_ids[0]
     u = window.account.units_by_id.get(int(leader_uid))
     if not u:

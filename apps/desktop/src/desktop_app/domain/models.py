@@ -95,9 +95,12 @@ class AccountData:
     # Mode-specific rune equipment: unit_id -> [rune_id, ...]
     # These come from equip_info_list (siege/guild) and world_arena_rune_equip_list (RTA)
     guild_rune_equip: Dict[int, List[int]] = field(default_factory=dict)
+    arena_rune_equip: Dict[int, List[int]] = field(default_factory=dict)
     rta_rune_equip: Dict[int, List[int]] = field(default_factory=dict)
     # Siege/Guild artifact equipment: unit_id -> [artifact_id, ...]
     guild_artifact_equip: Dict[int, List[int]] = field(default_factory=dict)
+    # Classic Arena artifact equipment: unit_id -> [artifact_id, ...]
+    arena_artifact_equip: Dict[int, List[int]] = field(default_factory=dict)
     # RTA artifact equipment: unit_id -> [artifact_id, ...]
     rta_artifact_equip: Dict[int, List[int]] = field(default_factory=dict)
 
@@ -139,11 +142,13 @@ class AccountData:
     def equipped_runes_for(self, unit_id: int, mode: str = "pve") -> List[Rune]:
         """Return the runes equipped on *unit_id* for the given mode.
 
-        mode: "pve" (default occupied_id), "siege"/"guild", "rta"
+        mode: "pve" (default occupied_id), "siege"/"guild", "arena", "rta"
         Falls back to PVE runes if the mode has no data.
         """
         if mode in ("siege", "guild"):
             equip = self.guild_rune_equip
+        elif mode == "arena":
+            equip = self.arena_rune_equip
         elif mode == "rta":
             equip = self.rta_rune_equip
         else:

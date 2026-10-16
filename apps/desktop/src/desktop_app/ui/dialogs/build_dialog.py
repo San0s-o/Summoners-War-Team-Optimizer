@@ -143,6 +143,7 @@ class BuildDialog(QDialog):
         order_speed_lead_pct_by_team: List[int] | None = None,
         persist_order_fields: bool = True,
         skill_icons_dir: str | None = None,
+        current_rune_mode: str | None = None,
     ):
         super().__init__(parent)
         self.setWindowFlags(
@@ -160,6 +161,7 @@ class BuildDialog(QDialog):
 
         self.preset_store = preset_store
         self.mode = mode
+        self._current_rune_mode = str(current_rune_mode or "").strip().lower()
         self._account = account
         self._unit_icon_fn = unit_icon_fn
         self._unit_rows = list(unit_rows)
@@ -1110,7 +1112,7 @@ class BuildDialog(QDialog):
             return
         # This action updates all units, so ensure all editors exist first.
         self._ensure_all_editor_pages()
-        rune_mode = rune_mode_for_mode(self.mode)
+        rune_mode = self._current_rune_mode or rune_mode_for_mode(self.mode)
         for unit_id in list(self._unit_editors.keys()):
             refs = self._editor_refs(unit_id)
             if refs is None:

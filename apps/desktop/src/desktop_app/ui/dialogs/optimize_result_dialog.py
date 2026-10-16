@@ -577,13 +577,27 @@ class OptimizeResultDialog(QDialog):
         grid = QGridLayout()
         grid.setHorizontalSpacing(dp(10))
         grid.setVerticalSpacing(dp(10))
-        slots = sorted((result.runes_by_slot or {}).items())
-        for idx, (slot, rune_id) in enumerate(slots):
+        # Hex-Anordnung wie im Spiel:
+        #              [ Slot 1 ]
+        # [ Slot 6 ]              [ Slot 2 ]
+        # [ Slot 5 ]              [ Slot 3 ]
+        #              [ Slot 4 ]
+        slot_positions = {
+            1: (0, 1),
+            2: (1, 2),
+            3: (2, 2),
+            4: (3, 1),
+            5: (2, 0),
+            6: (1, 0),
+        }
+        for slot, rune_id in (result.runes_by_slot or {}).items():
             rune = self._rune_lookup.get(rune_id)
             if not rune:
                 continue
-            row, col = divmod(idx, 3)
-            grid.addWidget(self._build_rune_frame(rune, slot), row, col)
+            pos = slot_positions.get(int(slot))
+            if not pos:
+                continue
+            grid.addWidget(self._build_rune_frame(rune, slot), pos[0], pos[1])
         v.addLayout(grid)
         v.addStretch()
         return w

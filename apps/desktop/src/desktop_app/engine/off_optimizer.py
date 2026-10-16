@@ -18,6 +18,12 @@ OFF_OPTIMIZER_MODE = "off_optimizer"
 STRATEGY_FIRST_TURN = "first_turn"
 STRATEGY_BOOSTED_DAMAGE = "boosted_damage"
 STRATEGY_SECOND_TURN = "second_turn"
+OFF_OPTIMIZER_DEFAULT_TEAM_SIZE = 3
+OFF_OPTIMIZER_ARENA_TEAM_SIZE = 4
+
+
+def off_optimizer_team_size_for_pool(pool_mode: str) -> int:
+    return OFF_OPTIMIZER_ARENA_TEAM_SIZE if str(pool_mode or "").strip().lower() == "arena" else OFF_OPTIMIZER_DEFAULT_TEAM_SIZE
 
 
 @dataclass
@@ -61,16 +67,17 @@ class OffOptimizerResult:
     strategy: str = STRATEGY_FIRST_TURN
 
 
-def _unique_unit_ids(unit_ids: List[int]) -> List[int]:
+def _unique_unit_ids(unit_ids: List[int], max_units: int = OFF_OPTIMIZER_DEFAULT_TEAM_SIZE) -> List[int]:
     out: List[int] = []
     seen: set[int] = set()
+    cap = max(1, int(max_units or OFF_OPTIMIZER_DEFAULT_TEAM_SIZE))
     for uid in unit_ids or []:
         ui = int(uid or 0)
         if ui <= 0 or ui in seen:
             continue
         seen.add(int(ui))
         out.append(int(ui))
-        if len(out) >= 3:
+        if len(out) >= cap:
             break
     return out
 
@@ -275,7 +282,8 @@ def _team_has_spd_buff_by_uid(order: List[int], effects: Dict[int, OpeningTurnEf
 
 
 def optimize_off_optimizer(account: AccountData, presets: BuildStore, req: OffOptimizerRequest) -> OffOptimizerResult:
-    unit_ids = _unique_unit_ids(req.unit_ids)
+    team_size = off_optimizer_team_size_for_pool(req.pool_mode)
+    unit_ids = _unique_unit_ids(req.unit_ids, team_size)
     if not unit_ids:
         empty = GreedyResult(False, "Off-Optimizer: no units selected.", [])
         return OffOptimizerResult(False, empty.message, empty, MirrorTuneResult(False, empty.message), req.strategy)

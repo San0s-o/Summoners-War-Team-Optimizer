@@ -11,6 +11,7 @@ from desktop_app.engine.off_optimizer import (
     OFF_OPTIMIZER_MODE,
     STRATEGY_FIRST_TURN,
     OffOptimizerRequest,
+    off_optimizer_team_size_for_pool,
     optimize_off_optimizer,
 )
 from desktop_app.i18n import tr
@@ -28,10 +29,21 @@ def _selection_path(window) -> Path:
     return Path(window.config_dir) / "off_optimizer_selection.json"
 
 
+def _current_pool_mode(window) -> str:
+    combo = getattr(window, "combo_off_optimizer_pool", None)
+    if combo is None:
+        return "siege"
+    return str(combo.currentData() or "siege")
+
+
+def _current_team_size(window) -> int:
+    return off_optimizer_team_size_for_pool(_current_pool_mode(window))
+
+
 def collect_off_optimizer_unit_ids(window) -> List[int]:
     out: List[int] = []
     seen: set[int] = set()
-    for cmb in list(getattr(window, "off_optimizer_combos", []) or [])[:3]:
+    for cmb in list(getattr(window, "off_optimizer_combos", []) or []):
         uid = int(cmb.currentData() or 0)
         if uid <= 0 or uid in seen:
             continue
@@ -42,10 +54,11 @@ def collect_off_optimizer_unit_ids(window) -> List[int]:
 
 def _validate(window) -> Tuple[bool, str, List[int]]:
     ids = collect_off_optimizer_unit_ids(window)
+    max_units = _current_team_size(window)
     if not ids:
         return False, "Off-Optimierer: Bitte mindestens ein Monster auswählen.", []
-    if len(ids) > 3:
-        return False, "Off-Optimierer: Maximal 3 Monster auswählen.", []
+    if len(ids) > max_units:
+        return False, f"Off-Optimierer: Maximal {max_units} Monster auswählen.", []
     return True, f"Off-Optimierer: OK ({len(ids)} Monster).", ids
 
 
@@ -57,7 +70,10 @@ def _speed_lead_pct_by_uid(window, unit_ids: List[int]) -> Dict[int, int]:
         unit = window.account.units_by_id.get(int(uid))
         if unit is None:
             continue
-        pct = int(window.monster_db.speed_lead_percent_for(int(unit.unit_master_id or 0)) or 0)
+        if _current_pool_mode(window) == "arena":
+            pct = int(window.monster_db.rta_speed_lead_percent_for(int(unit.unit_master_id or 0)) or 0)
+        else:
+            pct = int(window.monster_db.speed_lead_percent_for(int(unit.unit_master_id or 0)) or 0)
         if pct > 0:
             out[int(uid)] = int(pct)
     return out
@@ -89,8 +105,8 @@ def restore_state(window) -> None:
         if not path.exists():
             return
         raw = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-        ids = [int(uid) for uid in list(raw.get("unit_ids") or [])[:3] if int(uid or 0) > 0]
-        for idx, cmb in enumerate(list(getattr(window, "off_optimizer_combos", []) or [])[:3]):
+        ids = [int(uid) for uid in list(raw.get("unit_ids") or [])[:4] if int(uid or 0) > 0]
+        for idx, cmb in enumerate(list(getattr(window, "off_optimizer_combos", []) or [])[:4]):
             uid = int(ids[idx]) if idx < len(ids) else 0
             pos = cmb.findData(uid)
             cmb.setCurrentIndex(pos if pos >= 0 else 0)
@@ -138,6 +154,7 @@ def on_edit_presets(window) -> None:
     effect_caps = _arena_effect_capabilities_by_unit(window, ids)
     effects = dict(getattr(window, "off_optimizer_turn_effects", {}) or {})
     order_turn_effects = [{int(uid): dict(effects.get(int(uid), {}) or {}) for uid in ids}]
+    team_size = _current_team_size(window)
     dlg = BuildDialog(
         window,
         "Off-Optimierer Builds",
@@ -146,7 +163,7 @@ def on_edit_presets(window) -> None:
         OFF_OPTIMIZER_MODE,
         window.account,
         window._unit_icon_for_unit_id,
-        team_size=3,
+        team_size=team_size,
         order_teams=[unit_rows],
         order_team_titles=["Off-Optimierer"],
         order_turn_effects=order_turn_effects,
@@ -157,6 +174,7 @@ def on_edit_presets(window) -> None:
         order_speed_lead_pct_by_unit=speed_lead_pct_by_uid,
         order_speed_lead_pct_by_team=[int(getattr(window, "off_optimizer_speed_lead_pct", 0) or 0)],
         skill_icons_dir=str(window.assets_dir / "skills"),
+        current_rune_mode="arena" if _current_pool_mode(window) == "arena" else "siege",
     )
     if dlg.exec() != QDialog.Accepted:
         return
@@ -164,7 +182,7 @@ def on_edit_presets(window) -> None:
     orders = dlg.team_order_by_lists()
     if orders:
         order = [int(uid) for uid in list(orders[0] or []) if int(uid) > 0]
-        for slot, uid in enumerate(order[:3]):
+        for slot, uid in enumerate(order[:team_size]):
             cmb = window.off_optimizer_combos[slot]
             pos = cmb.findData(int(uid))
             if pos >= 0:
@@ -259,7 +277,7 @@ def on_optimize(window) -> None:
     tune = getattr(res, "mirror_tune", None)
     if tune is not None:
         labels = []
-        for label in list(getattr(tune, "observed_order", []) or [])[:6]:
+        for label in list(getattr(tune, "observed_order", []) or [])[: max(6, len(ids) * 2)]:
             side, uid_s = str(label).split(":", 1)
             labels.append(("Off " if side == "off" else "Mirror ") + window._unit_text(int(uid_s)))
         if labels:
@@ -277,5 +295,5 @@ def on_optimize(window) -> None:
             mode=OFF_OPTIMIZER_MODE,
             teams=[ids],
             team_header_by_index={0: "Off-Optimierer"},
-            group_size=3,
+            group_size=_current_team_size(window),
         )

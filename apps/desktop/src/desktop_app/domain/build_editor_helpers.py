@@ -391,13 +391,15 @@ def collect_artifact_substat_options_by_type(account: AccountData | None) -> Dic
 
 def can_load_current_runes(account: AccountData | None, mode: str) -> bool:
     mode_key = str(mode or "").strip().lower()
-    return bool(account) and mode_key in ("siege", "wgb", "rta", "arena_rush", "off_optimizer")
+    return bool(account) and mode_key in ("siege", "wgb", "rta", "arena_rush", "off_optimizer", "arena")
 
 
 def rune_mode_for_mode(mode: str) -> str:
     mode_key = str(mode or "").strip().lower()
     if mode_key == "rta":
         return "rta"
+    if mode_key == "arena":
+        return "arena"
     if mode_key in ("siege", "wgb", "off_optimizer"):
         return "siege"
     if mode_key == "arena_rush":
@@ -416,6 +418,16 @@ def equipped_artifacts_for_unit(account: AccountData | None, unit_id: int, rune_
     mode_key = str(rune_mode).strip().lower()
     if mode_key in ("siege", "guild"):
         for aid in (account.guild_artifact_equip.get(int(uid), []) or []):
+            art = by_id.get(int(aid))
+            if art is None:
+                continue
+            art_type = int(getattr(art, "type_", 0) or 0)
+            if art_type in (1, 2) and art_type not in out:
+                out[int(art_type)] = int(aid)
+        if len(out) >= 2:
+            return out
+    elif mode_key == "arena":
+        for aid in (getattr(account, "arena_artifact_equip", {}).get(int(uid), []) or []):
             art = by_id.get(int(aid))
             if art is None:
                 continue

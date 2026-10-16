@@ -12,7 +12,6 @@ DEFAULT_TAB_ORDER = [
     "tab_siege",
     "tab_wgb",
     "tab_rta",
-    "tab_arena_rush",
     "tab_off_optimizer",
     "tab_rune_optimization",
     "tab_settings",

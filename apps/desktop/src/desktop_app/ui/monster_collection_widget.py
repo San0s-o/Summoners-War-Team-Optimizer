@@ -300,6 +300,7 @@ class _MonsterDetailDialog(QDialog):
         for tab_label, runes in [
             (tr("collection.detail_tab_pve"),   account.equipped_runes_for(unit.unit_id, "pve")),
             (tr("collection.detail_tab_siege"),  account.equipped_runes_for(unit.unit_id, "siege")),
+            ("Arena", account.equipped_runes_for(unit.unit_id, "arena")),
             (tr("collection.detail_tab_rta"),    account.equipped_runes_for(unit.unit_id, "rta")),
         ]:
             rune_tabs.addTab(self._rune_tab(runes), tab_label)
@@ -310,6 +311,8 @@ class _MonsterDetailDialog(QDialog):
         pve_arts = [a for a in account.artifacts if int(a.occupied_id or 0) == int(unit.unit_id)]
         siege_art_ids = account.guild_artifact_equip.get(int(unit.unit_id), [])
         siege_arts = [art_by_id[aid] for aid in siege_art_ids if aid in art_by_id]
+        arena_art_ids = getattr(account, "arena_artifact_equip", {}).get(int(unit.unit_id), [])
+        arena_arts = [art_by_id[aid] for aid in arena_art_ids if aid in art_by_id]
         rta_art_ids = account.rta_artifact_equip.get(int(unit.unit_id), [])
         rta_arts = [art_by_id[aid] for aid in rta_art_ids if aid in art_by_id]
 
@@ -320,6 +323,7 @@ class _MonsterDetailDialog(QDialog):
         for tab_label, arts in [
             (tr("collection.detail_tab_pve"),   pve_arts),
             (tr("collection.detail_tab_siege"),  siege_arts),
+            ("Arena", arena_arts),
             (tr("collection.detail_tab_rta"),    rta_arts),
         ]:
             art_tabs.addTab(self._artifact_tab(arts), tab_label)

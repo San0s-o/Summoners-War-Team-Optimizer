@@ -608,11 +608,11 @@ def init_off_optimizer_builder_ui(window) -> None:
     window.off_optimizer_combos = []
     window._unit_combo_registration_tab = "off_optimizer"
     try:
-        for s in range(3):
+        for s in range(4):
             slot = QFrame()
             slot.setObjectName("OffOptimizerSlot")
-            slot.setMinimumWidth(dp(310))
-            slot.setMaximumWidth(dp(430))
+            slot.setMinimumWidth(dp(250))
+            slot.setMaximumWidth(dp(360))
             slot_layout = QVBoxLayout(slot)
             slot_layout.setContentsMargins(dp(10), dp(8), dp(10), dp(10))
             slot_layout.setSpacing(dp(6))
@@ -621,7 +621,7 @@ def init_off_optimizer_builder_ui(window) -> None:
             title.setObjectName("OffOptimizerSlotTitle")
             slot_layout.addWidget(title)
 
-            cmb = new_unit_search_combo(window, min_width=260)
+            cmb = new_unit_search_combo(window, min_width=220)
             le = cmb.lineEdit()
             if le is not None:
                 act = le.addAction(_get_clear_icon(), QLineEdit.TrailingPosition)
@@ -659,6 +659,7 @@ def init_off_optimizer_builder_ui(window) -> None:
     window.combo_off_optimizer_pool = QComboBox()
     window.combo_off_optimizer_pool.addItem("Siege", "siege")
     window.combo_off_optimizer_pool.addItem("WGB", "wgb")
+    window.combo_off_optimizer_pool.addItem("Arena", "arena")
     window.combo_off_optimizer_strategy = QComboBox()
     window.combo_off_optimizer_strategy.addItem("First Turn / Speed Tune", "first_turn")
     window.combo_off_optimizer_strategy.addItem("Boosted Damage", "boosted_damage")

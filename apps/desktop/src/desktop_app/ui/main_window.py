@@ -26,7 +26,6 @@ from desktop_app.ui.main_window_sections.builders_and_saved import (
     init_saved_siege_tab as _sec_init_saved_siege_tab,
     init_saved_wgb_tab as _sec_init_saved_wgb_tab,
     init_saved_rta_tab as _sec_init_saved_rta_tab,
-    init_saved_arena_rush_tab as _sec_init_saved_arena_rush_tab,
     init_saved_off_optimizer_tab as _sec_init_saved_off_optimizer_tab,
     saved_opt_widgets as _sec_saved_opt_widgets,
     refresh_saved_opt_combo as _sec_refresh_saved_opt_combo,
@@ -35,7 +34,6 @@ from desktop_app.ui.main_window_sections.builders_and_saved import (
     init_siege_builder_ui as _sec_init_siege_builder_ui,
     init_wgb_builder_ui as _sec_init_wgb_builder_ui,
     init_rta_builder_ui as _sec_init_rta_builder_ui,
-    init_arena_rush_builder_ui as _sec_init_arena_rush_builder_ui,
     init_off_optimizer_builder_ui as _sec_init_off_optimizer_builder_ui,
 )
 from desktop_app.ui.main_window_sections.mode_actions import (
@@ -377,28 +375,6 @@ class MainWindow(QMainWindow):
         )
 
         # ── Arena Rush-Gruppe ─────────────────────────────────────
-        self.tab_arena_rush = QWidget()
-        self.tabs.addTab(self.tab_arena_rush, tr("tab.arena_rush_group"))
-        _ar_layout = QVBoxLayout(self.tab_arena_rush)
-        _ar_layout.setContentsMargins(0, 0, 0, 0)
-        _ar_layout.setSpacing(0)
-        self.arena_rush_inner_tabs = QTabWidget()
-        self.arena_rush_inner_tabs.setDocumentMode(True)
-        self._apply_inner_tab_style(self.arena_rush_inner_tabs)
-        _ar_layout.addWidget(self.arena_rush_inner_tabs)
-
-        self.tab_arena_rush_builder = QWidget()
-        self.arena_rush_inner_tabs.addTab(self.tab_arena_rush_builder, tr("tab.subtab_builder"))
-        self._init_arena_rush_builder_ui()
-
-        self.tab_saved_arena_rush = QWidget()
-        self.arena_rush_inner_tabs.addTab(self.tab_saved_arena_rush, tr("tab.subtab_saved"))
-        self._init_saved_arena_rush_tab()
-
-        self.arena_rush_inner_tabs.currentChanged.connect(
-            lambda _: self._on_tab_changed(self.tabs.currentIndex())
-        )
-
         # ── Runen & Artefakte (eigene innere Tabs) ────────────────
         self.tab_off_optimizer = QWidget()
         self.tabs.addTab(self.tab_off_optimizer, "Off-Optimierer")
@@ -635,9 +611,6 @@ class MainWindow(QMainWindow):
     def _init_saved_rta_tab(self):
         return _sec_init_saved_rta_tab(self)
 
-    def _init_saved_arena_rush_tab(self):
-        return _sec_init_saved_arena_rush_tab(self)
-
     def _init_saved_off_optimizer_tab(self):
         return _sec_init_saved_off_optimizer_tab(self)
 
@@ -682,9 +655,6 @@ class MainWindow(QMainWindow):
 
     def _init_rta_builder_ui(self):
         return _sec_init_rta_builder_ui(self)
-
-    def _init_arena_rush_builder_ui(self):
-        return _sec_init_arena_rush_builder_ui(self)
 
     def _init_off_optimizer_builder_ui(self):
         return _sec_init_off_optimizer_builder_ui(self)

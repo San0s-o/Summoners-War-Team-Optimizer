@@ -52,10 +52,8 @@ def apply_saved_account(window, account, source_label: str) -> None:
         "saved_siege": True,
         "saved_wgb": True,
         "saved_rta": True,
-        "saved_arena_rush": True,
         "saved_off_optimizer": True,
     }
-    window._arena_rush_state_restore_pending = True
     window._off_optimizer_state_restore_pending = True
 
     window.lbl_status.setText(tr("main.import_label", source=source_label))
@@ -81,16 +79,6 @@ def apply_saved_account(window, account, source_label: str) -> None:
     window.btn_edit_presets_rta.setEnabled(True)
     window.btn_optimize_rta.setEnabled(True)
 
-    if hasattr(window, "btn_take_current_arena_def"):
-        window.btn_take_current_arena_def.setEnabled(True)
-    if hasattr(window, "btn_take_arena_decks"):
-        window.btn_take_arena_decks.setEnabled(True)
-    if hasattr(window, "btn_validate_arena_rush"):
-        window.btn_validate_arena_rush.setEnabled(True)
-    if hasattr(window, "btn_edit_presets_arena_rush"):
-        window.btn_edit_presets_arena_rush.setEnabled(True)
-    if hasattr(window, "btn_optimize_arena_rush"):
-        window.btn_optimize_arena_rush.setEnabled(True)
     if hasattr(window, "btn_validate_off_optimizer"):
         window.btn_validate_off_optimizer.setEnabled(True)
     if hasattr(window, "btn_edit_presets_off_optimizer"):
@@ -100,8 +88,6 @@ def apply_saved_account(window, account, source_label: str) -> None:
 
     window.lbl_siege_validate.setText(tr("status.siege_ready"))
     window.lbl_wgb_validate.setText(tr("status.wgb_ready"))
-    if hasattr(window, "lbl_arena_rush_validate"):
-        window.lbl_arena_rush_validate.setText(tr("status.arena_rush_ready"))
     if hasattr(window, "lbl_off_optimizer_validate"):
         window.lbl_off_optimizer_validate.setText("Bereit. Monster wählen -> Builds -> Optimieren.")
 
@@ -290,8 +276,6 @@ def _unit_combo_tab_key(window, tab: QWidget | None) -> str:
         return "wgb"
     if tab is window.tab_rta_builder:
         return "rta"
-    if tab is getattr(window, "tab_arena_rush_builder", None):
-        return "arena_rush"
     if tab is getattr(window, "tab_off_optimizer_builder", None):
         return "off_optimizer"
     return ""
@@ -310,7 +294,6 @@ def tab_needs_unit_dropdowns(window, tab: QWidget | None) -> bool:
         window.tab_siege_builder,
         window.tab_wgb_builder,
         window.tab_rta_builder,
-        getattr(window, "tab_arena_rush_builder", None),
         getattr(window, "tab_off_optimizer_builder", None),
     )
 
@@ -321,7 +304,6 @@ def _resolve_active_inner_tab(window, outer_tab) -> QWidget:
         ("tab_siege", "siege_inner_tabs"),
         ("tab_wgb", "wgb_inner_tabs"),
         ("tab_rta", "rta_inner_tabs"),
-        ("tab_arena_rush", "arena_rush_inner_tabs"),
         ("tab_off_optimizer", "off_optimizer_inner_tabs"),
         ("tab_rune_optimization", "rune_art_inner_tabs"),
     ]:
@@ -361,20 +343,9 @@ def on_tab_changed(window, index: int) -> None:
     elif tab is window.tab_saved_rta and bool(window._lazy_view_dirty.get("saved_rta", False)):
         window._on_saved_opt_changed("rta")
         window._lazy_view_dirty["saved_rta"] = False
-    elif tab is window.tab_saved_arena_rush and bool(window._lazy_view_dirty.get("saved_arena_rush", False)):
-        window._on_saved_opt_changed("arena_rush")
-        window._lazy_view_dirty["saved_arena_rush"] = False
     elif tab is getattr(window, "tab_saved_off_optimizer", None) and bool(window._lazy_view_dirty.get("saved_off_optimizer", False)):
         window._on_saved_opt_changed("off_optimizer")
         window._lazy_view_dirty["saved_off_optimizer"] = False
-    if tab is getattr(window, "tab_arena_rush_builder", None) and bool(getattr(window, "_arena_rush_state_restore_pending", False)):
-        try:
-            from desktop_app.ui.main_window_sections.arena_rush_actions import restore_arena_rush_ui_state
-            restore_arena_rush_ui_state(window)
-        except Exception:
-            pass
-        finally:
-            window._arena_rush_state_restore_pending = False
     if tab is getattr(window, "tab_off_optimizer_builder", None) and bool(getattr(window, "_off_optimizer_state_restore_pending", False)):
         try:
             from desktop_app.ui.main_window_sections.off_optimizer_actions import restore_state

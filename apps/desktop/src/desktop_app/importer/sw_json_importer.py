@@ -313,7 +313,7 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                         prefix_eff=tuple(r.get("prefix_eff") or [0, 0]),
                         sec_eff=[tuple(x) for x in (r.get("sec_eff") or [])],
                         occupied_type=_safe_int(r.get("occupied_type")),
-                        occupied_id=_safe_int(r.get("occupied_id")),
+                        occupied_id=_safe_int(r.get("occupied_id")) or int(unit_id),
                         origin_class=_parse_rune_origin_class(r),
                     )
                     acc.runes.append(rune)
@@ -581,6 +581,26 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
         arena_deck_teams.append(unit_ids)
     acc.arena_deck_teams = arena_deck_teams
 
+    def _add_mode_runes(target: Dict[int, List[int]], unit_id: int, rune_ids: List[Any]) -> None:
+        uid = _safe_int(unit_id)
+        if uid <= 0:
+            return
+        out = target.setdefault(int(uid), [])
+        for raw_rid in rune_ids or []:
+            rid = _safe_int(raw_rid)
+            if rid > 0 and rid not in out:
+                out.append(int(rid))
+
+    def _add_mode_artifacts(target: Dict[int, List[int]], unit_id: int, artifact_ids: List[Any]) -> None:
+        uid = _safe_int(unit_id)
+        if uid <= 0:
+            return
+        out = target.setdefault(int(uid), [])
+        for raw_aid in artifact_ids or []:
+            aid = _safe_int(raw_aid)
+            if aid > 0 and aid not in out:
+                out.append(int(aid))
+
     # ── mode-specific rune equipment ──────────────────────────
     # Guild/Siege: equip_info_list[*].rune_equip_list + artifact_equip_list
     for equip_info in (data.get("equip_info_list") or []):
@@ -615,6 +635,36 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                 level=0,
                 original_rank=0,
             )
+
+    # Guild/Siege: newer exports store defense deck equipment by deck id.
+    for deck in (data.get("guildsiege_defense_deck_equip_list") or {}).values():
+        if not isinstance(deck, dict):
+            continue
+        for entry in (deck.get("equip") or []):
+            if not isinstance(entry, dict):
+                continue
+            uid = _safe_int(entry.get("unit_id"))
+            _add_mode_runes(acc.guild_rune_equip, uid, list(entry.get("rune_id_list") or []))
+            _add_mode_artifacts(acc.guild_artifact_equip, uid, list(entry.get("artifact_id_list") or []))
+
+    # Classic Arena: deck_type=1 deck presets can carry their own equip snapshots.
+    # If a unit appears in multiple Arena decks, keep the first imported set for
+    # the simple per-unit arena equipment view.
+    for deck in (data.get("deck_list") or []):
+        if not isinstance(deck, dict):
+            continue
+        if _safe_int(deck.get("deck_type")) != 1:
+            continue
+        for entry in (deck.get("equip") or []):
+            if not isinstance(entry, dict):
+                continue
+            uid = _safe_int(entry.get("unit_id"))
+            if uid <= 0:
+                continue
+            if uid not in acc.arena_rune_equip:
+                _add_mode_runes(acc.arena_rune_equip, uid, list(entry.get("rune_id_list") or []))
+            if uid not in acc.arena_artifact_equip:
+                _add_mode_artifacts(acc.arena_artifact_equip, uid, list(entry.get("artifact_id_list") or []))
 
     # RTA: world_arena_rune_equip_list
     for entry in (data.get("world_arena_rune_equip_list") or []):

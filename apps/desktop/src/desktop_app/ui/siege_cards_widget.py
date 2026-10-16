@@ -1193,6 +1193,14 @@ class SiegeDefCardsWidget(QWidget):
                 art_type = int(art.type_ or 0)
                 if art_type in (1, 2) and art_type not in result:
                     result[art_type] = art
+        elif mode == "arena":
+            for aid in (getattr(account, "arena_artifact_equip", {}).get(int(unit_id), []) or []):
+                art = by_id.get(int(aid))
+                if not art:
+                    continue
+                art_type = int(art.type_ or 0)
+                if art_type in (1, 2) and art_type not in result:
+                    result[art_type] = art
         elif mode == "rta":
             for aid in (account.rta_artifact_equip.get(int(unit_id), []) or []):
                 art = by_id.get(int(aid))
